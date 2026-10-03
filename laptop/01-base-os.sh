@@ -35,7 +35,8 @@ sudo_run "${APT[@]}" full-upgrade
 if [[ $SKIP_NVIDIA == 0 ]]; then
   log "Step 3: NVIDIA 550 driver for the GTX 1070 (Pascal)"
   sudo_run "${APT[@]}" install pciutils
-  { lspci 2>/dev/null | grep -qi 'nvidia'; } || fail_or_warn "no NVIDIA GPU found by lspci (use --skip-nvidia if that is intended)"
+  pci=$(lspci 2>/dev/null || true)
+  grep -qi 'nvidia' <<<"$pci" || fail_or_warn "no NVIDIA GPU found by lspci (use --skip-nvidia if that is intended)"
 
   # Guard rails from the guide: newer drivers drop Pascal and the GPU vanishes at the next reboot.
   if dpkg-query -W -f='${Status}' nvidia-open-kernel-dkms 2>/dev/null | grep -q 'install ok installed'; then
@@ -54,7 +55,8 @@ if [[ $SKIP_NVIDIA == 0 ]]; then
     nvidia-persistenced firmware-misc-nonfree
   sudo_run systemctl enable nvidia-persistenced
 
-  if command -v mokutil >/dev/null 2>&1 && mokutil --sb-state 2>/dev/null | grep -qi 'enabled'; then
+  sb=$(mokutil --sb-state 2>/dev/null || true)
+  if grep -qi 'enabled' <<<"$sb"; then
     warn "Secure Boot is ON. Enrol the DKMS key: sudo mokutil --import /var/lib/dkms/mok.pub, reboot, accept it on the blue MOK screen."
   fi
 fi
@@ -72,7 +74,8 @@ sudo_run systemctl start systemd-zram-setup@zram0.service
 sudo_run "${APT[@]}" install unattended-upgrades
 
 if [[ $DRY_RUN != 1 ]]; then
-  if swapon --show | grep -q zram0; then ok "zram swap active"; else warn "no /dev/zram0 in swapon --show yet (a reboot will bring it up)"; fi
+  swaps=$(swapon --show || true)
+  if grep -q zram0 <<<"$swaps"; then ok "zram swap active"; else warn "no /dev/zram0 in swapon --show yet (a reboot will bring it up)"; fi
   if [[ $SKIP_NVIDIA == 0 ]] && ! nvidia-smi >/dev/null 2>&1; then
     warn "nvidia-smi does not work yet - this is normal before the first reboot."
     NEED_REBOOT=1

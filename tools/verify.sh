@@ -52,7 +52,8 @@ if agent_exec 'hermes -p local doctor' >/dev/null 2>&1; then res pass 4 "local p
 
 st=$(curl -fsS -m 5 "http://127.0.0.1:$DASHBOARD_PORT/api/status" 2>/dev/null || true)
 if [[ -n $st ]]; then res pass 5 "dashboard answers on 127.0.0.1:$DASHBOARD_PORT"; else res fail 5 "dashboard answers on 127.0.0.1:$DASHBOARD_PORT"; fi
-if agent_exec 'hermes gateway status' 2>&1 | grep -qi running; then res pass 5 "gateway running"; else res fail 5 "gateway running"; fi
+gw=$(agent_exec 'hermes gateway status' 2>&1 || true)
+if grep -qi running <<<"$gw"; then res pass 5 "gateway running"; else res fail 5 "gateway running"; fi
 binds=$(ss -tln 2>/dev/null | awk -v p=":$DASHBOARD_PORT" '$4 ~ p"$" {print $4}')
 if [[ -n $binds ]] && ! grep -qvE '^127\.0\.0\.1:' <<<"$binds"; then res pass 6 "dashboard listens on loopback only ($binds)"; else res fail 6 "dashboard listens on loopback only" "${binds:-not listening}"; fi
 res manual 6 "http://$LAPTOP_IP:$DASHBOARD_PORT from a phone must NOT load"
@@ -103,7 +104,8 @@ is_eq "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" yes 17 "NTP s
 
 echo "== Ready to come back after a reboot (check 18 itself needs a real reboot)"
 check 18 "llama-server is enabled at boot" "${SUDO[@]}" systemctl is-enabled llama-server
-if loginctl show-user "$AGENT_USER" -p Linger 2>/dev/null | grep -q 'Linger=yes'; then res pass 18 "linger is on for $AGENT_USER"; else res fail 18 "linger is on for $AGENT_USER"; fi
+linger=$(loginctl show-user "$AGENT_USER" -p Linger 2>/dev/null || true)
+if [[ $linger == 'Linger=yes' ]]; then res pass 18 "linger is on for $AGENT_USER"; else res fail 18 "linger is on for $AGENT_USER"; fi
 if agent_exec 'systemctl --user is-enabled hermes-dashboard' >/dev/null 2>&1; then res pass 18 "dashboard unit is enabled"; else res fail 18 "dashboard unit is enabled"; fi
 check 18 "ufw is enabled" "${SUDO[@]}" systemctl is-enabled ufw
 res manual 18 "reboot the laptop, do NOT log in as $AGENT_USER, then repeat checks 5, 11 and 16"

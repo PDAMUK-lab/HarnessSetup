@@ -36,7 +36,8 @@ publish_shared
 
 if [[ $DRY_RUN != 1 ]]; then
   if sudo -u "$AGENT_USER" sudo -n true; then ok "ROOT-OK: $AGENT_USER has passwordless sudo"; else die "sudo -n failed for $AGENT_USER"; fi
-  if loginctl show-user "$AGENT_USER" -p Linger | grep -q 'Linger=yes'; then ok "Linger=yes"; else die "linger is not enabled"; fi
+  linger=$(loginctl show-user "$AGENT_USER" -p Linger || true)
+  if [[ $linger == 'Linger=yes' ]]; then ok "Linger=yes"; else die "linger is not enabled"; fi
 fi
 stage_end
 cat <<MSG
