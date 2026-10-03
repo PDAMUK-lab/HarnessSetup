@@ -11,6 +11,7 @@
     - registers the 'llama-server' scheduled task (starts at logon, no 72-hour time limit)
     - starts it and runs the tool-call smoke test
   The API key is printed once at the end: you paste it into the laptop's stage 11.
+  Settings and options (sleep, replace an existing build, start now) are asked for when not given.
 .EXAMPLE
   .\Install-Llama.ps1
   .\Install-Llama.ps1 -DryRun           # show what would happen, change nothing
@@ -25,22 +26,34 @@ param(
     [switch]$NeverSleepOnAC,
     [switch]$NoStart,
     [switch]$ShowKey,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$Yes
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Common.ps1"
 $script:HsDryRun = [bool]$DryRun
-if (-not $ConfigFile) { $ConfigFile = Get-DefaultConfigPath }
-$cfg = Read-NodeEnv $ConfigFile
-Assert-Config $cfg 'LAPTOP_IP', 'DESKTOP_IP', 'LLM_PORT', 'DESKTOP_MODEL_FILE', 'DESKTOP_MODEL_URL', 'DESKTOP_MODEL_ALIAS',
-    'DESKTOP_CTX', 'DESKTOP_N_CPU_MOE', 'DESKTOP_CACHE_RAM_MB', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR'
+$script:HsAssumeYes = [bool]$Yes
 Assert-Admin
+if (-not $ConfigFile) { $ConfigFile = Get-DefaultConfigPath }
+$need = 'LAPTOP_IP', 'DESKTOP_IP', 'LLM_PORT', 'DESKTOP_QUANT', 'DESKTOP_MODEL_FILE', 'DESKTOP_MODEL_URL', 'DESKTOP_MODEL_ALIAS',
+    'DESKTOP_CTX', 'DESKTOP_N_CPU_MOE', 'DESKTOP_CACHE_RAM_MB', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR'
+$cfg = Initialize-NodeConfig -Path $ConfigFile -Need $need
+Assert-Config $cfg $need
 
 $llama = $cfg['DESKTOP_LLAMA_DIR']
 $models = $cfg['DESKTOP_MODELS_DIR']
 $keyFile = "$llama\api-key.txt"
 $startCmd = "$llama\start-llama.cmd"
 $base = "http://$($cfg['DESKTOP_IP']):$($cfg['LLM_PORT'])"
+
+# options not given on the command line are asked
+if ((Test-Path "$llama\llama-server.exe") -and -not $PSBoundParameters.ContainsKey('UpdateLlama')) {
+    $UpdateLlama = Read-YesNo -Question 'llama-server.exe is already installed. Replace it with the newest build?' -Default $false
+}
+$NeverSleepOnAC = Resolve-Option -Bound $PSBoundParameters -Name NeverSleepOnAC -Current ([bool]$NeverSleepOnAC) -Default $false `
+    -Question 'Make Windows never sleep while on mains power? (keeps the desktop model available; otherwise Hermes falls back to the laptop whenever the desktop sleeps)'
+if ($PSBoundParameters.ContainsKey('NoStart')) { $startNow = -not $NoStart }
+else { $startNow = Read-YesNo -Question 'Start the server when it is installed, and run the tool-call smoke test?' -Default $true }
 
 if ($ShowKey) {
     if (-not (Test-Path $keyFile)) { throw "No key yet: $keyFile" }
@@ -136,7 +149,7 @@ if ($NeverSleepOnAC) {
     Write-Host '    set Windows sleep to Never on mains power (or re-run with -NeverSleepOnAC).'
 }
 
-if (-not $NoStart) {
+if ($startNow) {
     Write-Step 'Step 20: start the server and run the tool-call smoke test'
     Invoke-Action "start the 'llama-server' task and wait for $base/health" {
         Stop-ScheduledTask -TaskName 'llama-server' -ErrorAction SilentlyContinue

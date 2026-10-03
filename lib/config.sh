@@ -383,7 +383,11 @@ cfg_value_ok() {
 cfg_take_default() {
   local k=$1
   [[ -z ${CFG_VAL[$k]+x} ]] || return 0
-  if [[ ${2:-} == noauto && ${CFG_DEFAULT[$k]} == auto:* ]]; then return 0; fi
+  if [[ ${CFG_DEFAULT[$k]} == auto:* ]]; then
+    # a detected default is only adopted for settings this wizard owns, and never silently when asked not to
+    [[ ${2:-} == noauto ]] && return 0
+    cfg_in_scope "$k" || return 0
+  fi
   cfg_default "$k"
   [[ -n $CFG_DEF ]] || return 0
   if cfg_validate "${CFG_TYPE[$k]}" "$CFG_DEF"; then CFG_VAL[$k]=$CFG_NORM; fi

@@ -2,6 +2,7 @@
 # PowerShell checks: parse every script, unit-test the helpers, run each installer with -DryRun.
 # Needs PowerShell 7 (pwsh); skipped if it is not installed (STRICT=1 makes that a failure).
 exec </dev/null
+exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PWSH=${PWSH:-$(command -v pwsh || true)}
@@ -26,6 +27,15 @@ sleep 1
 FAKE_TOOL_PORT=$port FAKE_PROSE_PORT=$((port + 1)) FAKE_KEY_PORT=$((port + 2)) \
   ps -File "$ROOT/tests/powershell/Test-Common.ps1" -Root "$ROOT" -Tmp "$T"
 check "helper unit tests" test $? -eq 0
+
+# ---- settings engine (shared validator cases, wizard, import, byte-for-byte parity with the bash writer)
+export PATH="$ROOT/tests/fakebin:$PATH"
+NODE_ENV="$T/parity.env" "$ROOT/setup.sh" configure --defaults --set GITHUB_ORG=acme --set 'GITHUB_REPOS=api web' --set LAPTOP_IP=10.1.2.3 --set DESKTOP_QUANT=UD-Q4_K_XL >/dev/null 2>&1
+HS_PARITY_FILE="$T/parity.env" ps -File "$ROOT/tests/powershell/Test-Settings.ps1" -Root "$ROOT" -Tmp "$T"
+check "settings engine tests" test $? -eq 0
+# a file the PowerShell wizard wrote loads in bash with the same meaning
+ps -File "$ROOT/desktop/windows/Configure.ps1" -ConfigFile "$T/ps-written.env" -Defaults -Set 'LAPTOP_IP=10.0.0.20,DESKTOP_IP=10.0.0.30,DESKTOP_QUANT=UD-Q4_K_XL' >/dev/null 2>&1
+check "bash loads the PowerShell-written file" bash -c "NODE_ENV='$T/ps-written.env'; source '$ROOT/lib/common.sh'; load_config; [[ \$LAPTOP_IP == 10.0.0.20 && \$DESKTOP_MODEL_FILE == Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf && \$SSH_ALLOWED_FROM == 10.0.0.30 ]]"
 
 # ---- dry runs of the three installers
 cfg_with() { sed -E "$@" "$ROOT/config/node.env.example" >"$T/node.env"; }
@@ -79,6 +89,42 @@ mkdir -p "$T/profile/.ssh" && echo "ssh-ed25519 AAAA test" >"$T/profile/.ssh/id_
 run_ps Setup-LaptopAccess.ps1 -DryRun -NoTunnelFile
 check "Setup-LaptopAccess: reuses an existing key" has "using the existing key"
 check "Setup-LaptopAccess: -NoTunnelFile skips the shortcut" bash -c "! grep -q 'hermes-tunnel.cmd' <<<\"\$0\"" "$OUT"
+
+# ---- no settings yet: the installers ask by themselves (scripted answers stand in for the user)
+rm -f "$T/fresh.env"
+printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 james 2 n n '' y n >"$T/psans1"   # skip the import offer, wizard (ip x3, admin, quant=Q4, overnight n, advanced n, save), then: never-sleep y, start now n
+export HS_INPUT="$T/psans1"
+OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Install-Llama.ps1" -ConfigFile "$T/fresh.env" -DryRun 2>&1); RC=$?
+unset HS_INPUT
+check "no settings: Install-Llama asks, saves and carries on (exit 0)" test $RC -eq 0
+check "no settings: ...the answers were saved" bash -c "grep -q '^LAPTOP_IP=10.0.0.20' '$T/fresh.env' && grep -q '^DESKTOP_QUANT=UD-Q4_K_XL' '$T/fresh.env'"
+check "no settings: ...the Q4 choice reaches the download" has "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+check "no settings: ...the firewall rule uses the laptop address that was typed" has "from 10.0.0.20"
+check "no settings: ...the sleep question was answered yes" has "never sleep on mains power"
+check "no settings: ...the start question was answered no" bash -c "! grep -q 'start the .llama-server. task' <<<\"\$0\"" "$OUT"
+rm -f "$T/fresh2.env"
+printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 james '' n n '' n >"$T/psans2"   # skip import, wizard, then: tunnel shortcut n
+export HS_INPUT="$T/psans2"
+OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Setup-LaptopAccess.ps1" -ConfigFile "$T/fresh2.env" -DryRun 2>&1); RC=$?
+unset HS_INPUT
+check "no settings: Setup-LaptopAccess asks first (exit 0)" test $RC -eq 0
+check "no settings: ...installs the key for the admin user that was typed" has "james@10.0.0.20"
+check "no settings: ...declining the shortcut writes none" bash -c "! grep -q 'write .*hermes-tunnel.cmd' <<<\"\$0\"" "$OUT"
+cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=0|'
+printf '%s\n' y 03:00 06:00 n >"$T/psans3"   # turn the tier on, start, end, then: update active hours n
+export HS_INPUT="$T/psans3"
+OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Install-Overnight.ps1" -ConfigFile "$T/node.env" -DryRun 2>&1); RC=$?
+unset HS_INPUT
+check "overnight off in the settings: offers to turn it on (exit 0)" test $RC -eq 0
+check "overnight: ...uses the times that were typed" has "tasks llama-night at 03:00 and llama-day at 06:00"
+check "overnight: ...and saved the switch" grep -q '^NIGHT_ENABLED=1' "$T/node.env"
+cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=0|'
+run_ps Install-Overnight.ps1 -DryRun
+check "overnight off, no terminal: refuses and never flips the setting" bash -c "[[ $RC -ne 0 ]] && grep -q '^NIGHT_ENABLED=0' '$T/node.env'"
+rm -f "$T/none.env"
+run_ps Configure.ps1 -Print
+OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Install-Llama.ps1" -ConfigFile "$T/none.env" -DryRun 2>&1); RC=$?
+check "no settings and no terminal: refuses and names Configure.ps1" bash -c "[[ $RC -ne 0 ]] && grep -q 'Configure.ps1' <<<\"\$0\"" "$OUT"
 
 echo "powershell: $pass passed, $failn failed"
 [[ $failn -eq 0 ]]

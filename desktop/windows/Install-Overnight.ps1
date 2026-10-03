@@ -17,20 +17,31 @@ param(
     [string]$ConfigFile,
     [switch]$SkipModelDownload,
     [switch]$SetUpdateActiveHours,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$Yes
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Common.ps1"
 $script:HsDryRun = [bool]$DryRun
+$script:HsAssumeYes = [bool]$Yes
+Assert-Admin
 if (-not $ConfigFile) { $ConfigFile = Get-DefaultConfigPath }
-$cfg = Read-NodeEnv $ConfigFile
-if ($cfg['NIGHT_ENABLED'] -ne '1') { throw 'Set NIGHT_ENABLED=1 in config\node.env to use the overnight tier.' }
+$cfg = Initialize-NodeConfig -Path $ConfigFile
+if ($cfg['NIGHT_ENABLED'] -ne '1') {
+    # never flip a setting without a person saying yes
+    if (-not (Test-Interactive) -or -not (Read-YesNo -Question 'The overnight tier is switched off in your settings. Turn it on now?' -Default $true)) {
+        throw 'The overnight tier is off (NIGHT_ENABLED=0). Run .\Configure.ps1 -Only NIGHT_ENABLED to turn it on.'
+    }
+    Invoke-ConfigWizard -Path $ConfigFile -Scope desktop -Defaults -Set 'NIGHT_ENABLED=1'
+    if (Test-Interactive) { Invoke-ConfigWizard -Path $ConfigFile -Scope desktop -Only 'NIGHT_START', 'NIGHT_END' }
+}
+$cfg = Initialize-NodeConfig -Path $ConfigFile -Need 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR', 'NIGHT_MODEL_FILE', 'NIGHT_MODEL_URL',
+    'NIGHT_MODEL_ALIAS', 'NIGHT_NGL', 'NIGHT_START', 'NIGHT_END', 'LLM_PORT', 'DESKTOP_IP'
 Assert-Config $cfg 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR', 'NIGHT_MODEL_FILE', 'NIGHT_MODEL_URL', 'NIGHT_MODEL_ALIAS',
     'NIGHT_NGL', 'NIGHT_START', 'NIGHT_END'
 foreach ($t in 'NIGHT_START', 'NIGHT_END') {
     if ($cfg[$t] -notmatch '^([01]?\d|2[0-3]):[0-5]\d$') { throw "$t must look like 01:00 (got '$($cfg[$t])')" }
 }
-Assert-Admin
 $llama = $cfg['DESKTOP_LLAMA_DIR']
 $models = $cfg['DESKTOP_MODELS_DIR']
 if (-not $script:HsDryRun -and -not (Test-Path "$llama\start-llama.cmd")) { throw "Run Install-Llama.ps1 first ($llama\start-llama.cmd is missing)." }
@@ -61,6 +72,8 @@ Invoke-Action 'powercfg: wake timers on (mains)' {
     & powercfg.exe /setactive SCHEME_CURRENT
 }
 
+$SetUpdateActiveHours = Resolve-Option -Bound $PSBoundParameters -Name SetUpdateActiveHours -Current ([bool]$SetUpdateActiveHours) -Default $false `
+    -Question "Set Windows Update active hours to cover $($cfg['NIGHT_START'])-$($cfg['NIGHT_END']) so it does not restart mid-job?"
 if ($SetUpdateActiveHours) {
     Invoke-Action 'Windows Update active hours cover the night window' {
         $key = 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings'

@@ -5,24 +5,32 @@
   1. Creates an ed25519 key if you have none (ssh-keygen asks for a passphrase; choose one).
   2. Installs the public key on the laptop (you type the laptop password ONCE, here).
   3. Proves a key-only login works. Only then is it safe to run ./setup.sh run 02 on the laptop.
-  4. Writes hermes-tunnel.cmd to your Desktop (pin it to the taskbar).
+  4. Offers to write hermes-tunnel.cmd to your Desktop (pin it to the taskbar).
+  Settings (laptop address, admin account ...) are asked for when config\node.env does not have them yet.
 .EXAMPLE
   .\Setup-LaptopAccess.ps1
   .\Setup-LaptopAccess.ps1 -DryRun
+  .\Setup-LaptopAccess.ps1 -TunnelFile -Yes     # no questions: write the shortcut
 #>
 [CmdletBinding()]
 param(
     [string]$ConfigFile,
     [switch]$NoTunnelFile,
+    [switch]$TunnelFile,
     [string]$TunnelDir,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$Yes
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Common.ps1"
 $script:HsDryRun = [bool]$DryRun
+$script:HsAssumeYes = [bool]$Yes
 if (-not $ConfigFile) { $ConfigFile = Get-DefaultConfigPath }
-$cfg = Read-NodeEnv $ConfigFile
+$cfg = Initialize-NodeConfig -Path $ConfigFile -Need 'LAPTOP_IP', 'ADMIN_USER', 'DASHBOARD_PORT'
 Assert-Config $cfg 'LAPTOP_IP', 'ADMIN_USER', 'DASHBOARD_PORT'
+if ($NoTunnelFile) { $makeTunnel = $false }
+elseif ($TunnelFile) { $makeTunnel = $true }
+else { $makeTunnel = Read-YesNo -Question 'Create the hermes-tunnel.cmd shortcut on your Desktop? (opens the dashboard at http://localhost:9119)' -Default $true }
 $target = "$($cfg['ADMIN_USER'])@$($cfg['LAPTOP_IP'])"
 
 $sshDir = Join-Path $env:USERPROFILE '.ssh'
@@ -57,7 +65,7 @@ Invoke-Action "ssh -o BatchMode=yes -o PasswordAuthentication=no $target" {
     Write-Ok 'key-only login works'
 }
 
-if (-not $NoTunnelFile) {
+if ($makeTunnel) {
     if (-not $TunnelDir) { $TunnelDir = [Environment]::GetFolderPath('Desktop') }
     $tunnel = "$TunnelDir\hermes-tunnel.cmd"
     Write-Step 'Step 15: dashboard tunnel shortcut'

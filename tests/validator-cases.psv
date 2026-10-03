@@ -1,0 +1,63 @@
+# type|value|expect(ok|bad)|normalised(optional; <empty> = must normalise to empty)|why
+# Shared by tests/test-config.sh (bash) and tests/powershell/Test-Settings.ps1 so both validators agree.
+ip|192.168.1.150|ok||ip: valid
+ip|192.168.1.256|bad||ip: 256 octet
+ip|192.168.1|bad||ip: too few octets
+ip|192.168.01.5|bad||ip: leading zero
+ip|1.2.3.4;rm|bad||ip: injection attempt
+cidr|192.168.1.150/24|ok|192.168.1.0/24|cidr: normalised to the network
+cidr|10.1.2.3/16|ok|10.1.0.0/16|cidr: /16
+cidr|192.168.1.0/32|bad||cidr: prefix too long
+cidr|192.168.1.0|bad||cidr: no prefix
+port|9119|ok||port: ok
+port|0|bad||port: zero
+port|65536|bad||port: too big
+port|80a|bad||port: junk
+int:1-10|3|ok|3|int range: ok
+int:1-10|0|bad||int range: below
+int:1-10|11|bad||int range: above
+int:1-10|007|ok|7|int range: leading zero normalised
+bool01|Yes|ok|1|bool: yes
+bool01|0|ok|0|bool: 0
+bool01|maybe|bad||bool: maybe
+unixuser|ai-node|ok||unixuser: ok
+unixuser|AiNode|bad||unixuser: upper case
+unixuser|root|bad||unixuser: root refused
+ghname|acme-corp|ok||ghname: ok
+ghname|-acme|bad||ghname: leading hyphen
+ghname|ac--me|bad||ghname: double hyphen
+ghname|acme/api|bad||ghname: slash
+repos|  api   web |ok|api web|repos: list normalised
+repos|acme/api|bad||repos: owner/name refused
+repos||bad||repos: empty
+noreply|42+acme-hermes@users.noreply.github.com|ok||noreply: with id
+noreply|acme-hermes@users.noreply.github.com|ok||noreply: without id
+noreply|me@gmail.com|bad||noreply: other domain
+model|vendor/model-3.5|ok||model: ok
+model|vendor/model:free|ok||model: with :free tag
+model|justaname|bad||model: no vendor
+model||bad||model: empty
+optmodel||ok|<empty>|optmodel: empty ok
+optmodel|-|ok|<empty>|optmodel: dash clears
+optmodel|nonsense|bad||optmodel: junk
+gguf|Qwen3.5-9B-UD-Q5_K_XL.gguf|ok||gguf: ok
+gguf|model.bin|bad||gguf: wrong extension
+url|https://huggingface.co/a/b/resolve/main/x.gguf|ok||url: https ok
+url|http://example.com/x|bad||url: http refused
+url|https://x.com/a b|bad||url: space refused
+time|1:00|ok|01:00|time: pads the hour
+time|23:59|ok|23:59|time: ok
+time|24:00|bad||time: 24h refused
+time|01:60|bad||time: minutes
+winpath|C:\llama|ok||winpath: ok
+winpath|D:\models\|ok|D:\models|winpath: trailing slash stripped
+winpath|C:\my models|bad||winpath: spaces refused
+winpath|/srv/models|bad||winpath: unix path refused
+alias|qwen3.5-9b|ok||alias: ok
+choice:a,b,c|b|ok||choice: ok
+choice:a,b,c|d|bad||choice: other
+ghname|yourorg|bad||placeholder: yourorg refused
+text|a'b|bad||quote injection refused
+text|a$(id)|bad||dollar injection refused
+text|a`id`|bad||backtick refused
+alias|a\b|bad||backslash refused outside winpath

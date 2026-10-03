@@ -18,6 +18,7 @@ for a in "$@"; do
 done
 load_config
 stage_begin
+require_vars ROUTER_IP LAN_CIDR SSH_ALLOWED_FROM
 need_cmd ufw
 
 # ---- lock-out guards

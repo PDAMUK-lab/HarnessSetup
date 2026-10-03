@@ -6,11 +6,14 @@
   .\Check-Desktop.ps1 -ToolCall      # also run the (slow) tool-call smoke test
 #>
 [CmdletBinding()]
-param([string]$ConfigFile, [switch]$ToolCall)
+param([string]$ConfigFile, [switch]$ToolCall, [switch]$Yes)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Common.ps1"
+$script:HsAssumeYes = [bool]$Yes
 if (-not $ConfigFile) { $ConfigFile = Get-DefaultConfigPath }
-$cfg = Read-NodeEnv $ConfigFile
+$cfg = Initialize-NodeConfig -Path $ConfigFile -Need 'LAPTOP_IP', 'DESKTOP_IP', 'LLM_PORT', 'DESKTOP_MODEL_FILE', 'DESKTOP_MODEL_ALIAS', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR'
+$ToolCall = Resolve-Option -Bound $PSBoundParameters -Name ToolCall -Current ([bool]$ToolCall) -Default $false `
+    -Question 'Also run the tool-call smoke test? (slow: it makes the model think)'
 $llama = $cfg['DESKTOP_LLAMA_DIR']
 $models = $cfg['DESKTOP_MODELS_DIR']
 $script:fails = 0

@@ -56,73 +56,20 @@ ex_ok() {
 check "example values are valid and match the schema defaults" ex_ok
 
 # =============================== validators
-v() { # v TYPE VALUE EXPECT(ok|bad) [NORM]
+v() { # v TYPE VALUE EXPECT(ok|bad) [NORM|<empty>]   (empty NORM = not checked)
   local type=$1 val=$2 want=$3 norm=${4-}
   if cfg_validate "$type" "$val" >/dev/null 2>&1; then got=ok; else got=bad; fi
   [[ $got == "$want" ]] || { echo "  $type '$val': wanted $want got $got ($CFG_ERR)"; return 1; }
-  [[ -z $norm || $CFG_NORM == "$norm" ]] || { echo "  $type '$val': normalised to '$CFG_NORM', wanted '$norm'"; return 1; }
+  if [[ -n $norm ]]; then
+    [[ $norm == '<empty>' ]] && norm=''
+    [[ $CFG_NORM == "$norm" ]] || { echo "  $type '$val': normalised to '$CFG_NORM', wanted '$norm'"; return 1; }
+  fi
 }
-check "ip: valid"                 v ip 192.168.1.150 ok
-check "ip: 256 octet"             v ip 192.168.1.256 bad
-check "ip: too few octets"        v ip 192.168.1 bad
-check "ip: leading zero"          v ip 192.168.01.5 bad
-check "ip: injection attempt"     v ip '1.2.3.4;rm' bad
-check "cidr: normalised to the network" v cidr 192.168.1.150/24 ok 192.168.1.0/24
-check "cidr: /16"                 v cidr 10.1.2.3/16 ok 10.1.0.0/16
-check "cidr: prefix too long"     v cidr 192.168.1.0/32 bad
-check "cidr: no prefix"           v cidr 192.168.1.0 bad
-check "port: ok"                  v port 9119 ok
-check "port: zero"                v port 0 bad
-check "port: too big"             v port 65536 bad
-check "port: junk"                v port 80a bad
-check "int range: ok"             v int:1-10 3 ok 3
-check "int range: below"          v int:1-10 0 bad
-check "int range: above"          v int:1-10 11 bad
-check "int range: leading zero normalised" v int:1-10 007 ok 7
-check "bool: yes"                 v bool01 Yes ok 1
-check "bool: 0"                   v bool01 0 ok 0
-check "bool: maybe"               v bool01 maybe bad
-check "unixuser: ok"              v unixuser ai-node ok
-check "unixuser: upper case"      v unixuser AiNode bad
-check "unixuser: root refused"    v unixuser root bad
-check "ghname: ok"                v ghname acme-corp ok
-check "ghname: leading hyphen"    v ghname -acme bad
-check "ghname: double hyphen"     v ghname ac--me bad
-check "ghname: slash"             v ghname acme/api bad
-check "repos: list normalised"    v repos '  api   web ' ok 'api web'
-check "repos: owner/name refused" v repos acme/api bad
-check "repos: empty"              v repos '' bad
-check "noreply: with id"          v noreply 42+acme-hermes@users.noreply.github.com ok
-check "noreply: without id"       v noreply acme-hermes@users.noreply.github.com ok
-check "noreply: other domain"     v noreply me@gmail.com bad
-check "model: ok"                 v model vendor/model-3.5 ok
-check "model: with :free tag"     v model vendor/model:free ok
-check "model: no vendor"          v model justaname bad
-check "model: empty"              v model '' bad
-check "optmodel: empty ok"        v optmodel '' ok ''
-check "optmodel: dash clears"     v optmodel - ok ''
-check "optmodel: junk"            v optmodel nonsense bad
-check "gguf: ok"                  v gguf Qwen3.5-9B-UD-Q5_K_XL.gguf ok
-check "gguf: wrong extension"     v gguf model.bin bad
-check "url: https ok"             v url https://huggingface.co/a/b/resolve/main/x.gguf ok
-check "url: http refused"         v url http://example.com/x bad
-check "url: space refused"        v url 'https://x.com/a b' bad
-check "time: pads the hour"       v time 1:00 ok 01:00
-check "time: ok"                  v time 23:59 ok 23:59
-check "time: 24h refused"         v time 24:00 bad
-check "time: minutes"             v time 01:60 bad
-check "winpath: ok"               v winpath 'C:\llama' ok
-check "winpath: trailing slash stripped" v winpath $'D:\\models\\' ok 'D:\models'
-check "winpath: spaces refused"   v winpath 'C:\my models' bad
-check "winpath: unix path refused" v winpath /srv/models bad
-check "alias: ok"                 v alias qwen3.5-9b ok
-check "choice: ok"                v choice:a,b,c b ok
-check "choice: other"             v choice:a,b,c d bad
-check "placeholder: yourorg refused" v ghname yourorg bad
-check "quote injection refused"   v text "a'b" bad
-check "dollar injection refused"  v text 'a$(id)' bad
-check "backtick refused"          v text 'a`id`' bad
-check "backslash refused outside winpath" v alias 'a\b' bad
+while IFS='|' read -r vt vv vw vn vwhy; do
+  case $vt in '#'* | '') continue ;; esac
+  check "validate $vt '$vv': $vwhy" v "$vt" "$vv" "$vw" "$vn"
+done <"$ROOT/tests/validator-cases.psv"
+
 check "cfg_net /24"               test "$(cfg_net 192.168.1.150/24)" = 192.168.1.0/24
 check "cfg_net /20"               test "$(cfg_net 172.16.37.9/20)" = 172.16.32.0/20
 
