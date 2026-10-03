@@ -2,6 +2,7 @@
 # TITLE: Build tools, Node.js 22, GitHub CLI
 # RUN-AS: admin
 # GUIDE: Step 7
+# NEEDS: AGENT_USER
 # Options: --docker (also install Docker and add the agent user to the docker group)
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

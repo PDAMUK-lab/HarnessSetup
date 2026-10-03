@@ -1,0 +1,70 @@
+# Every setting HarnessSetup asks for. One line per setting, fields separated by '|':
+#
+#   KEY | SCOPE | LEVEL | TYPE | DEFAULT | WHEN | PROMPT | HELP
+#
+#   SCOPE   both | laptop | desktop     which machine's wizard asks for it
+#   LEVEL   basic | advanced            advanced ones are asked only on request (--advanced)
+#   TYPE    ip cidr port int:MIN-MAX bool01 unixuser ghname repos noreply model optmodel gguf url time
+#           winpath alias choice:a,b,c      (validated before anything is written)
+#   DEFAULT literal text, `auto:detector=fallback`, or text with {OTHER_KEY} (derived from that setting)
+#   WHEN    empty, or KEY=VALUE: only ask when that setting has that value
+#   PROMPT  one short line (no '|')      HELP  explanation shown above the prompt (may contain '|')
+#
+# `#> Title` starts a group. Order matters: a setting must come after the ones its DEFAULT refers to.
+# Read by lib/config.sh (bash) and desktop/windows/Common.ps1 (PowerShell): keep it plain text.
+
+#> Machines and network
+LAPTOP_IP|both|basic|ip|auto:laptop_ip=192.168.1.150||Laptop IP address|The laptop's address on your LAN. Give it a DHCP reservation on the router so it never changes (guide Step 1).
+DESKTOP_IP|both|basic|ip|auto:desktop_ip=192.168.1.100||Desktop IP address|The Windows desktop's address (also reserved on the router). The desktop serves the stronger local model.
+ROUTER_IP|both|basic|ip|auto:router_ip=192.168.1.1||Router / DNS address|Your router. Once the firewall is on, the laptop may ask DNS only of this address (guide Step 28).
+LAN_CIDR|laptop|basic|cidr|auto:lan_cidr=192.168.1.0/24||LAN network (CIDR)|Your home network, for example 192.168.1.0/24. The firewall stops the laptop reaching everything else on it.
+ADMIN_USER|both|basic|unixuser|auto:admin_user=ai-node||Laptop admin account|The account you created in the Debian installer on the laptop (it has sudo). SSH from the desktop uses it.
+AGENT_USER|laptop|advanced|unixuser|hermes||Agent account name|The dedicated account the agent runs as. It gets passwordless sudo (guide Step 6).
+SSH_ALLOWED_FROM|laptop|advanced|ip|{DESKTOP_IP}||SSH allowed only from|Once the firewall is on, only this address may SSH into the laptop. Normally the desktop.
+DASHBOARD_PORT|both|advanced|port|9119||Dashboard port|Port of the Hermes dashboard. It is used on BOTH ends of the SSH tunnel, because the dashboard rejects other Host headers.
+LLM_PORT|both|advanced|port|8080||Model server port|Port the llama.cpp servers listen on (laptop: loopback only; desktop: LAN, reachable from the laptop only).
+
+#> GitHub (guide Step 8)
+GITHUB_ORG|laptop|basic|ghname|||GitHub organisation or user|The GitHub account that owns the repos the agent will work on.
+GITHUB_REPOS|laptop|basic|repos|||Repositories (space-separated)|Repo names only, e.g. "api web". The agent clones them all; scheduled jobs use the first one.
+GITHUB_MACHINE_USER|laptop|basic|ghname|{GITHUB_ORG}-hermes||Machine account username|The separate GitHub account that owns the fine-grained token (so you can review and approve the agent's PRs). It needs Write access to the repos.
+GITHUB_NOREPLY_EMAIL|laptop|basic|noreply|||Machine account noreply email|Machine account > Settings > Emails, shaped like 12345678+yourorg-hermes@users.noreply.github.com. Commits use it.
+
+#> OpenRouter models (guide Steps 10, 11, 21)
+OR_WORKER_MODEL|laptop|basic|model|||Worker model (OpenRouter ID)|Strong mid-tier agentic coder for the subagents, which write most of the code. Pick the exact ID from the live list in 'hermes model' (names change often).
+OR_REVIEW_MODEL|laptop|basic|model|||Reviewer model (OpenRouter ID)|A frontier model from a DIFFERENT family than your planner, so it does not share the planner's blind spots.
+OR_COMPRESSION_MODEL|laptop|basic|model|||Summariser model (OpenRouter ID)|A capable mid-tier model that compresses long sessions. A weak summariser loses detail.
+OR_FALLBACK_MODEL|laptop|basic|model|||Fallback model (OpenRouter ID)|Used when the planner fails. Pick one from a different upstream company than the planner.
+CRON_MODEL|laptop|advanced|optmodel|||Cheaper model for scheduled jobs|Optional. Runs unpinned cron jobs on a cheaper model without changing your chat model. Enter - for none.
+REASONING_EFFORT|laptop|advanced|choice:low,medium,high,xhigh,max|high||Planner reasoning effort|High costs more tokens but thinks harder. Lower it (medium) if cost or latency outgrows the gain.
+MAX_CONCURRENT_CHILDREN|laptop|advanced|int:1-10|3||Parallel subagents|3 keeps spend predictable; Hermes' own default is 10.
+MAX_ITERATIONS|laptop|advanced|int:10-1000|200||Max iterations per subagent|Upper bound on a subagent's tool-call loop.
+
+#> Laptop model: Qwen3.5-9B on the GTX 1070 (guide Step 18)
+LAPTOP_QUANT|laptop|basic|choice:UD-Q5_K_XL,UD-Q4_K_XL|UD-Q5_K_XL||Laptop model quantization|UD-Q5_K_XL is the guide's pick (6.7GB, higher quality). Choose UD-Q4_K_XL (6.0GB) if Q5 runs out of VRAM.
+LAPTOP_MODEL_ALIAS|laptop|advanced|alias|qwen3.5-9b||Laptop model name|The name the server reports and Hermes uses.
+LAPTOP_MODEL_FILE|laptop|advanced|gguf|Qwen3.5-9B-{LAPTOP_QUANT}.gguf||Laptop model file|File name in /srv/models. Derived from the quantization unless you override it.
+LAPTOP_MODEL_URL|laptop|advanced|url|https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-{LAPTOP_QUANT}.gguf||Laptop model download URL|Check the exact file name on the Hugging Face repo's Files tab if it 404s.
+LAPTOP_CTX|laptop|advanced|int:65536-1048576|131072||Laptop context size (tokens)|Hermes needs at least 65536 (64K); Qwen advises 131072 (128K) to keep reasoning intact.
+LAPTOP_KV_IN_RAM|laptop|advanced|bool01|1||Keep the laptop context cache in RAM|Yes keeps the 8GB of VRAM for the weights (the guide's layout). Say no only if the Step 18 benchmark favours it.
+LAPTOP_CACHE_RAM_MB|laptop|advanced|int:256-8192|2048||Laptop prompt cache (MB of RAM)|Keeps recent prompts warm. The llama.cpp default of 8GB is too much for 16GB of RAM.
+
+#> Desktop model: Qwen3.6-35B-A3B on the RX 6600 XT (guide Step 19)
+DESKTOP_QUANT|both|basic|choice:UD-Q5_K_XL,UD-Q4_K_XL|UD-Q5_K_XL||Desktop model quantization|UD-Q5_K_XL (26.6GB) protects tool calling. Choose UD-Q4_K_XL (22.4GB) if Windows memory runs above about 90% while generating.
+DESKTOP_MODEL_ALIAS|both|advanced|alias|qwen3.6-35b-a3b||Desktop model name|The name the desktop server reports and Hermes uses.
+DESKTOP_MODEL_FILE|both|advanced|gguf|Qwen3.6-35B-A3B-{DESKTOP_QUANT}.gguf||Desktop model file|Derived from the quantization unless you override it.
+DESKTOP_MODEL_URL|both|advanced|url|https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-{DESKTOP_QUANT}.gguf||Desktop model download URL|Check the exact file name on the Hugging Face repo's Files tab if it 404s.
+DESKTOP_CTX|both|advanced|int:65536-1048576|131072||Desktop context size (tokens)|Same rule as the laptop: at least 65536, 131072 advised.
+DESKTOP_N_CPU_MOE|desktop|advanced|int:0-64|40||Expert layers kept in RAM (--n-cpu-moe)|40 keeps all experts in RAM (safe start). Lower it until dedicated GPU memory sits near 7.3GB; each layer moved back adds about 0.6GB at Q5.
+DESKTOP_CACHE_RAM_MB|desktop|advanced|int:256-8192|1024||Desktop prompt cache (MB of RAM)|Keeps recent prompts warm in RAM.
+DESKTOP_LLAMA_DIR|desktop|advanced|winpath|C:\llama||Desktop llama.cpp folder|Where the Vulkan build and start scripts live.
+DESKTOP_MODELS_DIR|desktop|advanced|winpath|C:\models||Desktop models folder|Where the GGUF files are stored (the 35B needs about 27GB, the 27B about 17GB).
+
+#> Overnight quality tier: Qwen3.8-27B (guide Step 31, optional)
+NIGHT_ENABLED|both|basic|bool01|0||Set up the overnight Qwen3.8-27B tier|Optional. The desktop swaps to the dense 27B between two times, for unattended jobs only. It is too slow for interactive use.
+NIGHT_START|both|basic|time|01:00|NIGHT_ENABLED=1|Overnight tier starts at (HH:MM)|When the 27B takes over. The desktop is woken from sleep for it.
+NIGHT_END|both|basic|time|07:00|NIGHT_ENABLED=1|Overnight tier ends at (HH:MM)|When the normal model returns. Overnight jobs must finish before this.
+NIGHT_MODEL_ALIAS|both|advanced|alias|qwen3.8-27b|NIGHT_ENABLED=1|Overnight model name|The name the 27B server reports and Hermes uses.
+NIGHT_MODEL_FILE|desktop|advanced|gguf|Qwen3.8-27B-UD-Q4_K_XL.gguf|NIGHT_ENABLED=1|Overnight model file|File name in the desktop models folder.
+NIGHT_MODEL_URL|desktop|advanced|url|https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_XL.gguf|NIGHT_ENABLED=1|Overnight model download URL|Check the exact file name on the Hugging Face repo's Files tab if it 404s.
+NIGHT_NGL|desktop|advanced|int:0-99|24|NIGHT_ENABLED=1|GPU layers for the 27B (-ngl)|Raise until dedicated GPU memory sits near 7.3GB, or use llama-fit-params.

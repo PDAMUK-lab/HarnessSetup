@@ -2,6 +2,7 @@
 # TITLE: Prove the fallback chain with the internet off
 # RUN-AS: admin
 # GUIDE: Step 29
+# NEEDS: GITHUB_REPOS
 # Cuts outbound 443 for a few minutes. A trap ALWAYS restores the firewall and resumes the schedules,
 # even if you press Ctrl-C or a step fails.
 # Options: --skip-sleep (do not ask you to put the desktop to sleep: tests desktop and local profile only)

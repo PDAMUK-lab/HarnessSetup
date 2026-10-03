@@ -5,6 +5,7 @@
 #   ./setup.sh next [opts]           run the first stage that has not completed
 #   ./setup.sh run <id> [opts]       run one stage, e.g. ./setup.sh run 01
 #   ./setup.sh tool <name> [opts]    run a helper from tools/, e.g. verify
+#   ./setup.sh configure [opts]      ask for your settings (addresses, accounts, models) and save them
 #   ./setup.sh check                 validate config/node.env
 #
 # Options passed after the stage: --dry-run (print, change nothing), --yes (no prompts),
@@ -14,10 +15,44 @@ HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/common.sh
 source "$HS_ROOT/lib/common.sh"
 
-AGENT_USER=${AGENT_USER:-hermes}
-[[ -f ${NODE_ENV:-$HS_ROOT/config/node.env} ]] && AGENT_USER=$(
-  # shellcheck disable=SC1090
-  source "${NODE_ENV:-$HS_ROOT/config/node.env}" && printf '%s' "${AGENT_USER:-hermes}")
+# --yes and --dry-run change how we ask, so read them before anything is asked
+for a in "$@"; do
+  case $a in
+    --yes | -y) ASSUME_YES=1 ;;
+    --dry-run) DRY_RUN=1 ;;
+  esac
+done
+
+load_agent_user() {
+  AGENT_USER=hermes
+  if [[ -f ${NODE_ENV:-$HS_ROOT/config/node.env} ]]; then
+    AGENT_USER=$(
+      # shellcheck disable=SC1090
+      source "${NODE_ENV:-$HS_ROOT/config/node.env}" && printf '%s' "${AGENT_USER:-hermes}")
+  fi
+}
+load_agent_user
+
+# need_settings KEYS  - make sure the settings file exists and KEYS are valid, asking the user for
+# whatever is missing. KEYS comes from a script's "# NEEDS:" header; "-" means only that the file
+# exists; empty means the script needs no settings at all.
+need_settings() {
+  local keys=$1 file=${NODE_ENV:-$HS_ROOT/config/node.env}
+  [[ -n $keys ]] || return 0
+  if [[ ! -f $file ]]; then
+    if is_interactive; then
+      log "no settings yet: let's create $file (about two minutes; nothing secret is asked)"
+      configure_main
+    else
+      die "no settings yet ($file). Run ./setup.sh configure to be asked for them, or ./setup.sh configure --defaults --set KEY=VALUE ... for a scripted setup."
+    fi
+  fi
+  if [[ $keys != - ]]; then
+    # shellcheck disable=SC2086
+    cfg_ensure $keys
+  fi
+  load_agent_user
+}
 
 meta() { sed -n "s/^# $2: *//p" "$1" | head -1; }
 
@@ -78,6 +113,7 @@ cmd=${1:-help}
 case $cmd in
   list | status) cmd_list ;;
   check)
+    need_settings -
     load_config
     for v in OR_WORKER_MODEL OR_REVIEW_MODEL OR_COMPRESSION_MODEL OR_FALLBACK_MODEL; do
       [[ -n ${!v:-} ]] || warn "$v is empty (needed from stage 07 on)"
@@ -87,13 +123,16 @@ case $cmd in
   run)
     [[ $# -ge 1 ]] || die "usage: ./setup.sh run <id> [options]"
     id=$1; shift
-    run_script "$(find_script stage "$id")" "$@"
+    script=$(find_script stage "$id")
+    need_settings "$(meta "$script" NEEDS)"
+    run_script "$script" "$@"
     ;;
   next)
     for f in $(stages); do
       id=$(basename "$f" | cut -d- -f1)
       if ! is_done "$id" "$(meta "$f" RUN-AS)"; then
         log "next stage: $id"
+        need_settings "$(meta "$f" NEEDS)"
         run_script "$f" "$@"
         exit 0
       fi
@@ -103,8 +142,11 @@ case $cmd in
   tool)
     [[ $# -ge 1 ]] || die "usage: ./setup.sh tool <name> [options]"
     name=$1; shift
-    run_script "$(find_script tool "$name")" "$@"
+    script=$(find_script tool "$name")
+    need_settings "$(meta "$script" NEEDS)"
+    run_script "$script" "$@"
     ;;
-  help | -h | --help) sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  configure | config) configure_main "$@" ;;
+  help | -h | --help) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$cmd' (try ./setup.sh help)" ;;
 esac

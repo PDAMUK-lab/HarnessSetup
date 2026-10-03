@@ -2,6 +2,7 @@
 # TITLE: Key-only SSH (disable passwords and root login)
 # RUN-AS: admin
 # GUIDE: Step 5
+# NEEDS: ADMIN_USER LAPTOP_IP
 # Run this only AFTER you have logged in from the desktop with the key (Setup-LaptopAccess.ps1).
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

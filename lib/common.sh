@@ -86,11 +86,12 @@ require_vars() {
 
 load_config() {
   NODE_ENV_FILE=${NODE_ENV:-$HS_ROOT/config/node.env}
-  [[ -f $NODE_ENV_FILE ]] || die "missing $NODE_ENV_FILE - run: cp config/node.env.example config/node.env  (then edit it)"
+  [[ -f $NODE_ENV_FILE ]] || die "no settings yet ($NODE_ENV_FILE). Run: ./setup.sh configure   (it asks for them)"
   set -a
   # shellcheck disable=SC1090
   source "$NODE_ENV_FILE"
   set +a
+  cfg_apply_defaults
   require_vars LAPTOP_IP DESKTOP_IP ROUTER_IP LAN_CIDR ADMIN_USER AGENT_USER SSH_ALLOWED_FROM \
     DASHBOARD_PORT LLM_PORT LAPTOP_MODEL_ALIAS LAPTOP_MODEL_FILE LAPTOP_MODEL_URL LAPTOP_CTX \
     DESKTOP_MODEL_ALIAS DESKTOP_CTX
@@ -100,7 +101,8 @@ load_config() {
   HERMES_BIN=$HERMES_BIN_DIR/hermes
   LAPTOP_NKVO_FLAG=''
   [[ ${LAPTOP_KV_IN_RAM:-1} == 1 ]] && LAPTOP_NKVO_FLAG='-nkvo'
-  CRON_REPO=${GITHUB_REPOS%% *}
+  CRON_REPO=${GITHUB_REPOS:-}
+  CRON_REPO=${CRON_REPO%% *}
   export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG CRON_REPO
 }
 
@@ -302,3 +304,6 @@ publish_shared() {
   tar -C "$HS_ROOT" --exclude=.git -cf - . | "${SUDO[@]}" tar -C "$HS_SHARED" --no-same-owner -xf -
   "${SUDO[@]}" chmod -R a+rX,go-w "$HS_SHARED"
 }
+
+# shellcheck source=lib/config.sh
+source "$HS_ROOT/lib/config.sh"

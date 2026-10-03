@@ -2,6 +2,7 @@
 # TITLE: Agent user with passwordless sudo
 # RUN-AS: admin
 # GUIDE: Step 6
+# NEEDS: AGENT_USER
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh

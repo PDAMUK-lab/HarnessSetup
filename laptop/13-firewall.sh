@@ -2,6 +2,7 @@
 # TITLE: Firewall and file permissions
 # RUN-AS: admin
 # GUIDE: Step 28
+# NEEDS: ROUTER_IP LAN_CIDR DESKTOP_IP SSH_ALLOWED_FROM LLM_PORT
 # Options: --force (apply even if this SSH session does not come from SSH_ALLOWED_FROM)
 # NOTE: the agent has root, so it can change these rules. They guard against mistakes, not against the agent.
 set -Eeuo pipefail

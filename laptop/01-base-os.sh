@@ -2,6 +2,7 @@
 # TITLE: Base OS: non-free sources, NVIDIA 550 driver, server behaviour
 # RUN-AS: admin
 # GUIDE: Steps 2-4
+# NEEDS: -
 # Options: --skip-nvidia (no NVIDIA card / already done)  --reboot (reboot at the end)
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

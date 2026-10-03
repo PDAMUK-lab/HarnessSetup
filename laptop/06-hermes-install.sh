@@ -2,6 +2,7 @@
 # TITLE: Install Hermes Agent
 # RUN-AS: hermes
 # GUIDE: Step 9
+# NEEDS: AGENT_USER
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh

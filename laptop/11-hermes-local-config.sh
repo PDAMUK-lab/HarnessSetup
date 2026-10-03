@@ -2,6 +2,7 @@
 # TITLE: Local endpoints, fallback chain, the `local` profile, hermes-mode
 # RUN-AS: hermes
 # GUIDE: Steps 21-23
+# NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT DESKTOP_MODEL_ALIAS
 # Needs the desktop API key printed by Install-Llama.ps1 (prompted, or set DESKTOP_LLM_KEY in the environment).
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

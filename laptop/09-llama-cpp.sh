@@ -2,6 +2,7 @@
 # TITLE: Build llama.cpp (CUDA 12.4 for the GTX 1070)
 # RUN-AS: admin
 # GUIDE: Step 17
+# NEEDS: -
 # Options: --vulkan (use Vulkan instead of CUDA, if the CUDA build fails)
 # Re-run this stage to update llama.cpp (git pull, rebuild, install); then restart the service.
 set -Eeuo pipefail

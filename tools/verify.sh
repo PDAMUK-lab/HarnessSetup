@@ -2,6 +2,7 @@
 # TITLE: Final checks (the guide's Step 33 table, automated where a machine can judge)
 # RUN-AS: admin
 # GUIDE: Step 33
+# NEEDS: LAPTOP_IP DESKTOP_IP
 # Options: --no-models (skip the two tool-call smoke tests, which can take a few minutes)
 # Prints PASS / FAIL / WARN / MANUAL per check. Exit status is 1 if anything FAILED.
 set -Euo pipefail

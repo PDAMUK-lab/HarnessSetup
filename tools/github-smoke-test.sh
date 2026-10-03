@@ -2,6 +2,7 @@
 # TITLE: Prove the GitHub guard rails (push branch ok, main/tag-delete/workflow rejected)
 # RUN-AS: hermes
 # GUIDE: Step 8 Verify
+# NEEDS: GITHUB_ORG GITHUB_REPOS
 # Run BEFORE adding .github/workflows/release.yml: it pushes a tag, which would trigger a release.
 # Options: --repo NAME (default: first repo in GITHUB_REPOS)
 set -Euo pipefail

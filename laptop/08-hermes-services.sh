@@ -2,6 +2,7 @@
 # TITLE: Gateway and dashboard as services
 # RUN-AS: hermes
 # GUIDE: Steps 13-14
+# NEEDS: DASHBOARD_PORT LAPTOP_IP
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh

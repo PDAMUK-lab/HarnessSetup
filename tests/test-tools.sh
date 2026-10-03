@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for tools/: verify, fallback-test, overnight-laptop, adopt-repo (sandboxed, stubbed externals).
-# shellcheck disable=SC2016  # backticks in the expected markdown are literal
+# shellcheck disable=SC2016,SC2031  # backticks in the expected markdown are literal; $! is read in the same shell
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d); trap 'kill ${srv1:-} ${srv2:-} 2>/dev/null; rm -rf "$T"' EXIT

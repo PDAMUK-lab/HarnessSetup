@@ -9,6 +9,8 @@ check() { local n=$1; shift; if "$@"; then pass=$((pass+1)); else failn=$((failn
 sed -E \
   -e 's|^OR_WORKER_MODEL=.*|OR_WORKER_MODEL=vendor-a/worker|' -e 's|^OR_REVIEW_MODEL=.*|OR_REVIEW_MODEL=vendor-b/reviewer|' \
   -e 's|^OR_COMPRESSION_MODEL=.*|OR_COMPRESSION_MODEL=vendor-a/mid|' -e 's|^OR_FALLBACK_MODEL=.*|OR_FALLBACK_MODEL=vendor-c/fallback|' \
+  -e 's|^GITHUB_ORG=.*|GITHUB_ORG=acme|' -e 's|^GITHUB_REPOS=.*|GITHUB_REPOS="app lib"|' \
+  -e 's|^GITHUB_MACHINE_USER=.*|GITHUB_MACHINE_USER=acme-bot|' -e 's|^GITHUB_NOREPLY_EMAIL=.*|GITHUB_NOREPLY_EMAIL=42+acme-bot@users.noreply.github.com|' \
   "$ROOT/config/node.env.example" >"$T/node.env"
 export NODE_ENV="$T/node.env" DESTDIR="$T/root" DRY_RUN_SHOW=0
 # stubs for sudo/ufw/hermes keep these dry runs independent of the machine they run on
@@ -27,7 +29,7 @@ check "list shows every stage" bash -c "[[ \$(grep -cE '^[0-9]{2} ' <<<'$OUT') -
 OUT=$("$ROOT/setup.sh" run 99 2>&1); RC=$?
 check "unknown stage is an error" test "$RC" -ne 0
 OUT=$(NODE_ENV="$T/missing.env" "$ROOT/setup.sh" run 01 --dry-run 2>&1); RC=$?
-check "missing node.env gives a helpful error" bash -c "[[ $RC -ne 0 ]] && grep -q 'cp config/node.env.example' <<<'$OUT'"
+check "missing settings without a terminal: refuses and points at configure" bash -c "[[ $RC -ne 0 ]] && grep -q './setup.sh configure' <<<'$OUT'"
 
 # ---- stage 01
 dry 01 --skip-nvidia

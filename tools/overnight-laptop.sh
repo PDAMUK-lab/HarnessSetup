@@ -2,6 +2,7 @@
 # TITLE: Overnight tier, laptop side (desktop-night endpoint, local gateway, first job)
 # RUN-AS: hermes
 # GUIDE: Step 31 (laptop half)
+# NEEDS: NIGHT_ENABLED
 # Needs NIGHT_ENABLED=1 in config/node.env. The desktop half is desktop/windows/Install-Overnight.ps1.
 # Options: --task "self-contained prompt"  create the job overnight-coverage (paused) with this prompt
 set -Eeuo pipefail
