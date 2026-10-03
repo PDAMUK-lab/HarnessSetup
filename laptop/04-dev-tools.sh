@@ -3,21 +3,23 @@
 # RUN-AS: admin
 # GUIDE: Step 7
 # NEEDS: AGENT_USER
-# Options: --docker (also install Docker and add the agent user to the docker group)
+# Options (asked when not given): --docker | --no-docker (Docker, and the agent user in the docker group)
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
 source "$HS_ROOT/lib/common.sh"
-DOCKER=0
+DOCKER=''
 for a in "$@"; do
   case $a in
     --docker) DOCKER=1 ;;
+    --no-docker) DOCKER=0 ;;
     *) common_flag "$a" || die "unknown option: $a" ;;
   esac
 done
 load_config
 stage_begin
 APT=(env DEBIAN_FRONTEND=noninteractive apt-get -y)
+ask_flag DOCKER "Install Docker? (only needed if your projects build or test in containers; the agent user joins the docker group)" n
 
 sudo_run "${APT[@]}" install git build-essential cmake curl ca-certificates jq pciutils \
   python3 python3-venv python3-pip python3-yaml libcurl4-openssl-dev ufw

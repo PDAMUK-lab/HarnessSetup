@@ -3,20 +3,22 @@
 # RUN-AS: admin
 # GUIDE: Step 33
 # NEEDS: LAPTOP_IP DESKTOP_IP
-# Options: --no-models (skip the two tool-call smoke tests, which can take a few minutes)
+# Options (asked when not given): --models | --no-models (the two tool-call smoke tests can take a few minutes)
 # Prints PASS / FAIL / WARN / MANUAL per check. Exit status is 1 if anything FAILED.
 set -Euo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
 source "$HS_ROOT/lib/common.sh"
-MODELS=1
+MODELS=''
 for a in "$@"; do
   case $a in
     --no-models) MODELS=0 ;;
+    --models) MODELS=1 ;;
     *) common_flag "$a" || die "unknown option: $a" ;;
   esac
 done
 load_config
+ask_flag MODELS "Run the tool-call smoke test on both models? (can take a few minutes)" y
 
 npass=0 nfail=0 nwarn=0 nmanual=0
 res() { # res pass|fail|warn|manual "check" ["detail"]

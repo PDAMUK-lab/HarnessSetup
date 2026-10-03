@@ -5,8 +5,9 @@
 #   tools/adopt-repo.sh PATH --install 'npm ci' --test 'npm test' --package 'npm pack' \
 #                       [--lint 'npm run lint'] [--version-file package.json] [--force] [--no-workflows]
 #
-# Works on any machine with bash (the desktop's Git Bash is fine). Existing files are never overwritten
-# unless you pass --force.
+# Anything you leave out is asked for, with a guess based on the project (package.json, pyproject.toml,
+# Cargo.toml, go.mod, Makefile). Works on any machine with bash (the desktop's Git Bash is fine).
+# Existing files are never overwritten unless you pass --force.
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
@@ -27,10 +28,31 @@ while (($#)); do
   esac
   shift
 done
-[[ -n $target ]] || die "usage: tools/adopt-repo.sh PATH --install CMD --test CMD --package CMD  (--help for more)"
+if [[ -z $target ]]; then
+  is_interactive || die "usage: tools/adopt-repo.sh PATH --install CMD --test CMD --package CMD  (--help for more)"
+  ask_text target "Path of the repository to adopt" "$PWD"
+fi
 [[ -d $target/.git ]] || die "$target is not a git repository"
-[[ -n $INSTALL_CMD && -n $TEST_CMD && -n $PACKAGE_CMD ]] || die "--install, --test and --package are required"
-: "${LINT_CMD:=none}" "${VERSION_FILE:=VERSION}"
+
+# a guess from the project type, offered as the default for each question
+d_install='' d_test='' d_lint='' d_package='' d_version=VERSION
+if [[ -f $target/package.json ]]; then
+  d_install='npm ci' d_test='npm test' d_lint='npm run lint' d_package='npm pack' d_version=package.json
+elif [[ -f $target/pyproject.toml || -f $target/setup.py ]]; then
+  d_install='pip install -e .[dev]' d_test='pytest -q' d_lint='ruff check .' d_package='python -m build' d_version=pyproject.toml
+elif [[ -f $target/Cargo.toml ]]; then
+  d_install='cargo fetch' d_test='cargo test' d_lint='cargo clippy' d_package='cargo build --release' d_version=Cargo.toml
+elif [[ -f $target/go.mod ]]; then
+  d_install='go mod download' d_test='go test ./...' d_lint='go vet ./...' d_package='go build ./...'
+elif [[ -f $target/Makefile ]]; then
+  d_install='make install' d_test='make test' d_package='make dist'
+fi
+ask_text INSTALL_CMD "Install command (CI and the agent run it first)" "$d_install"
+ask_text TEST_CMD "Test command (must pass before any push)" "$d_test"
+ask_text LINT_CMD "Lint command (or none)" "${d_lint:-none}"
+ask_text PACKAGE_CMD "Package command (what CI publishes into dist/)" "$d_package"
+ask_text VERSION_FILE "File that holds the version" "$d_version"
+[[ -n $INSTALL_CMD && -n $TEST_CMD && -n $PACKAGE_CMD ]] || die "an install, a test and a package command are required (--install, --test, --package)"
 export INSTALL_CMD TEST_CMD LINT_CMD PACKAGE_CMD VERSION_FILE
 # the commands are substituted literally; refuse text that would break the generated files
 for v in INSTALL_CMD TEST_CMD LINT_CMD PACKAGE_CMD; do

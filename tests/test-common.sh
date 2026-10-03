@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Unit tests for lib/common.sh
+exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 # shellcheck source=lib/common.sh

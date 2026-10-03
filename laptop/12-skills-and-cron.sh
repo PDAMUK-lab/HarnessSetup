@@ -3,16 +3,17 @@
 # RUN-AS: hermes
 # GUIDE: Steps 25, 27
 # NEEDS: GITHUB_ORG GITHUB_REPOS
-# Options: --active (create the release-watcher already running; default is paused until the
+# Options (asked when not given): --active | --paused  (the release-watcher should only run once the
 #          release workflow from Step 26 exists)
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
 source "$HS_ROOT/lib/common.sh"
-ACTIVE=0
+ACTIVE=''
 for a in "$@"; do
   case $a in
     --active) ACTIVE=1 ;;
+    --paused) ACTIVE=0 ;;
     *) common_flag "$a" || die "unknown option: $a" ;;
   esac
 done
@@ -20,6 +21,7 @@ load_config
 stage_begin
 use_hermes_path
 need_cmd hermes gh git
+ask_flag ACTIVE "Start the release watcher running now? (answer no until .github/workflows/release.yml is on main in your repos)" n
 
 log "Step 25: the /release skill, in both profiles"
 for dest in "$HOME/.hermes/skills/release" "$HOME/.hermes/profiles/local/skills/release"; do

@@ -2,6 +2,7 @@
 # Sandboxed REAL runs (not dry runs) of the hermes-user stages: HOME is a temp dir and the external
 # tools (hermes, gh, systemctl, ss, curl) are stubs from tests/fakebin that record their calls.
 # GitHub's rulesets are emulated by a pre-receive hook on a local bare repo.
+exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT

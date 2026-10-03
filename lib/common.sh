@@ -63,12 +63,11 @@ need_cmd() {
   done
 }
 
-confirm() { # confirm "Question?"  - default no
-  local ans
+confirm() { # confirm "Question?"  - default no; --yes answers yes
   if [[ $ASSUME_YES == 1 ]]; then return 0; fi
-  if [[ ! -r /dev/tty ]]; then die "need an answer to '$1' but there is no terminal; re-run with --yes"; fi
-  read -r -p "$1 [y/N] " ans </dev/tty
-  [[ $ans == [yY] || $ans == [yY][eE][sS] ]]
+  if [[ -z ${HS_INPUT:-} && ! -r /dev/tty ]]; then die "need an answer to '$1' but there is no terminal; re-run with --yes"; fi
+  read_answer "$1 [y/N] "
+  [[ ${ANSWER,,} == y || ${ANSWER,,} == yes ]]
 }
 
 # ---- settings ---------------------------------------------------------------

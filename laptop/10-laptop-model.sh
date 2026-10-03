@@ -3,15 +3,17 @@
 # RUN-AS: admin
 # GUIDE: Steps 18, 20
 # NEEDS: LAPTOP_QUANT LAPTOP_MODEL_FILE LAPTOP_MODEL_URL LAPTOP_MODEL_ALIAS LAPTOP_CTX LLM_PORT
-# Options: --bench (measure context cache in VRAM vs RAM first)  --no-start (install, don't start)
+# Options (asked when not given): --bench | --no-bench   --start | --no-start
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
 source "$HS_ROOT/lib/common.sh"
-BENCH=0 START=1
+BENCH='' START=''
 for a in "$@"; do
   case $a in
     --bench) BENCH=1 ;;
+    --no-bench) BENCH=0 ;;
+    --start) START=1 ;;
     --no-start) START=0 ;;
     *) common_flag "$a" || die "unknown option: $a" ;;
   esac
@@ -19,6 +21,8 @@ done
 load_config
 stage_begin
 [[ -x /opt/llama.cpp/bin/llama-server || $DRY_RUN == 1 ]] || die "llama-server is not installed - run stage 09 first"
+ask_flag BENCH "Benchmark first? (compares the context cache in VRAM vs RAM; takes a few minutes. With Q5 it usually only fits in RAM.)" n
+ask_flag START "Start the model service when it is installed?" y
 
 if id llm >/dev/null 2>&1; then ok "user llm exists"; else sudo_run adduser --system --group --home /srv/llm llm; fi
 sudo_run install -d -o llm -g llm /srv/models /srv/llm/slots

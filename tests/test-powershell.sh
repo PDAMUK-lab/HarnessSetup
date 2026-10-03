@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PowerShell checks: parse every script, unit-test the helpers, run each installer with -DryRun.
 # Needs PowerShell 7 (pwsh); skipped if it is not installed (STRICT=1 makes that a failure).
+exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PWSH=${PWSH:-$(command -v pwsh || true)}

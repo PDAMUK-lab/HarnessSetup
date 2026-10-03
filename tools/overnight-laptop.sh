@@ -4,7 +4,7 @@
 # GUIDE: Step 31 (laptop half)
 # NEEDS: NIGHT_ENABLED
 # Needs NIGHT_ENABLED=1 in config/node.env. The desktop half is desktop/windows/Install-Overnight.ps1.
-# Options: --task "self-contained prompt"  create the job overnight-coverage (paused) with this prompt
+# Options (asked when not given): --task "self-contained prompt"  create the job overnight-coverage (paused) with it
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
@@ -19,6 +19,7 @@ while (($#)); do
 done
 load_config
 stage_begin() { :; } # a tool, not a numbered stage
+ask_text TASK "Overnight task: a self-contained prompt that ends in a draft PR (leave empty to create no job yet)" ""
 use_hermes_path
 [[ ${NIGHT_ENABLED:-0} == 1 ]] || die "set NIGHT_ENABLED=1 in config/node.env to use the overnight tier"
 need_cmd hermes python3

@@ -3,16 +3,17 @@
 # RUN-AS: admin
 # GUIDE: Step 17
 # NEEDS: -
-# Options: --vulkan (use Vulkan instead of CUDA, if the CUDA build fails)
+# Options (asked when not given): --cuda | --vulkan (Vulkan is the fallback if the CUDA build fails)
 # Re-run this stage to update llama.cpp (git pull, rebuild, install); then restart the service.
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
 source "$HS_ROOT/lib/common.sh"
-VULKAN=0
+CUDA=''
 for a in "$@"; do
   case $a in
-    --vulkan) VULKAN=1 ;;
+    --vulkan) CUDA=0 ;;
+    --cuda) CUDA=1 ;;
     *) common_flag "$a" || die "unknown option: $a" ;;
   esac
 done
@@ -20,6 +21,8 @@ load_config
 stage_begin
 APT=(env DEBIAN_FRONTEND=noninteractive apt-get -y)
 src=$HOME/src/llama.cpp
+ask_flag CUDA "Build with CUDA 12.4? (recommended for the GTX 1070; say no to use Vulkan, e.g. if the CUDA build fails)" y
+VULKAN=$((1 - CUDA))
 
 if [[ $VULKAN == 1 ]]; then
   sudo_run "${APT[@]}" install libvulkan-dev glslc nvidia-vulkan-icd

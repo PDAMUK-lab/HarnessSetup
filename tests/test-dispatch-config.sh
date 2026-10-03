@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # The dispatcher asks for settings itself: a first-run wizard, and just-in-time prompts for what a stage needs.
+exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT

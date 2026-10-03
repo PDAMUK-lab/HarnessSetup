@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # End-user style dry runs: drive every stage through ./setup.sh with --dry-run and check what it would do.
+exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -39,7 +40,7 @@ check "01: ignores the lid switch" has "lid.conf"
 check "01: masks sleep targets" has "mask sleep.target suspend.target hibernate.target hybrid-sleep.target"
 check "01: sets up zram" has "systemd-zram-setup@zram0.service"
 check "01: --skip-nvidia installs no NVIDIA package" bash -c "! grep -q nvidia-driver <<<'$OUT'"
-dry 01
+dry 01 --nvidia
 check "01: installs the 550-series package set" has "nvidia-kernel-dkms nvidia-driver nvidia-smi"
 check "01: enables nvidia-persistenced" has "enable nvidia-persistenced"
 check "static: no script ever installs the Pascal-breaking NVIDIA packages" bash -c "! grep -rnE 'nvidia-open|cuda-drivers|nvidia-driver-5[6-9]|backports' '$ROOT/laptop' | grep -vE 'die |warn |fail_or_warn|dpkg-query|^[^:]+:[0-9]+:[[:space:]]*#'"

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Render every template with the example settings and validate the result.
+exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 # shellcheck source=lib/common.sh

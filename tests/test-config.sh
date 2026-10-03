@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Schema, validators and the interactive wizard (driven by scripted answers, like a user typing).
 # shellcheck disable=SC2016  # literal $ and backticks are the point of some tests
+exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 # shellcheck source=lib/common.sh

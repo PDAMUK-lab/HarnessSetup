@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Tests for lib/merge_yaml.py, including the exact cloud -> local profile transformation (Step 22).
+exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT

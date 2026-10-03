@@ -3,22 +3,28 @@
 # RUN-AS: admin
 # GUIDE: Steps 2-4
 # NEEDS: -
-# Options: --skip-nvidia (no NVIDIA card / already done)  --reboot (reboot at the end)
+# Options (asked when not given): --nvidia | --skip-nvidia   --reboot | --no-reboot
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
 source "$HS_ROOT/lib/common.sh"
-SKIP_NVIDIA=0 REBOOT=0
+INSTALL_NVIDIA='' REBOOT=''
 for a in "$@"; do
   case $a in
-    --skip-nvidia) SKIP_NVIDIA=1 ;;
+    --nvidia) INSTALL_NVIDIA=1 ;;
+    --skip-nvidia) INSTALL_NVIDIA=0 ;;
     --reboot) REBOOT=1 ;;
+    --no-reboot) REBOOT=0 ;;
     *) common_flag "$a" || die "unknown option: $a" ;;
   esac
 done
 load_config
 stage_begin
 APT=(env DEBIAN_FRONTEND=noninteractive apt-get -y)
+
+pci=$(lspci 2>/dev/null || true)
+if grep -qi 'nvidia' <<<"$pci"; then gpu_default=y; else gpu_default=n; fi
+ask_flag INSTALL_NVIDIA "Install the NVIDIA 550 driver for the GTX 1070? (Debian's own package; newer drivers drop Pascal. Say no on a machine without an NVIDIA card.)" "$gpu_default"
 
 # shellcheck disable=SC1091
 . /etc/os-release
@@ -33,7 +39,7 @@ fi
 sudo_run apt-get update
 sudo_run "${APT[@]}" full-upgrade
 
-if [[ $SKIP_NVIDIA == 0 ]]; then
+if [[ $INSTALL_NVIDIA == 1 ]]; then
   log "Step 3: NVIDIA 550 driver for the GTX 1070 (Pascal)"
   sudo_run "${APT[@]}" install pciutils
   pci=$(lspci 2>/dev/null || true)
@@ -77,7 +83,7 @@ sudo_run "${APT[@]}" install unattended-upgrades
 if [[ $DRY_RUN != 1 ]]; then
   swaps=$(swapon --show || true)
   if grep -q zram0 <<<"$swaps"; then ok "zram swap active"; else warn "no /dev/zram0 in swapon --show yet (a reboot will bring it up)"; fi
-  if [[ $SKIP_NVIDIA == 0 ]] && ! nvidia-smi >/dev/null 2>&1; then
+  if [[ $INSTALL_NVIDIA == 1 ]] && ! nvidia-smi >/dev/null 2>&1; then
     warn "nvidia-smi does not work yet - this is normal before the first reboot."
     NEED_REBOOT=1
   fi
@@ -87,6 +93,7 @@ stage_end
 echo
 echo "Next: $([[ ${NEED_REBOOT:-0} == 1 ]] && echo "reboot (sudo reboot), then check:  nvidia-smi  -> GeForce GTX 1070, 8192MiB, 550.x. If it fails: dkms status") "
 echo "Then set up key-only SSH from the desktop (desktop/windows/Setup-LaptopAccess.ps1), then:  ./setup.sh run 02"
-if [[ $REBOOT == 1 && $DRY_RUN != 1 ]]; then
-  confirm "Reboot now?" && sudo reboot
+if [[ $DRY_RUN != 1 ]]; then
+  ask_flag REBOOT "Reboot now? (the NVIDIA driver needs one reboot before nvidia-smi works)" n
+  if [[ $REBOOT == 1 ]]; then sudo reboot; fi
 fi

@@ -5,20 +5,22 @@
 # NEEDS: GITHUB_REPOS
 # Cuts outbound 443 for a few minutes. A trap ALWAYS restores the firewall and resumes the schedules,
 # even if you press Ctrl-C or a step fails.
-# Options: --skip-sleep (do not ask you to put the desktop to sleep: tests desktop and local profile only)
+# Options (asked when not given): --sleep | --skip-sleep (whether you will put the desktop to sleep for step 2)
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
 source "$HS_ROOT/lib/common.sh"
-SKIP_SLEEP=0
+DO_SLEEP=''
 for a in "$@"; do
   case $a in
-    --skip-sleep) SKIP_SLEEP=1 ;;
+    --skip-sleep) DO_SLEEP=0 ;;
+    --sleep) DO_SLEEP=1 ;;
     *) common_flag "$a" || die "unknown option: $a" ;;
   esac
 done
 load_config
 need_cmd ufw
+ask_flag DO_SLEEP "Will you put the desktop to sleep for step 2? (this proves the laptop takes over when the desktop is off)" y
 
 cut_done=0 paused=0
 cleanup() {
@@ -58,7 +60,7 @@ ask() { # ask "label" "expected alias" "command"
 }
 
 ask "1. desktop on: the default profile falls back to the desktop model" "$DESKTOP_MODEL_ALIAS" 'hermes chat -q "Which model are you? One line."'
-if [[ $SKIP_SLEEP == 0 ]]; then
+if [[ $DO_SLEEP == 1 ]]; then
   echo "Now put the desktop to sleep, wait about 20 seconds, then press Enter."
   [[ $ASSUME_YES == 1 || $DRY_RUN == 1 ]] || read -r -p "Ready? " _ </dev/tty
   ask "2. desktop asleep: falls back to the laptop model" "$LAPTOP_MODEL_ALIAS" 'hermes chat -q "Which model are you? One line."'
