@@ -129,7 +129,7 @@ check "Install-V100 -DryRun exits 0" test $RC -eq 0
 check "Install-V100: lists the cards it found" has "GPU 1: Tesla V100-SXM2-16GB"
 check "Install-V100: takes the CUDA 12 build, in its own folder" has "newest llama-*-bin-win-cuda-12.x-x64.zip"
 check "Install-V100: requires the CUDA devices to be listed" has "CUDA devices must be listed"
-check "Install-V100: downloads the 27B model" has "Qwen3.8-27B-UD-Q5_K_XL.gguf"
+check "Install-V100: downloads the 27B model (UD-Q4_K_XL is the default for two 16 GB cards)" has "Qwen3.8-27B-UD-Q4_K_XL.gguf"
 check "Install-V100: writes its own start script" has "write C:\\llama-cuda\\start-llama-v100.cmd"
 check "Install-V100: rewrites the Vulkan day script with the NVIDIA guard" has "write C:\\llama\\start-llama.cmd"
 check "Install-V100: checks the Vulkan server sees no NVIDIA card" has "no NVIDIA card"

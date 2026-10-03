@@ -167,35 +167,63 @@ Check 'Get-V100PowerLimit: not below the card minimum' { (Get-V100PowerLimit -Gp
 Check 'Get-V100PowerLimit: 0 leaves the stock limit' { $null -eq (Get-V100PowerLimit -Gpu $g[0] -Requested 0) }
 Check 'Get-V100PowerLimit: unknown limits (N/A) just pass the request through' { (Get-V100PowerLimit -Gpu $g[1] -Requested 220) -eq 220 }
 
-$fit27 = Get-V100Fit -FileBytes 17.2e9 -Context 131072 -ModelFile 'Qwen3.8-27B-UD-Q4_K_XL.gguf' -TotalMiB 32768 -Gpus 2
-Check 'Get-V100Fit: 27B Q4 fits two 16 GB cards with 128K context' { $fit27.Fits -and $fit27.KnownModel -and $fit27.KvGiB -ge 4.2 -and $fit27.KvGiB -le 4.3 -and $fit27.MarginGiB -gt 6 }
-Check 'Get-V100Fit: reports the memory in GiB (32768 MiB is 32 GiB)' { $fit27.TotalGiB -eq 32 }
-Check 'Get-V100Fit: ...but not one 16 GB card' { -not (Get-V100Fit -FileBytes 17.2e9 -Context 131072 -ModelFile 'Qwen3.8-27B-UD-Q4_K_XL.gguf' -TotalMiB 16384 -Gpus 1).Fits }
-Check 'Get-V100Fit: f16 context needs more than q8_0' { (Get-V100Fit -FileBytes 17.2e9 -Context 131072 -ModelFile 'Qwen3.8-27B-UD-Q4_K_XL.gguf' -TotalMiB 32768 -Gpus 2 -KvType f16).NeededGiB -gt $fit27.NeededGiB }
-Check 'Get-V100Fit: the 35B-A3B has a much smaller context cache' { (Get-V100Fit -FileBytes 22.4e9 -Context 131072 -ModelFile 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf' -TotalMiB 32768 -Gpus 2).KvGiB -lt 1.5 }
-Check 'Get-V100Fit: an unknown model is flagged and sized like the 27B' { $u = Get-V100Fit -FileBytes 10e9 -Context 65536 -ModelFile 'Some-Other.gguf' -TotalMiB 32768 -Gpus 2; (-not $u.KnownModel) -and $u.KvGiB -eq 2.1 }
+function Fit($Name, [double]$Bytes, [double]$CardMiB, [int]$Gpus, [string]$Kv, [bool]$Mtp) {
+    Get-V100Fit -FileBytes $Bytes -Context 131072 -ModelFile $Name -Gpus $Gpus -CardMiB $CardMiB -KvType $Kv -Mtp:$Mtp }
+$q4 = 'Qwen3.8-27B-UD-Q4_K_XL.gguf'; $q5 = 'Qwen3.8-27B-UD-Q5_K_XL.gguf'
+# the expected numbers are the fit table from the research (llama.cpp log arithmetic), to within rounding
+Check 'Get-V100Fit: 27B UD-Q4_K_XL fits two 16 GB cards with MTP, +1.1 GiB spare' { $f = Fit $q4 17559178144 16384 2 q8_0 $true; $f.Verdict -eq 'fit' -and [math]::Abs($f.SpareGiB - 1.1) -le 0.15 -and $f.KnownModel }
+Check 'Get-V100Fit: ...and +2.2 GiB without MTP (MTP costs about 1.1-1.3 GiB)' { [math]::Abs((Fit $q4 17559178144 16384 2 q8_0 $false).SpareGiB - 2.2) -le 0.15 }
+Check 'Get-V100Fit: UD-Q5_K_XL on two 16 GB cards is TIGHT with MTP and fits without' { (Fit $q5 20876938144 16384 2 q8_0 $true).Verdict -eq 'tight' -and (Fit $q5 20876938144 16384 2 q8_0 $false).Verdict -eq 'fit' }
+Check 'Get-V100Fit: one 32 GB card takes UD-Q5_K_XL (+4.8 GiB)' { [math]::Abs((Fit $q5 20876938144 32768 1 q8_0 $true).SpareGiB - 4.8) -le 0.15 }
+Check 'Get-V100Fit: one 16 GB card cannot hold the 27B' { (Fit $q4 17559178144 16384 1 q8_0 $true).Verdict -eq 'no' }
+Check 'Get-V100Fit: two 32 GB cards take UD-Q6_K_XL with room to spare' { $f = Fit 'Qwen3.8-27B-UD-Q6_K_XL.gguf' 25299061664 32768 2 q8_0 $true; $f.Verdict -eq 'fit' -and $f.SpareGiB -gt 12 }
+Check 'Get-V100Fit: the 35B-A3B UD-Q4_K_XL fits two 16 GB cards with an f16 cache (+1.7), UD-Q5_K_XL is tight' { (Fit 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf' 22360456160 16384 2 f16 $false).Verdict -eq 'fit' -and (Fit 'Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf' 26592508896 16384 2 f16 $false).Verdict -eq 'tight' }
+Check 'Get-V100Fit: the 35B-A3B has a much smaller context cache than the 27B' { (Fit 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf' 22360456160 32768 2 q8_0 $false).KvGiB -lt 1.5 -and (Fit $q4 17559178144 32768 2 q8_0 $false).KvGiB -gt 4 }
+Check 'Get-V100Fit: free memory below the total shrinks the budget' { (Get-V100Fit -FileBytes 17559178144 -Context 131072 -ModelFile $q4 -Gpus 2 -CardMiB 16384 -FreeMiB 12288 -KvType q8_0).BudgetGiB -eq 11 }
+Check 'Get-V100Fit: an unknown model is flagged and sized like the 27B' { $u = Get-V100Fit -FileBytes 10e9 -Context 65536 -ModelFile 'Some-Other.gguf' -Gpus 2 -CardMiB 16384 -KvType q8_0; (-not $u.KnownModel) -and $u.KvGiB -eq 2.12 }
+Check 'Get-V100Family' { (Get-V100Family 'Qwen3.8-27B-x.gguf') -eq '27B' -and (Get-V100Family 'Qwen3.6-27B-x.gguf') -eq '27B' -and (Get-V100Family 'Qwen3.6-35B-A3B-x.gguf') -eq '35B' -and (Get-V100Family 'x.gguf') -eq '' }
+Check 'Get-V100KvType: matched q8_0 for the 27B, f16 for the 35B-A3B and for tensor split' { (Get-V100KvType $q4) -eq 'q8_0' -and (Get-V100KvType 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf') -eq 'f16' -and (Get-V100KvType $q4 -SplitMode tensor) -eq 'f16' }
+Check 'Get-V100QuantAdvice: the research table per VRAM class' { (Get-V100QuantAdvice -Count 2 -VramGB 16) -eq 'UD-Q4_K_XL' -and (Get-V100QuantAdvice -Count 1 -VramGB 32) -eq 'UD-Q5_K_XL' -and (Get-V100QuantAdvice -Count 2 -VramGB 32) -eq 'UD-Q6_K_XL' -and (Get-V100QuantAdvice -Count 1 -VramGB 16) -eq '' }
+
+# Test-GgufMtp: a name cut by the 4 MB read boundary must still be found
+$mtpFile = Join-Path $Tmp 'mtp.gguf'; $plainFile = Join-Path $Tmp 'plain.gguf'; $edgeFile = Join-Path $Tmp 'edge.gguf'
+[System.IO.File]::WriteAllBytes($mtpFile, ([byte[]](71, 71, 85, 70)) + ([System.Text.Encoding]::ASCII.GetBytes('....blk.64.nextn.eh_proj.weight....')))
+[System.IO.File]::WriteAllBytes($plainFile, ([byte[]](71, 71, 85, 70)) + ([System.Text.Encoding]::ASCII.GetBytes('....blk.39.ffn_down.weight....')))
+$pad = New-Object byte[] (4MB - 3); [System.IO.File]::WriteAllBytes($edgeFile, $pad + [System.Text.Encoding]::ASCII.GetBytes('.nextn.x'))
+Check 'Test-GgufMtp: finds the MTP tensors' { Test-GgufMtp $mtpFile }
+Check 'Test-GgufMtp: a plain model has none' { -not (Test-GgufMtp $plainFile) }
+Check 'Test-GgufMtp: finds a name cut by the read boundary' { Test-GgufMtp $edgeFile }
+Check 'Test-GgufMtp: a missing file is not MTP' { -not (Test-GgufMtp (Join-Path $Tmp 'nope.gguf')) }
 
 $cfgV = [ordered]@{} + $cfg
-$cfgV['V100_ENABLED'] = '1'; $cfgV['V100_COUNT'] = '2'; $cfgV['V100_CUDA_DIR'] = 'C:\llama-cuda'; $cfgV['V100_MODEL_FILE'] = 'Qwen3.8-27B-UD-Q5_K_XL.gguf'; $cfgV['V100_MODEL_ALIAS'] = 'qwen3.8-27b'
-$cfgV['V100_PORT'] = '8081'; $cfgV['V100_CTX'] = '131072'; $cfgV['V100_POWER_LIMIT_W'] = '200'
+$cfgV['V100_ENABLED'] = '1'; $cfgV['V100_COUNT'] = '2'; $cfgV['V100_CUDA_DIR'] = 'C:\llama-cuda'; $cfgV['V100_MODEL_FILE'] = 'Qwen3.8-27B-UD-Q4_K_XL.gguf'; $cfgV['V100_MODEL_ALIAS'] = 'qwen3.8-27b'
+$cfgV['V100_PORT'] = '8081'; $cfgV['V100_CTX'] = '131072'; $cfgV['V100_POWER_LIMIT_W'] = '200'; $cfgV['V100_SPLIT_MODE'] = 'layer'
 $v100 = New-V100StartScript -Cfg $cfgV -Gpus $g
 $vtext = $v100 -join "`n"
-Check 'V100 start script: launches the CUDA server with the model and alias' { $vtext.Contains('C:\llama-cuda\llama-server.exe -m C:\models\Qwen3.8-27B-UD-Q5_K_XL.gguf --alias qwen3.8-27b ^') }
+Check 'V100 start script: launches the CUDA server with the model and alias' { $vtext.Contains('C:\llama-cuda\llama-server.exe -m C:\models\Qwen3.8-27B-UD-Q4_K_XL.gguf --alias qwen3.8-27b ^') }
 Check 'V100 start script: listens on the desktop address and its own port, key from the day server''s file' { $vtext.Contains('--host 192.168.1.100 --port 8081 --api-key-file C:\llama\api-key.txt ^') }
-Check 'V100 start script: names the devices, layer split, matched q8_0 context cache' { $vtext.Contains('--device CUDA0,CUDA1 --split-mode layer --jinja -ngl 99 -fa on -np 1 -c 131072 -ctk q8_0 -ctv q8_0 ^') }
-Check 'V100 start script: never the f16/q8_0 mix (no compiled CUDA kernel)' { -not $vtext.Contains('-ctk f16') }
-Check 'V100 start script: the CUDA environment' { $vtext.Contains('set CUDA_DEVICE_ORDER=PCI_BUS_ID') -and $vtext.Contains('set CUDA_SCALE_LAUNCH_QUEUES=4x') -and $vtext.Contains('set CUDA_CACHE_MAXSIZE=4294967296') -and $vtext.Contains('set GGML_CUDA_DISABLE_GRAPHS=1') }
+Check 'V100 start script: names the devices, layer split, fixed fit/batch, matched q8_0 context cache' { $vtext.Contains('--device CUDA0,CUDA1 --split-mode layer --jinja -ngl 99 -fit off -fa on -np 1 -ub 512 -c 131072 -ctk q8_0 -ctv q8_0 ^') }
+Check 'V100 start script: never the f16/q8_0 mix (no compiled CUDA kernel)' { -not $vtext.Contains('-ctk f16 -ctv q8_0') }
+Check 'V100 start script: the CUDA environment, graphs off for layer split' { $vtext.Contains('set CUDA_DEVICE_ORDER=PCI_BUS_ID') -and $vtext.Contains('set CUDA_SCALE_LAUNCH_QUEUES=4x') -and $vtext.Contains('set CUDA_CACHE_MAXSIZE=4294967296') -and $vtext.Contains('set GGML_CUDA_DISABLE_GRAPHS=1') }
 Check 'V100 start script: sets the power limit on each card at every start (200 W)' { @($v100 | Where-Object { $_ -match 'nvidia-smi.exe" -i [01] -pl 200 >nul$' }).Count -eq 2 }
 Check 'V100 start script: runs from the CUDA folder so no other backend is picked up' { $vtext.Contains('cd /d C:\llama-cuda') }
-Check 'V100 start script: no --tensor-split, no --n-cpu-moe' { -not $vtext.Contains('--tensor-split') -and -not $vtext.Contains('-ts ') -and -not $vtext.Contains('n-cpu-moe') }
-Check 'V100 start script: every line but the last that ends the command continues with ^' {
+Check 'V100 start script: no --tensor-split, no --n-cpu-moe, no MTP unless asked' { -not $vtext.Contains('--tensor-split') -and -not $vtext.Contains(' -ts ') -and -not $vtext.Contains('n-cpu-moe') -and -not $vtext.Contains('draft-mtp') }
+Check 'V100 start script: -Mtp adds speculative decoding' { ((New-V100StartScript -Cfg $cfgV -Gpus $g -Mtp) -join "`n").Contains('--spec-type draft-mtp --spec-draft-n-max 2 ^') }
+Check 'V100 start script: every line of the command continues with ^ except the last' {
     $i = [array]::IndexOf($v100, ($v100 | Where-Object { $_ -like '*llama-server.exe -m*' } | Select-Object -First 1))
     (@($v100[$i..($v100.Count - 2)] | Where-Object { $_ -notmatch ' \^$' }).Count -eq 0) -and ($v100[-1] -notmatch '\^$') }
+Check 'V100 start script (with MTP): every line of the command continues with ^ except the last' {
+    $m = New-V100StartScript -Cfg $cfgV -Gpus $g -Mtp
+    $i = [array]::IndexOf($m, ($m | Where-Object { $_ -like '*llama-server.exe -m*' } | Select-Object -First 1))
+    (@($m[$i..($m.Count - 2)] | Where-Object { $_ -notmatch ' \^$' }).Count -eq 0) -and ($m[-1] -notmatch '\^$') }
 $cfgW = [ordered]@{} + $cfgV; $cfgW['V100_POWER_LIMIT_W'] = '0'; $cfgW['V100_COUNT'] = '1'; $cfgW['V100_MODEL_FILE'] = 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf'
 $v35 = (New-V100StartScript -Cfg $cfgW -Gpus @($g[0])) -join "`n"
 Check 'V100 start script: power limit 0 sets nothing' { -not $v35.Contains('-pl ') }
-Check 'V100 start script: one card, and the 35B-A3B sampling and thinking flags' { $v35.Contains('--device CUDA0 ') -and $v35.Contains('preserve_thinking') -and $v35.Contains('--temp 0.6') }
+Check 'V100 start script: the 35B-A3B gets an f16 cache and its own sampling and thinking flags' { $v35.Contains('--device CUDA0 ') -and $v35.Contains('-ctk f16 -ctv f16') -and $v35.Contains('preserve_thinking') -and $v35.Contains('--temp 0.6') }
 Check 'V100 start script: the 27B uses the reasoning-effort flags' { $vtext.Contains('reasoning_effort') -and $vtext.Contains('--temp 1.0') }
+$cfgT = [ordered]@{} + $cfgV; $cfgT['V100_SPLIT_MODE'] = 'tensor'
+$vt = (New-V100StartScript -Cfg $cfgT -Gpus $g -Mtp) -join "`n"
+Check 'V100 start script: tensor split uses an unquantized cache, keeps CUDA graphs, drops MTP' { $vt.Contains('--split-mode tensor') -and $vt.Contains('-ctk f16 -ctv f16') -and -not $vt.Contains('GGML_CUDA_DISABLE_GRAPHS') -and -not $vt.Contains('draft-mtp') }
 
 $cfgG = [ordered]@{} + $cfg; $cfgG['V100_ENABLED'] = '1'
 $guarded = New-LlamaStartScript -Cfg $cfgG -Tier Day

@@ -827,6 +827,7 @@ function Select-LlamaRelease {
 
 # Get-LlamaReleases  - the ten newest llama.cpp releases (pre-releases included), newest first
 function Get-LlamaReleases {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     return , @(Invoke-RestMethod -Uri 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10' -Headers @{ 'User-Agent' = 'HarnessSetup' })
 }
 
@@ -953,71 +954,172 @@ function Get-V100PowerLimit {
     return [int][math]::Floor($w)
 }
 
-# Get-V100Fit -FileBytes N -Context 131072 -ModelFile x.gguf -TotalMiB 32768 -Gpus 2 [-KvType q8_0]
-# A rough estimate of the VRAM a model needs: the file, the context cache of the attention layers, the small recurrent state and a
-# compute buffer per card. Qwen3.5/3.6/3.8 are hybrid models: only 1 layer in 4 (27B: 16 layers x 4 KV heads x 256; 35B-A3B:
-# 10 layers x 2 KV heads x 256) keeps a context cache. An unknown model is treated like the 27B, which is the larger of the two.
+# Get-V100Family -ModelFile x.gguf  - '27B', '35B' (the 35B-A3B MoE) or '' for a model the sizing constants do not cover
+function Get-V100Family {
+    param([Parameter(Mandatory)][string]$ModelFile)
+    if ($ModelFile -match '(?i)Qwen3\.[0-9]+-27B') { return '27B' }
+    if ($ModelFile -match '(?i)Qwen3\.[0-9]+-35B-A3B') { return '35B' }
+    return ''
+}
+
+# Get-V100KvType -ModelFile x.gguf [-SplitMode layer|tensor]  - the context cache type for both K and V. They must match: on CUDA only
+# q8_0/q8_0, q4_0/q4_0, f16/f16 and bf16/bf16 have a compiled flash-attention kernel (the Vulkan server's f16/q8_0 mix does not).
+# The 35B-A3B decodes through the tile kernel, which converts a quantized cache on every token, and its f16 cache is small anyway;
+# tensor split wants an unquantized cache.
+function Get-V100KvType {
+    param([Parameter(Mandatory)][string]$ModelFile, [string]$SplitMode = 'layer')
+    if ($SplitMode -eq 'tensor' -or (Get-V100Family -ModelFile $ModelFile) -eq '35B') { return 'f16' }
+    return 'q8_0'
+}
+
+# Get-V100QuantAdvice -Count 2 -VramGB 16  - the quantization of Qwen3.8-27B that fits that many cards at 128K context with margin
+function Get-V100QuantAdvice {
+    param([Parameter(Mandatory)][int]$Count, [Parameter(Mandatory)][int]$VramGB)
+    $total = $Count * $VramGB
+    if ($total -ge 64) { return 'UD-Q6_K_XL' }
+    if ($total -ge 32 -and $Count -eq 1) { return 'UD-Q5_K_XL' }
+    if ($total -ge 32) { return 'UD-Q4_K_XL' }
+    return ''
+}
+
+# Get-V100Fit -FileBytes N -Context 131072 -ModelFile x.gguf -Gpus 2 -CardMiB 16384 [-FreeMiB 16000] [-KvType q8_0] [-Mtp]
+# Will the model fit on the card that holds the most? Layer split puts the output layer (and the MTP block) on the last card, so that
+# one is the heaviest. The pieces: the weights that live on the GPU (the embedding stays on the CPU), the context cache of the
+# attention layers (only 1 layer in 4 of these hybrid models has one), the small recurrent state, the CUDA runtime, and the compute
+# buffers. The constants come from the Qwen3.8-27B and Qwen3.6-35B-A3B configs and GGUF headers; the result matches a real
+# llama.cpp log for the cache. The budget per card is the smaller of total and free memory, minus 1 GiB of margin.
+# Verdict: fit (spare >= 0), tight (within the margin), no.
 function Get-V100Fit {
     param(
         [Parameter(Mandatory)][double]$FileBytes,
         [Parameter(Mandatory)][int]$Context,
         [Parameter(Mandatory)][string]$ModelFile,
-        [Parameter(Mandatory)][double]$TotalMiB,
         [Parameter(Mandatory)][int]$Gpus,
-        [ValidateSet('q8_0', 'f16')][string]$KvType = 'q8_0'
+        [Parameter(Mandatory)][double]$CardMiB,
+        [double]$FreeMiB = 0,
+        [ValidateSet('q8_0', 'f16')][string]$KvType = 'q8_0',
+        [switch]$Mtp,
+        [int]$Ub = 512
     )
-    $elements = 16 * 2 * 4 * 256     # per token, 27B-class (and the fallback)
-    $known = $false
-    if ($ModelFile -match '(?i)Qwen3\.[0-9]+-27B') { $known = $true }
-    elseif ($ModelFile -match '(?i)Qwen3\.[0-9]+-35B-A3B') { $elements = 10 * 2 * 2 * 256; $known = $true }
-    $bytesPerElement = if ($KvType -eq 'f16') { 2.0 } else { 1.0625 }
+    $fam = Get-V100Family -ModelFile $ModelFile
+    # KvEl: cache elements per token; KvHd: KV heads x head size; RsMiB: recurrent state per sequence; Kw: share of the file on the GPU;
+    # Extra: extra share of the last card; MtpKvB: bytes per token of the MTP block's own cache
+    $c = switch ($fam) {
+        '35B' { @{ KvEl = 10240; KvHd = 512; RsMiB = 62.8125; Kw = 0.977; Extra = 0.02; MtpKvB = 2048 } }
+        default { @{ KvEl = 32768; KvHd = 1024; RsMiB = 149.625; Kw = 0.955; Extra = 0.05; MtpKvB = 4096 } }   # 27B, and the safe choice for an unknown model
+    }
     $gib = 1GB
-    $kv = $elements * $bytesPerElement * $Context
-    $needed = ($FileBytes + $kv) / $gib + 0.2 + 1.5 * $Gpus
-    $total = $TotalMiB / 1024
-    $margin = $total - $needed
+    $bpe = if ($KvType -eq 'f16') { 2.0 } else { 1.0625 }
+    $w = $FileBytes * $c.Kw / $gib
+    $share = if ($Gpus -le 1) { 1.0 } else { 1.0 / $Gpus + $c.Extra }
+    $kv = $c.KvEl * $bpe * $Context / $gib
+    $rs = $c.RsMiB / 1024 * $(if ($Mtp) { 3 } else { 1 })
+    $conv = if ($KvType -eq 'f16') { 0 } else { 4 * $c.KvHd }
+    $comp = 1.0 + $Context * (2 * $Ub + $conv) / $gib
+    $mtpExtra = if ($Mtp) { $Context * ($c.MtpKvB + 4096) / $gib } else { 0 }
+    $need = $share * $w + $kv / $Gpus + $rs / $Gpus + 0.35 + $comp + $mtpExtra
+    $card = if ($FreeMiB -gt 0) { [math]::Min($CardMiB, $FreeMiB) } else { $CardMiB }
+    $budget = $card / 1024 - 1.0
+    $spare = $budget - $need
+    $verdict = if ($spare -ge 0) { 'fit' } elseif ($spare -ge -1.0) { 'tight' } else { 'no' }
     return [pscustomobject]@{
-        NeededGiB = [math]::Round($needed, 1); TotalGiB = [math]::Round($total, 1); MarginGiB = [math]::Round($margin, 1)
-        KvGiB = [math]::Round($kv / $gib, 1); Fits = ($margin -ge (1.0 * $Gpus)); KnownModel = $known
+        NeededGiB = [math]::Round($need, 1); BudgetGiB = [math]::Round($budget, 1); SpareGiB = [math]::Round($spare, 1)
+        KvGiB = [math]::Round($kv, 2); Verdict = $verdict; KnownModel = ($fam -ne ''); Family = $fam
     }
 }
 
-# New-V100StartScript -Cfg $cfg -Gpus $gpuObjects  - lines of the cmd file that starts the CUDA llama-server on the V100s.
-# Layer split over plain PCIe; the KV types match (q8_0/q8_0 has a compiled flash-attention kernel on CUDA, f16/q8_0 does not);
-# the power limit is set at every start because Windows forgets it at reboot.
+# Test-GgufMtp -Path file.gguf  - does the file carry a multi-token-prediction head? Those files have tensors named blk.N.nextn.*
+# in the header; the plain Qwen3.6-35B-A3B files and the smallest 27B quants do not. Reads the first 64 MB at most.
+function Test-GgufMtp {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    $needle = [System.Text.Encoding]::ASCII.GetBytes('.nextn.')
+    $fs = [System.IO.File]::OpenRead($Path)
+    try {
+        $buf = New-Object byte[] (4MB + $needle.Length)
+        $keep = 0
+        $read = 0
+        while ($read -lt 64MB) {
+            $n = $fs.Read($buf, $keep, 4MB)
+            if ($n -le 0) { break }
+            $read += $n
+            $len = $keep + $n
+            for ($i = 0; $i -le $len - $needle.Length; $i++) {
+                if ($buf[$i] -eq $needle[0]) {
+                    $hit = $true
+                    for ($j = 1; $j -lt $needle.Length; $j++) { if ($buf[$i + $j] -ne $needle[$j]) { $hit = $false; break } }
+                    if ($hit) { return $true }
+                }
+            }
+            # carry the tail over so a name cut by the chunk edge is still found
+            $keep = [math]::Min($needle.Length - 1, $len)
+            [Array]::Copy($buf, $len - $keep, $buf, 0, $keep)
+        }
+        return $false
+    } finally { $fs.Dispose() }
+}
+
+# Get-RemoteFileSize -Url  - the size Hugging Face reports (x-linked-size on the redirect), or $null when it cannot be read
+function Get-RemoteFileSize {
+    param([Parameter(Mandatory)][string]$Url)
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $req = [System.Net.HttpWebRequest]::Create($Url)
+        $req.Method = 'HEAD'; $req.AllowAutoRedirect = $false; $req.UserAgent = 'HarnessSetup'; $req.Timeout = 30000
+        $resp = $req.GetResponse()
+        try {
+            $h = $resp.Headers['X-Linked-Size']
+            if (-not $h) { $h = [string]$resp.ContentLength }
+            if ($h -match '^[0-9]+$' -and [double]$h -gt 0) { return [double]$h }
+        } finally { $resp.Close() }
+    } catch { }
+    return $null
+}
+
+# New-V100StartScript -Cfg $cfg -Gpus $gpuObjects [-Mtp]  - lines of the cmd file that starts the CUDA llama-server on the V100s.
+# Layer split over plain PCIe by default; matched cache types; the power limit is set at every start because Windows forgets it at reboot.
 function New-V100StartScript {
     param(
         [Parameter(Mandatory)][System.Collections.IDictionary]$Cfg,
-        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Gpus
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Gpus,
+        [switch]$Mtp
     )
     $dir = $Cfg['V100_CUDA_DIR']
     $day = $Cfg['DESKTOP_LLAMA_DIR']
     $models = $Cfg['DESKTOP_MODELS_DIR']
     $count = [int]$Cfg['V100_COUNT']
+    $file = $Cfg['V100_MODEL_FILE']
+    $split = if ($Cfg.Contains('V100_SPLIT_MODE') -and $Cfg['V100_SPLIT_MODE']) { $Cfg['V100_SPLIT_MODE'] } else { 'layer' }
+    $kvType = Get-V100KvType -ModelFile $file -SplitMode $split
     $devices = (0..($count - 1) | ForEach-Object { "CUDA$_" }) -join ','
     $lines = @(
         '@echo off',
         'rem Generated by Install-V100.ps1: re-run the installer instead of editing this file.',
         'set CUDA_DEVICE_ORDER=PCI_BUS_ID',
         'set CUDA_SCALE_LAUNCH_QUEUES=4x',
-        'set CUDA_CACHE_MAXSIZE=4294967296',
-        'rem CUDA graphs on Volta had a reported memory leak; remove the next line to try them (llama.cpp issue 25835)',
-        'set GGML_CUDA_DISABLE_GRAPHS=1'
+        'set CUDA_CACHE_MAXSIZE=4294967296'
     )
+    if ($split -ne 'tensor') {
+        $lines += 'rem CUDA graphs on Volta had a reported memory leak with layer split; remove the next line to try them (llama.cpp issue 25835)'
+        $lines += 'set GGML_CUDA_DISABLE_GRAPHS=1'
+    }
     foreach ($g in $Gpus) {
         $w = Get-V100PowerLimit -Gpu $g -Requested ([int]$Cfg['V100_POWER_LIMIT_W'])
         if ($null -ne $w) { $lines += "`"$env:SystemRoot\System32\nvidia-smi.exe`" -i $($g.Index) -pl $w >nul" }
     }
     $lines += "cd /d $dir"
-    $kwargs = if ($Cfg['V100_MODEL_FILE'] -match '(?i)35B-A3B') { '"{\"preserve_thinking\":true}" ^' } else { '"{\"reasoning_effort\":\"high\"}" ^' }
-    $sampling = if ($Cfg['V100_MODEL_FILE'] -match '(?i)35B-A3B') { '  --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0' } else { '  --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0' }
+    $moe = ((Get-V100Family -ModelFile $file) -eq '35B')
+    $kwargs = if ($moe) { '"{\"preserve_thinking\":true}"' } else { '"{\"reasoning_effort\":\"high\"}"' }
+    $sampling = if ($moe) { '--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0' } else { '--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0' }
+    $tail = @("  --cache-ram 2048 --chat-template-kwargs $kwargs ^")
+    if ($Mtp -and $split -ne 'tensor') { $tail += '  --spec-type draft-mtp --spec-draft-n-max 2 ^' }
+    $tail += "  $sampling"
     $lines += @(
-        "$dir\llama-server.exe -m $models\$($Cfg['V100_MODEL_FILE']) --alias $($Cfg['V100_MODEL_ALIAS']) ^",
+        "$dir\llama-server.exe -m $models\$file --alias $($Cfg['V100_MODEL_ALIAS']) ^",
         "  --host $($Cfg['DESKTOP_IP']) --port $($Cfg['V100_PORT']) --api-key-file $day\api-key.txt ^",
-        "  --device $devices --split-mode layer --jinja -ngl 99 -fa on -np 1 -c $($Cfg['V100_CTX']) -ctk q8_0 -ctv q8_0 ^",
-        "  --cache-ram 2048 --chat-template-kwargs $kwargs",
-        $sampling
+        "  --device $devices --split-mode $split --jinja -ngl 99 -fit off -fa on -np 1 -ub 512 -c $($Cfg['V100_CTX']) -ctk $kvType -ctv $kvType ^"
     )
+    $lines += $tail
     return $lines
 }
 

@@ -14,6 +14,7 @@
 .EXAMPLE
   .\Install-V100.ps1 -DryRun            # show what would happen, change nothing
   .\Install-V100.ps1 -DownloadDriver    # fetch and verify NVIDIA's R580 data-center driver (you run it yourself)
+  .\Install-V100.ps1 -IgnoreFit         # go on even if the memory estimate says the model will not fit
 #>
 [CmdletBinding()]
 param(
@@ -22,6 +23,7 @@ param(
     [switch]$UpdateLlama,
     [switch]$NoStart,
     [switch]$DownloadDriver,
+    [switch]$IgnoreFit,
     [switch]$DryRun,
     [switch]$Yes
 )
@@ -41,7 +43,7 @@ if ($cfg['V100_ENABLED'] -ne '1') {
     if (Test-Interactive) { Invoke-ConfigWizard -Path $ConfigFile -Scope desktop -Only 'V100_COUNT', 'V100_VRAM_GB', 'V100_QUANT' }
 }
 $need = 'DESKTOP_IP', 'LLM_PORT', 'LAPTOP_IP', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR', 'V100_COUNT', 'V100_VRAM_GB', 'V100_QUANT',
-    'V100_MODEL_ALIAS', 'V100_MODEL_FILE', 'V100_MODEL_URL', 'V100_CTX', 'V100_PORT', 'V100_DRIVER_MODE', 'V100_POWER_LIMIT_W', 'V100_CUDA_DIR'
+    'V100_MODEL_ALIAS', 'V100_MODEL_FILE', 'V100_MODEL_URL', 'V100_CTX', 'V100_PORT', 'V100_MTP', 'V100_SPLIT_MODE', 'V100_DRIVER_MODE', 'V100_POWER_LIMIT_W', 'V100_CUDA_DIR'
 $cfg = Initialize-NodeConfig -Path $ConfigFile -Need $need
 Assert-Config $cfg $need
 if ($cfg['V100_PORT'] -eq $cfg['LLM_PORT']) { throw "V100_PORT and LLM_PORT are both $($cfg['LLM_PORT']): the two servers need different ports (.\Configure.ps1 -Only V100_PORT)" }
@@ -162,25 +164,47 @@ Invoke-Action "llama-server.exe --list-devices ($count CUDA devices must be list
 # ---------------------------------------------------------------- the model
 Write-Step 'the model'
 $modelPath = "$models\$($cfg['V100_MODEL_FILE'])"
+$split = $cfg['V100_SPLIT_MODE']
+$kvType = Get-V100KvType -ModelFile $cfg['V100_MODEL_FILE'] -SplitMode $split
+$wantMtp = ($cfg['V100_MTP'] -eq '1') -and ($split -ne 'tensor')
+$cardMiB = ($gpus | Measure-Object -Property MemoryMiB -Minimum).Minimum
+$advice = Get-V100QuantAdvice -Count $gpus.Count -VramGB ([int]$cfg['V100_VRAM_GB'])
+function Show-Fit([double]$Bytes, [bool]$Mtp) {
+    $fit = Get-V100Fit -FileBytes $Bytes -Context ([int]$cfg['V100_CTX']) -ModelFile $cfg['V100_MODEL_FILE'] -Gpus $gpus.Count -CardMiB $cardMiB -KvType $kvType -Mtp:$Mtp
+    Write-Host ("    estimate for the busiest card: {0} GiB needed of {1} GiB usable ({2:+0.0;-0.0} GiB spare): {3} - model {4:N1} GB, context cache {5} GiB ({6}){7}" -f $fit.NeededGiB, $fit.BudgetGiB, $fit.SpareGiB, $fit.Verdict.ToUpper(), ($Bytes / 1e9), $fit.KvGiB, $kvType, $(if ($Mtp) { ', MTP on' } else { '' }))
+    if (-not $fit.KnownModel) { Write-Warn 'the estimate assumes a Qwen3.x 27B-class model; for another model it is only a guide. The server log prints the real memory use.' }
+    return $fit
+}
+function Test-FitAllowed($Fit) {
+    if ($Fit.Verdict -eq 'fit') { return }
+    $hint = if ($advice) { " For $($gpus.Count) x $($cfg['V100_VRAM_GB']) GB the table recommends $advice at 128K context." } else { '' }
+    if ($Fit.Verdict -eq 'tight') { Write-Warn "this is tight: it may run out of memory at long contexts.$hint" }
+    elseif ($IgnoreFit) { Write-Warn "this will probably not fit, but -IgnoreFit was given.$hint" }
+    else { throw "This model will probably not fit in the cards' memory.$hint Choose a smaller quantization or a shorter context (.\Configure.ps1 -Only V100_QUANT,V100_CTX), or add -IgnoreFit to try anyway." }
+}
+$size = $null
+if (Test-Path -LiteralPath $modelPath) { $size = (Get-Item -LiteralPath $modelPath).Length }
+elseif (-not $script:HsDryRun) { $size = Get-RemoteFileSize -Url $cfg['V100_MODEL_URL'] }
+if ($size) { Test-FitAllowed (Show-Fit -Bytes $size -Mtp $wantMtp) }
 if (-not $SkipModelDownload) {
     Invoke-Action 'check free disk space on the models drive' {
         $drive = (Get-Item $models).PSDrive
-        if ($drive.Free -lt 45GB) { throw "Only $([math]::Round($drive.Free / 1GB)) GB free on $($drive.Name):, a 27B model needs about 20-30 GB plus working space." }
+        $need = if ($size) { [double]$size * 1.1 + 2GB } else { 45GB }
+        if ($drive.Free -lt $need) { throw "Only $([math]::Round($drive.Free / 1GB)) GB free on $($drive.Name):, the model needs about $([math]::Round($need / 1GB)) GB." }
     }
     Save-Model -Url $cfg['V100_MODEL_URL'] -Dest $modelPath
 }
-if (Test-Path -LiteralPath $modelPath) {
-    $total = ($gpus | Measure-Object -Property MemoryMiB -Sum).Sum
-    $fit = Get-V100Fit -FileBytes (Get-Item -LiteralPath $modelPath).Length -Context ([int]$cfg['V100_CTX']) -ModelFile $cfg['V100_MODEL_FILE'] -TotalMiB $total -Gpus $gpus.Count
-    Write-Host ("    estimate: model {0} GiB context cache {1} GiB (q8_0) + buffers = {2} GiB of {3} GiB ({4} GiB spare)" -f [math]::Round((Get-Item -LiteralPath $modelPath).Length / 1GB, 1), $fit.KvGiB, $fit.NeededGiB, $fit.TotalGiB, $fit.MarginGiB)
-    if (-not $fit.Fits) { Write-Warn "this will probably not fit. Choose a smaller quantization or a shorter context: .\Configure.ps1 -Only V100_QUANT,V100_CTX (or V100_VRAM_GB if the cards are 32 GB)." }
-    if (-not $fit.KnownModel) { Write-Warn 'the estimate assumes a Qwen3.x 27B-class model; for another model it is only a guide. The server log prints the real memory use.' }
+$useMtp = $wantMtp
+if ((Test-Path -LiteralPath $modelPath) -and $wantMtp) {
+    $useMtp = Test-GgufMtp -Path $modelPath
+    if (-not $useMtp) { Write-Warn "this model file has no MTP head (only the Qwen3.8-27B files do), so speculative decoding is left off. Set V100_MTP=0 to silence this." }
+    if ($size) { $null = Show-Fit -Bytes ((Get-Item -LiteralPath $modelPath).Length) -Mtp $useMtp }
 }
 
 # ---------------------------------------------------------------- start script, Vulkan guard, firewall, task
 Write-Step 'start-llama-v100.cmd'
-Write-CmdFile -Path $startCmd -Lines (New-V100StartScript -Cfg $cfg -Gpus $gpus)
-Write-Ok "wrote $startCmd (layer split over $count cards, q8_0 context cache, power limit $($cfg['V100_POWER_LIMIT_W']) W per card)"
+Write-CmdFile -Path $startCmd -Lines (New-V100StartScript -Cfg $cfg -Gpus $gpus -Mtp:$useMtp)
+Write-Ok "wrote $startCmd ($split split over $count cards, $kvType context cache, $(if ($useMtp) { 'MTP on' } else { 'no MTP' }), power limit $($cfg['V100_POWER_LIMIT_W']) W per card)"
 
 Write-Step 'keep the Vulkan server on the RX 6600 XT'
 $cfg['V100_ENABLED'] = '1'
