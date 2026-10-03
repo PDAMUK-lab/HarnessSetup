@@ -37,7 +37,7 @@ check "first run: announces the wizard" has "no settings yet"
 check "first run: asked for the laptop IP" has "Laptop IP address"
 check "first run: settings were saved" test "$(val "$f" LAPTOP_IP)" = 10.0.0.20
 check "first run: the stage then ran with them" has "Stage 05"
-check "first run: the stage saw the GitHub account the wizard collected" has "acme"
+check "first run: the stage used the GitHub account the wizard collected (clone command)" has "gh repo clone acme/api"
 rm -f "$f"
 
 # ---- just-in-time: a stage asks only for what it needs
@@ -64,7 +64,7 @@ check "stage 07 needs the OpenRouter models and says so" bash -c "[[ $RC -ne 0 ]
 printf '%s\n' vendor-a/worker vendor-b/reviewer vendor-a/mid >"$T/a3"
 OUT=$(HS_INPUT="$T/a3" "$ROOT/setup.sh" run 07 --dry-run 2>&1); RC=$?
 check "stage 07 prompts for the three roles and proceeds" test $RC -eq 0
-check "...with the worker model in the merged config preview" has "vendor-a/worker"
+check "...with the worker model in the merged config preview" has 'model: "vendor-a/worker"'
 
 # ---- tools that never need settings keep working without any
 OUT=$(NODE_ENV="$T/none.env" "$ROOT/setup.sh" tool adopt-repo 2>&1 </dev/null); RC=$?

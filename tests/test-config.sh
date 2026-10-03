@@ -250,6 +250,18 @@ printf 'ADMIN_USER=hermes\n' >"$T/same.env"
 OUT=$(NODE_ENV="$T/same.env" "$ROOT/setup.sh" configure --defaults 2>&1)
 check "wizard: warns when the admin and agent accounts are the same" has "the agent should have its own account"
 
+# --scope desktop asks the desktop's questions only (the PowerShell wizard's scope)
+printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 james 2 n n '' >"$T/ans-scope"
+OUT=$(NODE_ENV="$T/scope.env" "$ROOT/setup.sh" configure --scope desktop --answers "$T/ans-scope" 2>&1); RC=$?
+check "scope desktop: exits 0" test $RC -eq 0
+check "scope desktop: asks the shared and desktop questions" has "Desktop model quantization"
+check "scope desktop: does not ask GitHub or OpenRouter questions" lacks "Worker model"
+check "scope desktop: does not ask the laptop model question" lacks "Laptop model quantization"
+check "scope desktop: a laptop-only detected default (LAN) is not adopted" test "$(val "$T/scope.env" LAN_CIDR)" = '<unset>'
+check "scope desktop: the answers were saved" test "$(val "$T/scope.env" DESKTOP_QUANT)/$(val "$T/scope.env" ADMIN_USER)" = UD-Q4_K_XL/james
+OUT=$(NODE_ENV="$T/scope.env" "$ROOT/setup.sh" configure --scope nowhere --defaults 2>&1); RC=$?
+check "scope: an unknown scope is refused" test $RC -ne 0
+
 # =============================== just-in-time prompting (cfg_ensure)
 cp "$T/d.env" "$T/jit.env"
 ens() { OUT=$(NODE_ENV="${ENS_FILE:-$T/jit.env}" bash -c 'source "$1/lib/common.sh"; shift; cfg_ensure "$@"' _ "$ROOT" "$@" 2>&1 </dev/null); RC=$?; }
@@ -269,6 +281,11 @@ check "ensure: keeps earlier settings" test "$(val "$T/jit.env" DESKTOP_IP)" = 1
 cp "$ROOT/config/node.env.example" "$T/ph.env"
 ENS_FILE="$T/ph.env" ens GITHUB_ORG
 check "ensure: the example's 'yourorg' counts as missing" test $RC -ne 0
+printf 'GITHUB_ORG=acme\n' >"$T/noadopt.env"
+printf 'vendor-a/worker\n' >"$T/noadopt-ans"
+OUT=$(NODE_ENV="$T/noadopt.env" HS_INPUT="$T/noadopt-ans" bash -c 'source "$1/lib/common.sh"; cfg_ensure OR_WORKER_MODEL' _ "$ROOT" 2>&1 </dev/null); RC=$?
+check "ensure: asked for one setting" test $RC -eq 0
+check "ensure: ...and did not adopt detected addresses for settings nobody asked about" test "$(val "$T/noadopt.env" LAPTOP_IP)/$(val "$T/noadopt.env" ROUTER_IP)/$(val "$T/noadopt.env" LAN_CIDR)" = '<unset>/<unset>/<unset>'
 ENS_FILE="$T/ph.env" ens DASHBOARD_PORT LAPTOP_QUANT
 check "ensure: settings with a literal default need no prompt" test $RC -eq 0
 rm -f "$T/auto.env"; printf 'GITHUB_ORG=acme\n' >"$T/auto.env"

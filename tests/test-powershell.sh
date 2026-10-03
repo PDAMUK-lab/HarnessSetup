@@ -90,6 +90,31 @@ run_ps Setup-LaptopAccess.ps1 -DryRun -NoTunnelFile
 check "Setup-LaptopAccess: reuses an existing key" has "using the existing key"
 check "Setup-LaptopAccess: -NoTunnelFile skips the shortcut" bash -c "! grep -q 'hermes-tunnel.cmd' <<<\"\$0\"" "$OUT"
 
+# ---- -Yes: no questions at all, defaults taken (empty answers file: any question would fail the run)
+cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=0|'
+: >"$T/psnone"
+export HS_INPUT="$T/psnone"
+OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Install-Llama.ps1" -ConfigFile "$T/node.env" -DryRun -Yes 2>&1); RC=$?
+check "-Yes: Install-Llama asks nothing and succeeds" test $RC -eq 0
+check "-Yes: ...the default for sleep is no" bash -c "! grep -q 'never sleep on mains' <<<\"\$0\"" "$OUT"
+check "-Yes: ...the default for starting is yes" has "start the 'llama-server' task"
+mkdir -p "$T/desk2"
+OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Setup-LaptopAccess.ps1" -ConfigFile "$T/node.env" -DryRun -Yes -TunnelDir "$T/desk2" 2>&1); RC=$?
+check "-Yes: Setup-LaptopAccess asks nothing, writes the shortcut by default" bash -c "[[ $RC -eq 0 ]] && grep -q 'write .*hermes-tunnel.cmd' <<<\"\$0\"" "$OUT"
+OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Install-Overnight.ps1" -ConfigFile "$T/node.env" -DryRun -Yes 2>&1); RC=$?
+check "-Yes never switches the overnight tier on by itself" bash -c "[[ $RC -ne 0 ]] && grep -q '^NIGHT_ENABLED=0' '$T/node.env'"
+unset HS_INPUT
+
+# ---- Configure.ps1: -Print shows the file, -Advanced asks the advanced questions
+OUT=$(ps -File "$ROOT/desktop/windows/Configure.ps1" -ConfigFile "$T/node.env" -Print -Defaults 2>&1); RC=$?
+check "Configure -Print shows the settings file layout" bash -c "[[ $RC -eq 0 ]] && grep -q '^# ---- Machines and network ----' <<<\"\$0\" && grep -q '^LAPTOP_IP=' <<<\"\$0\"" "$OUT"
+check "Configure -Print does not write the file" bash -c "! grep -q 'HarnessSetup settings - written' '$T/node.env' || grep -q '^NIGHT_ENABLED=0' '$T/node.env'"
+yes '' | head -80 >"$T/psblank"
+export HS_INPUT="$T/psblank"
+OUT=$(ps -File "$ROOT/desktop/windows/Configure.ps1" -ConfigFile "$T/adv.env" -Advanced 2>&1); RC=$?
+unset HS_INPUT
+check "Configure -Advanced asks the advanced desktop questions" bash -c "grep -q 'Dashboard port' <<<\"\$0\" && grep -q 'Expert layers kept in RAM' <<<\"\$0\" && grep -q 'Desktop llama.cpp folder' <<<\"\$0\"" "$OUT"
+
 # ---- no settings yet: the installers ask by themselves (scripted answers stand in for the user)
 rm -f "$T/fresh.env"
 printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 james 2 n n '' y n >"$T/psans1"   # skip the import offer, wizard (ip x3, admin, quant=Q4, overnight n, advanced n, save), then: never-sleep y, start now n

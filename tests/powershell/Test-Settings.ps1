@@ -55,7 +55,7 @@ Use-Answers 'y', 'no', '', 'huh', 'n'
 Check 'Read-YesNo: y' { Read-YesNo -Question 'Q' -Default $false 6>$null }
 Check 'Read-YesNo: no' { -not (Read-YesNo -Question 'Q' -Default $true 6>$null) }
 Check 'Read-YesNo: Enter takes the default' { Read-YesNo -Question 'Q' -Default $true 6>$null }
-Check 'Read-YesNo: re-asks after junk' { -not (Read-YesNo -Question 'Q' -Default $true *>$null) }
+Check 'Read-YesNo: re-asks after junk (and then takes the n)' { $r = Read-YesNo -Question 'Q' -Default $true 6>$null; ($r -is [bool]) -and -not $r }
 Clear-Answers
 Check 'Read-YesNo: no terminal takes the default' { (Read-YesNo -Question 'Q' -Default $true) -and -not (Read-YesNo -Question 'Q' -Default $false) }
 Use-Answers 'y'

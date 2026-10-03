@@ -9,7 +9,7 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 pass=0 failn=0
 check() { local n=$1; shift; if "$@"; then pass=$((pass+1)); else failn=$((failn+1)); echo "FAIL: $n"; fi; }
 has() { grep -qF -- "$1" <<<"$OUT"; }
-lacks() { ! grep -qF -- "$1" <<<"$OUT"; }
+lacks() { [[ ${RC:-0} -eq 0 ]] && ! grep -qF -- "$1" <<<"$OUT"; }   # a crash must not satisfy "does not contain"
 unset SSH_CLIENT HS_INPUT HS_INPUT_OPEN
 export PATH="$ROOT/tests/fakebin:$PATH" FAKE_LOG="$T/calls.log" DESTDIR="$T/root" ASSUME_YES=0 HS_ALLOW_ANY_USER=1
 export HOME="$T/home"; mkdir -p "$HOME"; : >"$FAKE_LOG"

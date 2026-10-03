@@ -71,3 +71,30 @@ cidr|10.0.0.1/09|ok|10.0.0.0/9|leading-zero prefix is not octal
 repos|*|bad||a glob is not a repository name
 repos|api *|bad||a glob among real names
 repos|api   web|ok|api web|whitespace is squeezed
+port|1|ok||lowest port
+port|65535|ok||highest port
+port|65536|bad||one past the highest
+int:1-10|10|ok|10|upper bound
+int:1-10|11|bad||past the upper bound
+int:1-10|1|ok|1|lower bound
+time|00:00|ok|00:00|midnight
+time|23:59|ok|23:59|last minute
+time|7:05|ok|07:05|single-digit hour is padded
+cidr|10.0.0.0/8|ok|10.0.0.0/8|shortest allowed prefix
+cidr|10.0.0.0/30|ok|10.0.0.0/30|longest allowed prefix
+cidr|10.0.0.0/7|bad||prefix too short
+cidr|10.0.0.0/31|bad||prefix too long
+ip|0.0.0.0|ok||all zeros
+ip|255.255.255.255|ok||all ones
+ip|1.2.3.4.5|bad||five octets
+ghname|a|ok||one character
+ghname|abcdefghijklmnopqrstuvwxyzabcdefghijklm|ok||39 characters
+ghname|abcdefghijklmnopqrstuvwxyzabcdefghijklmn|bad||40 characters
+unixuser|abcdefghijklmnopqrstuvwxyzabcdef|ok||32 characters
+unixuser|abcdefghijklmnopqrstuvwxyzabcdefg|bad||33 characters
+model|vendor/model:free|ok||colon tag
+model|vendor/|bad||nothing after the slash
+gguf|a.b.gguf|ok||dots in the name
+gguf|.gguf|bad||no name
+winpath|C:\llama\sub|ok||nested folder
+winpath|C:\|bad||drive root alone
