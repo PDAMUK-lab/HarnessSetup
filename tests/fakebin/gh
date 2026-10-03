@@ -4,6 +4,7 @@ echo "gh $*" >>"${FAKE_LOG:-/dev/null}"
 case "$1 ${2:-}" in
   "api user") [[ -f $HOME/.gh-logged-in ]] && echo "${FAKE_GH_USER:-acme-bot}" || exit 1 ;;
   "auth login") cat >/dev/null; echo "${FAKE_GH_USER:-acme-bot}" >"$HOME/.gh-logged-in" ;;
-  "repo clone") mkdir -p "$(basename "$3")" && git init -q "$(basename "$3")" ;;
+  "pr list") printf '%s' "${FAKE_PR_TITLES:-}" ;;
+  "repo clone") dest=${4:-$(basename "$3")}; mkdir -p "$dest" && git init -q "$dest" ;;
 esac
 exit 0

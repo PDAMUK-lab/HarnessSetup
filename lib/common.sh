@@ -44,6 +44,13 @@ run() {
 # sudo_run CMD...  - run() with root privileges
 sudo_run() { run "${SUDO[@]}" "$@"; }
 
+# run_as USER CMD...  - run() as another user (runuser when already root, sudo -u otherwise)
+run_as() {
+  local user=$1
+  shift
+  if [[ $EUID -eq 0 ]]; then run runuser -u "$user" -- "$@"; else run sudo -u "$user" "$@"; fi
+}
+
 # fail_or_warn MSG  - a hard failure normally, only a warning in a dry run
 fail_or_warn() {
   if [[ $DRY_RUN == 1 ]]; then warn "$* (ignored in dry run)"; else die "$*"; fi
@@ -149,18 +156,58 @@ install_template() {
 
 # ---- downloads --------------------------------------------------------------
 
-# download_gguf URL DEST  - resumable; refuses HTML error pages saved as a model
+# download_gguf URL DEST [USER]  - resumable; refuses HTML error pages saved as a model
 download_gguf() {
-  local url=$1 dest=$2 magic
+  local url=$1 dest=$2 user=${3:-} magic
   if [[ -f $dest ]] && [[ $(head -c4 "$dest") == GGUF ]]; then
     ok "already downloaded: $dest"
     return 0
   fi
   log "downloading $(basename "$dest") (large; resumes if interrupted)"
-  run curl --fail --location --retry 5 --retry-delay 5 --continue-at - --output "$dest" "$url"
+  if [[ -n $user ]]; then runner=(run_as "$user"); else runner=(run); fi
+  "${runner[@]}" curl --fail --location --retry 5 --retry-delay 5 --continue-at - --output "$dest" "$url"
   [[ $DRY_RUN == 1 ]] && return 0
   magic=$(head -c4 "$dest" || true)
   [[ $magic == GGUF ]] || die "$dest is not a GGUF file. Check the exact file name on the repo's Files tab."
+}
+
+# wait_http URL SECONDS  - poll until URL answers 2xx
+wait_http() {
+  local url=$1 secs=$2 i
+  for ((i = 0; i < secs; i += 3)); do
+    curl -fsS -m 3 -o /dev/null "$url" 2>/dev/null && return 0
+    sleep 3
+  done
+  return 1
+}
+
+# tool_call_smoke BASE_URL MODEL [API_KEY]  - succeeds only if the model answers with a get_weather tool call
+# (the guide's Step 20 check: a server started without --jinja answers in prose instead)
+tool_call_smoke() {
+  local base=$1 model=$2 key=${3:-} resp
+  local -a auth=()
+  [[ -n $key ]] && auth=(-H "Authorization: Bearer $key")
+  resp=$(curl -s -m 300 "${auth[@]}" "$base/v1/chat/completions" -H 'Content-Type: application/json' -d "{
+    \"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Weather in Paris?\"}],
+    \"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"parameters\":{\"type\":\"object\",
+    \"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}}]}") || return 1
+  jq -e '.choices[0].message.tool_calls[0].function.name == "get_weather"' <<<"$resp" >/dev/null 2>&1
+}
+
+# set_env_var FILE KEY VALUE  - set KEY=VALUE in a dotenv file, keeping it mode 600
+set_env_var() {
+  local file=$1 key=$2 val=$3
+  [[ $DRY_RUN == 1 ]] && { log "[dry-run] would set $key in $file"; return 0; }
+  mkdir -p "$(dirname "$file")"
+  touch "$file" && chmod 600 "$file"
+  if grep -q "^$key=" "$file"; then
+    local tmp; tmp=$(mktemp)
+    grep -v "^$key=" "$file" >"$tmp" || true
+    printf '%s=%s\n' "$key" "$val" >>"$tmp"
+    cat "$tmp" >"$file" && rm -f "$tmp"
+  else
+    printf '%s=%s\n' "$key" "$val" >>"$file"
+  fi
 }
 
 # ---- stage bookkeeping ------------------------------------------------------
@@ -199,6 +246,9 @@ stage_begin() {
     hermes)
       [[ $(id -un) == "${AGENT_USER:-hermes}" || $DRY_RUN == 1 || ${HS_ALLOW_ANY_USER:-0} == 1 ]] ||
         die "this stage runs as the agent user. Use: ./setup.sh run $(stage_id)"
+      # the real home of whoever runs this (templates paths, e.g. the cron clone)
+      AGENT_HOME=$HOME
+      export AGENT_HOME
       ;;
     admin)
       [[ $(id -un) != "${AGENT_USER:-hermes}" ]] ||

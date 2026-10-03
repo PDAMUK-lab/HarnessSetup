@@ -49,7 +49,7 @@ for repo in $GITHUB_REPOS; do
   if [[ -d $HOME/repos/$repo/.git ]]; then
     ok "$repo already cloned"
   else
-    (cd "$HOME/repos" && run gh repo clone "$GITHUB_ORG/$repo")
+    run gh repo clone "$GITHUB_ORG/$repo" "$HOME/repos/$repo"
   fi
   # keeps the subagents' git worktrees (Phase 3) out of commits
   if [[ $DRY_RUN != 1 ]]; then

@@ -35,9 +35,9 @@ if [[ $DRY_RUN != 1 ]]; then
     sleep 3
   done
   [[ $up == 1 ]] || die "dashboard did not answer on 127.0.0.1:$DASHBOARD_PORT. See: journalctl --user -u hermes-dashboard"
-  auth=$(jq -r '.auth_required' "$st")
+  auth_req=$(jq -r '.auth_required' "$st")
   rm -f "$st"
-  [[ $auth == false ]] || warn "auth_required is '$auth' (guide expects false on loopback)"
+  [[ $auth_req == false ]] || warn "auth_required is '$auth_req' (guide expects false on loopback)"
   binds=$(ss -tln | awk -v p=":$DASHBOARD_PORT" '$4 ~ p"$" {print $4}')
   [[ -n $binds ]] || die "nothing is listening on port $DASHBOARD_PORT"
   if grep -qvE '^127\.0\.0\.1:' <<<"$binds"; then

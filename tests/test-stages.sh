@@ -16,7 +16,7 @@ dry() { # dry ID [opts] -> output in $OUT, status in $RC
   OUT=$("$ROOT/setup.sh" run "$@" --dry-run --yes 2>&1); RC=$?
   OUT=${OUT//\\/}   # run() prints with %q escaping; drop the backslashes
 }
-has() { grep -qF -- "$1" <<<"$OUT"; }
+has() { [[ $1 == -- ]] && shift; grep -qF -- "$1" <<<"$OUT"; }
 hasre() { grep -qE -- "$1" <<<"$OUT"; }
 
 # ---- the dispatcher itself
@@ -58,6 +58,67 @@ dry 04
 check "04: installs build tools incl. python3-yaml" has "python3-yaml"
 check "04: installs ufw" has "ufw"
 check "04: --docker adds the agent to the docker group" bash -c "'$ROOT/setup.sh' run 04 --dry-run --yes --docker 2>&1 | grep -q 'usermod -aG docker hermes'"
+
+# ---- stage 09
+lacks() { ! grep -qF -- "$1" <<<"$OUT"; }
+lineno() { grep -nF -- "$1" <<<"$OUT" | head -1 | cut -d: -f1; }
+dry 09
+check "09: exits 0" test "$RC" -eq 0
+check "09: CUDA build" has "DGGML_CUDA=ON"
+check "09: for Pascal (compute capability 6.1)" has "DCMAKE_CUDA_ARCHITECTURES=61"
+check "09: host compiler g++-13" has "DCMAKE_CUDA_HOST_COMPILER=g++-13"
+check "09: installs into /opt/llama.cpp/bin" has "/opt/llama.cpp/bin"
+dry 09 --vulkan
+check "09: --vulkan uses the Vulkan backend" has "DGGML_VULKAN=ON"
+check "09: --vulkan drops the CUDA flags" lacks "DGGML_CUDA"
+
+# ---- stage 10
+dry 10
+check "10: exits 0" test "$RC" -eq 0
+check "10: creates the llm system user" has "adduser --system --group --home /srv/llm llm"
+check "10: downloads as llm and fails on HTTP errors" has "runuser -u llm -- curl --fail"
+check "10: download is resumable" has -- "--continue-at"
+check "10: installs the systemd unit" has "llama-server.service"
+check "10: enables and starts it" has "enable --now llama-server"
+check "10: no benchmark unless asked" lacks "llama-bench"
+dry 10 --bench
+check "10: --bench runs llama-bench with the guide's flags" has "-nkvo 0,1 -d 0,32768"
+dry 10 --no-start
+check "10: --no-start does not enable the service" lacks "enable --now"
+
+# ---- stages 11 and 12 (dry)
+dry 11
+check "11: exits 0" test "$RC" -eq 0
+check "11: shows the fallback chain it would write" has "fallback_providers"
+check "11: creates the local profile from a clone" has "hermes profile create local --clone"
+check "11: clears stale cloud keys from the profile" has "after deleting delegation.provider"
+dry 12
+check "12: exits 0" test "$RC" -eq 0
+check "12: creates nightly-tests paused" has "--name nightly-tests --paused"
+check "12: creates release-watcher paused by default" has "--name release-watcher --paused"
+dry 12 --active
+check "12: --active creates the watcher running" lacks "release-watcher --paused"
+
+# ---- stage 13
+dry 13
+check "13: exits 0" test "$RC" -eq 0
+check "13: reset comes before enable" test "$(lineno 'ufw --force reset')" -lt "$(lineno 'ufw --force enable')"
+deny=$(lineno 'deny out to 192.168.1.0/24')
+check "13: DNS allow precedes the LAN deny" test "$(lineno 'allow out to 192.168.1.1 port 53')" -lt "$deny"
+check "13: desktop model allow precedes the LAN deny" test "$(lineno 'allow out to 192.168.1.100 port 8080')" -lt "$deny"
+check "13: NTP allow precedes the LAN deny" test "$(lineno 'allow out 123/udp')" -lt "$deny"
+check "13: DHCP allow precedes the LAN deny" test "$(lineno 'allow out 67/udp')" -lt "$deny"
+check "13: default-deny outgoing is set" has "default deny outgoing"
+check "13: default-deny incoming is set" has "default deny incoming"
+check "13: only the desktop may SSH in" has "allow in from 192.168.1.100 to any port 22"
+check "13: 443 allowed out" has "allow out 443/tcp"
+check "13: env files locked to 600" has "chmod 600 /home/hermes/.hermes/.env"
+OUT=$(SSH_CLIENT="10.9.9.9 5555 22" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1)
+check "13: warns before cutting off an SSH session from another address" has "would cut you off"
+OUT=$(SSH_CLIENT="192.168.1.100 5555 22" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1)
+check "13: no warning when connected from the allowed address" lacks "would cut you off"
+OUT=$(SSH_CLIENT="10.9.9.9 5555 22" "$ROOT/setup.sh" run 13 --dry-run --yes --force 2>&1)
+check "13: --force silences the lock-out warning" lacks "would cut you off"
 
 # ---- bookkeeping: a marker makes the stage show as done and 'next' skips it
 mkdir -p "$DESTDIR/var/lib/harness-setup/done" && echo now >"$DESTDIR/var/lib/harness-setup/done/01"
