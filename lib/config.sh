@@ -20,11 +20,14 @@ CFG_NORM='' CFG_ERR='' CFG_DEF='' CFG_DEF_SRC=''
 
 # ---- interaction -------------------------------------------------------------
 
+# _hs_tty_ok  - can /dev/tty really be opened? (it can exist without a controlling terminal)
+_hs_tty_ok() { (: </dev/tty) 2>/dev/null; }
+
 # is_interactive  - may we ask the user? (no with --yes, and no without a terminal)
 is_interactive() {
   [[ ${ASSUME_YES:-0} != 1 ]] || return 1
   [[ -n ${HS_INPUT:-} ]] && return 0
-  [[ -t 0 && -r /dev/tty ]]
+  [[ -t 0 ]] && _hs_tty_ok
 }
 
 _hs_input_open() {
@@ -40,10 +43,10 @@ read_answer() {
   if [[ -n ${HS_INPUT:-} ]]; then
     _hs_input_open
     printf '%s' "$p" >&2
-    IFS= read -r -u 9 ANSWER || die "the scripted answers (HS_INPUT) ran out at: $p"
+    IFS= read -r -u 9 ANSWER || [[ -n $ANSWER ]] || die "the scripted answers (HS_INPUT) ran out at: $p"
     printf '%s\n' "$ANSWER" >&2
   else
-    [[ -r /dev/tty ]] || die "there is no terminal to ask on: $p  (give the value as an option, or use --yes for the defaults)"
+    _hs_tty_ok || die "there is no terminal to ask on: $p  (give the value as an option, or use --yes for the defaults)"
     IFS= read -r -p "$p" ANSWER </dev/tty || die "input ended at: $p"
   fi
   ANSWER=${ANSWER%$'\r'}
@@ -117,6 +120,7 @@ cfg_expand() {
 # cfg_net a.b.c.d/p  - the network address of that interface address, e.g. 192.168.1.150/24 -> 192.168.1.0/24
 cfg_net() {
   local ip=${1%/*} p=${1#*/} a b c d n mask
+  p=$((10#$p))
   IFS=. read -r a b c d <<<"$ip"
   n=$(((a << 24) | (b << 16) | (c << 8) | d))
   if ((p == 0)); then mask=0; else mask=$(((0xFFFFFFFF << (32 - p)) & 0xFFFFFFFF)); fi
@@ -173,9 +177,10 @@ cfg_valid_ip() {
 # cfg_validate TYPE VALUE  - status 0 if valid; CFG_NORM holds the normalised value, CFG_ERR the complaint
 cfg_validate() {
   local type=$1 v=$2 lo hi w
+  local -a words=()
   CFG_NORM=$v CFG_ERR=''
   if [[ $type != optmodel && -z $v ]]; then CFG_ERR='a value is required'; return 1; fi
-  if [[ $v == *[\'\"\`\$]* || $v == *$'\n'* ]]; then CFG_ERR='quotes, $ and backticks are not allowed'; return 1; fi
+  if [[ $v == *[\'\"\`\$]* || $v == *$'\n'* || $v == *$'\r'* ]]; then CFG_ERR='quotes, $ and backticks are not allowed'; return 1; fi
   if [[ $v == *\\* && $type != winpath ]]; then CFG_ERR='backslashes are not allowed here'; return 1; fi
   case $v in
     *yourorg* | *yourrepo* | 12345678+* | *CHANGEME* | *\<*) CFG_ERR='that is still the example value'; return 1 ;;
@@ -190,7 +195,7 @@ cfg_validate() {
       else
         lo='' hi=0
       fi
-      if [[ -n $lo ]] && cfg_valid_ip "$lo" && ((hi >= 8 && hi <= 30)); then
+      if [[ -n $lo ]] && cfg_valid_ip "$lo" && ((10#$hi >= 8 && 10#$hi <= 30)); then
         CFG_NORM=$(cfg_net "$v")
       else
         CFG_ERR='expected a network like 192.168.1.0/24 (prefix 8 to 30)'
@@ -228,7 +233,8 @@ cfg_validate() {
       CFG_NORM=${CFG_NORM# }
       CFG_NORM=${CFG_NORM% }
       [[ -n $CFG_NORM ]] || { CFG_ERR='a value is required'; return 1; }
-      for w in $CFG_NORM; do
+      read -r -a words <<<"$CFG_NORM"   # an array: no globbing of '*'
+      for w in "${words[@]}"; do
         if ! { [[ $w =~ ^[A-Za-z0-9._-]+$ ]] && [[ $w != . && $w != .. ]]; }; then
           CFG_ERR="'$w' is not a repository name (names only, no owner/ prefix)"
           return 1
@@ -262,7 +268,10 @@ cfg_validate() {
       CFG_NORM=${v%\\}
       ;;
     alias)
-      [[ $v =~ ^[A-Za-z0-9._-]+$ ]] || { CFG_ERR='expected letters, digits, dots and dashes'; return 1; }
+      [[ $v =~ ^[A-Za-z][A-Za-z0-9._-]*$ ]] || { CFG_ERR='expected a name starting with a letter (then letters, digits, dots, dashes)'; return 1; }
+      case ${v,,} in
+        true | false | yes | no | on | off | null | y | n) CFG_ERR="'$v' would be read as a yes/no/null value in the YAML config"; return 1 ;;
+      esac
       ;;
     text) ;;
     choice:*)
@@ -278,15 +287,38 @@ cfg_validate() {
 
 # ---- reading and writing node.env ----------------------------------------------
 
+# cfg_unquote "text after KEY="  - the value the shell would assign: '...' and "..." segments, \x escapes,
+# stops at the first unquoted blank (a trailing # comment). Never evaluates anything.
 cfg_unquote() {
-  local v=$1
-  v=${v#"${v%%[![:space:]]*}"}
-  case $v in
-    \'*) v=${v#\'}; v=${v%%\'*} ;;
-    \"*) v=${v#\"}; v=${v%%\"*} ;;
-    *) v=${v%% \#*}; v=${v%"${v##*[![:space:]]}"} ;;
-  esac
-  printf '%s' "$v"
+  local s=$1 out='' c mode=bare i=0 n
+  s=${s#"${s%%[![:space:]]*}"}
+  n=${#s}
+  while ((i < n)); do
+    c=${s:i:1}
+    case $mode in
+      bare)
+        case $c in
+          "'") mode=single ;;
+          '"') mode=double ;;
+          \\) i=$((i + 1)); out+=${s:i:1} ;;
+          ' ' | $'\t') break ;;
+          *) out+=$c ;;
+        esac
+        ;;
+      single) if [[ $c == "'" ]]; then mode=bare; else out+=$c; fi ;;
+      double)
+        case $c in
+          '"') mode=bare ;;
+          \\)
+            if [[ ${s:i+1:1} == [\"\\\$\`] ]]; then i=$((i + 1)); out+=${s:i:1}; else out+=$c; fi
+            ;;
+          *) out+=$c ;;
+        esac
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  printf '%s' "$out"
 }
 
 cfg_parse_env() {
@@ -295,12 +327,24 @@ cfg_parse_env() {
   while IFS= read -r line || [[ -n $line ]]; do
     line=${line%$'\r'}
     [[ $line =~ ^[[:space:]]*(#|$) ]] && continue
-    if [[ $line =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-      k=${BASH_REMATCH[1]}
-      v=$(cfg_unquote "${BASH_REMATCH[2]}")
+    if [[ $line =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      k=${BASH_REMATCH[2]}
+      v=$(cfg_unquote "${BASH_REMATCH[3]}")
       if [[ -n ${CFG_SCOPE[$k]+x} ]]; then CFG_VAL[$k]=$v; else CFG_EXTRA+=("$line"); fi
+    else
+      CFG_EXTRA+=("$line")   # anything else that is not a comment is kept as found
     fi
   done <"$f"
+}
+
+# A 0.1.0-style file pins the model file but has no *_QUANT: read the quantization off the file name
+# so choosing the file and the quantization cannot disagree.
+cfg_infer_quants() {
+  local pair q f
+  for pair in LAPTOP DESKTOP; do
+    q=${pair}_QUANT f=${pair}_MODEL_FILE
+    if [[ -z ${CFG_VAL[$q]+x} && ${CFG_VAL[$f]-} =~ -(UD-Q[0-9]_K_XL)\.gguf$ ]]; then CFG_VAL[$q]=${BASH_REMATCH[1]}; fi
+  done
 }
 
 # Derived advanced settings that still equal their derived value are forgotten, so they follow
@@ -314,13 +358,18 @@ cfg_drop_derived() {
 }
 
 cfg_quote() {
-  if [[ $1 =~ ^[A-Za-z0-9._/:@+,=-]*$ ]]; then printf '%s' "$1"; else printf "'%s'" "$1"; fi
+  local v=$1
+  if [[ $v =~ ^[A-Za-z0-9._/:@+,=-]*$ ]]; then printf '%s' "$v"; else printf "'%s'" "${v//\'/\'\\\'\'}"; fi
 }
 
 # cfg_write_env FILE|-  - write every setting, grouped and commented ("-" = stdout)
 cfg_write_env() {
   local out=$1 k group='' v tmp
-  tmp=$(mktemp)
+  if [[ $out == - ]]; then tmp=$(mktemp); else
+    [[ ! -L $out ]] || out=$(readlink -f "$out")
+    mkdir -p "$(dirname "$out")" || die "cannot create $(dirname "$out")"
+    tmp=$(mktemp "$(dirname "$out")/.node.env.XXXXXX") || die "cannot write in $(dirname "$out")"
+  fi
   {
     printf '%s\n' '# HarnessSetup settings - written by ./setup.sh configure.' \
       '# Safe to edit by hand, or run ./setup.sh configure again (it offers these values as the defaults).' \
@@ -345,9 +394,8 @@ cfg_write_env() {
     fi
   } >"$tmp"
   if [[ $out == - ]]; then cat "$tmp"; rm -f "$tmp"; return 0; fi
-  mkdir -p "$(dirname "$out")"
   chmod 644 "$tmp"
-  mv "$tmp" "$out"
+  mv "$tmp" "$out" || { rm -f "$tmp"; die "could not save $out"; }
 }
 
 # ---- asking --------------------------------------------------------------------
@@ -403,6 +451,11 @@ cfg_prompt() {
   local key=$1 def='' src=current hint opts='' i w ans type
   type=${CFG_TYPE[$key]}
   def=${CFG_VAL[$key]-}
+  if [[ -n $def ]] && ! cfg_validate "$type" "$def"; then
+    warn "the current value of $key is not usable ($CFG_ERR); ignoring it"
+    unset "CFG_VAL[$key]"
+    def=''
+  fi
   if [[ -z ${CFG_VAL[$key]+x} ]]; then
     cfg_default "$key"
     def=$CFG_DEF src=$CFG_DEF_SRC
@@ -510,6 +563,7 @@ configure_main() {
   cfg_schema_load
   cfg_reset_values
   cfg_parse_env "$file"
+  cfg_infer_quants
   cfg_drop_derived
   for kv in "${sets[@]}"; do
     k=${kv%%=*}
@@ -524,6 +578,7 @@ configure_main() {
       is_interactive || die "configure --only needs a terminal (or use --set $k=VALUE)"
       cfg_prompt "$k"
     done
+    cfg_fill_rest noauto
   else
     if ((defaults)); then :; elif is_interactive; then
       cat >&2 <<MSG
@@ -543,7 +598,7 @@ MSG
       _cfg_pass advanced "$defaults"
     fi
   fi
-  cfg_fill_rest
+  ((${#only[@]})) || cfg_fill_rest
 
   # what is still wrong or missing? (a targeted --only edit does not judge the rest of the file)
   for k in "${CFG_KEYS[@]}"; do
@@ -557,6 +612,9 @@ MSG
   if ((${#invalid[@]})); then
     for last in "${invalid[@]}"; do warn "invalid setting: $last"; done
     die "fix those in $file, or run ./setup.sh configure to be asked again"
+  fi
+  if [[ -n ${CFG_VAL[ADMIN_USER]-} && ${CFG_VAL[ADMIN_USER]-} == "${CFG_VAL[AGENT_USER]-hermes}" ]]; then
+    warn "the admin account and the agent account are both '${CFG_VAL[ADMIN_USER]}': the agent should have its own account"
   fi
   if [[ ${CFG_VAL[DESKTOP_IP]-} == "${CFG_VAL[LAPTOP_IP]-x}" ]]; then warn "the laptop and the desktop have the same IP address"; fi
   if [[ ${CFG_VAL[NIGHT_ENABLED]-0} == 1 && ${CFG_VAL[NIGHT_START]-} == "${CFG_VAL[NIGHT_END]-}" ]]; then warn "the overnight tier starts and ends at the same time"; fi
@@ -589,6 +647,7 @@ cfg_ensure() {
   cfg_schema_load
   cfg_reset_values
   cfg_parse_env "$file"
+  cfg_infer_quants
   cfg_drop_derived
   for k in "$@"; do
     [[ -n ${CFG_SCOPE[$k]+x} ]] || continue
@@ -614,6 +673,10 @@ cfg_apply_defaults() {
   CFG_VAL=()
   for k in "${CFG_KEYS[@]}"; do
     if [[ -n ${!k+x} ]]; then CFG_VAL[$k]=${!k}; fi
+  done
+  cfg_infer_quants
+  for k in LAPTOP_QUANT DESKTOP_QUANT; do
+    if [[ -z ${!k+x} && -n ${CFG_VAL[$k]+x} ]]; then export "$k=${CFG_VAL[$k]}"; fi
   done
   for k in "${CFG_KEYS[@]}"; do
     [[ -z ${!k+x} ]] || continue

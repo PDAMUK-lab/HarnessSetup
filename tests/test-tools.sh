@@ -135,6 +135,8 @@ adopt "$T" --install x --test y --package z
 check "adopt: refuses a non-git directory" test $RC -ne 0
 adopt "$T/proj2" --install 'a @@ b' --test y --package z
 check "adopt: refuses commands containing @@" test $RC -ne 0
+adopt "$T/proj2" --install $'npm ci\r- run: evil' --test y --package z
+check "adopt: refuses a carriage return in a command (it could inject workflow steps)" test $RC -ne 0
 OUT=$("$ROOT/setup.sh" tool adopt-repo "$T/proj2" --install x --test y --package z 2>&1); RC=$?
 check "setup.sh tool adopt-repo works through the dispatcher" test $RC -eq 0
 

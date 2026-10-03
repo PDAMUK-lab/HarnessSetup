@@ -65,7 +65,7 @@ need_cmd() {
 
 confirm() { # confirm "Question?"  - default no; --yes answers yes
   if [[ $ASSUME_YES == 1 ]]; then return 0; fi
-  if [[ -z ${HS_INPUT:-} && ! -r /dev/tty ]]; then die "need an answer to '$1' but there is no terminal; re-run with --yes"; fi
+  if [[ -z ${HS_INPUT:-} ]] && ! _hs_tty_ok; then die "need an answer to '$1' but there is no terminal; re-run with --yes"; fi
   read_answer "$1 [y/N] "
   [[ ${ANSWER,,} == y || ${ANSWER,,} == yes ]]
 }
@@ -88,7 +88,7 @@ load_config() {
   [[ -f $NODE_ENV_FILE ]] || die "no settings yet ($NODE_ENV_FILE). Run: ./setup.sh configure   (it asks for them)"
   set -a
   # shellcheck disable=SC1090
-  source "$NODE_ENV_FILE"
+  source <(sed 's/\r$//' "$NODE_ENV_FILE")   # tolerate a file saved with Windows line endings
   set +a
   cfg_apply_defaults
   # only what every stage uses; a stage that needs more (the firewall: ROUTER_IP, LAN_CIDR) says so itself

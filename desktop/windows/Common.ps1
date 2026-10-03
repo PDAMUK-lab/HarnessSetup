@@ -29,23 +29,43 @@ function Get-DefaultConfigPath {
     Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'config/node.env'
 }
 
-# Read-NodeEnv PATH  - parse config/node.env (KEY=value, optional quotes, # comments) into an ordered dictionary
+# ConvertFrom-EnvValue "text after KEY="  - the value the shell would assign: '...' and "..." segments, \x escapes,
+# stops at the first unquoted blank (a trailing # comment). Never evaluates anything. Mirrors cfg_unquote in lib/config.sh.
+function ConvertFrom-EnvValue {
+    param([AllowEmptyString()][string]$Text)
+    $t = $Text.TrimStart()
+    $sb = New-Object System.Text.StringBuilder
+    $mode = 'bare'
+    for ($i = 0; $i -lt $t.Length; $i++) {
+        $c = [string]$t[$i]
+        if ($mode -eq 'bare') {
+            if ($c -eq "'") { $mode = 'single' }
+            elseif ($c -eq '"') { $mode = 'double' }
+            elseif ($c -eq '\') { $i++; if ($i -lt $t.Length) { [void]$sb.Append($t[$i]) } }
+            elseif ($c -eq ' ' -or $c -eq "`t") { break }
+            else { [void]$sb.Append($c) }
+        } elseif ($mode -eq 'single') {
+            if ($c -eq "'") { $mode = 'bare' } else { [void]$sb.Append($c) }
+        } else {
+            if ($c -eq '"') { $mode = 'bare' }
+            elseif ($c -eq '\' -and ($i + 1) -lt $t.Length -and '"\$`'.Contains([string]$t[$i + 1])) { $i++; [void]$sb.Append($t[$i]) }
+            else { [void]$sb.Append($c) }
+        }
+    }
+    return $sb.ToString()
+}
+
+# Read-NodeEnv PATH  - parse config/node.env (KEY=value, optional export, quotes, # comments) into an ordered dictionary
 function Read-NodeEnv {
     param([Parameter(Mandatory)][string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) {
-        throw "Missing $Path - copy config\node.env.example to config\node.env and edit it."
+        throw "Missing $Path - run .\Configure.ps1 (it asks for the settings) or copy the laptop's config/node.env there."
     }
     $cfg = [ordered]@{}
     foreach ($line in Get-Content -LiteralPath $Path) {
-        $t = $line.Trim()
-        if ($t -eq '' -or $t.StartsWith('#')) { continue }
-        if ($t -notmatch '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') { continue }
-        $key = $Matches[1]
-        $val = $Matches[2].Trim()
-        if ($val -match '^"([^"]*)"') { $val = $Matches[1] }
-        elseif ($val -match "^'([^']*)'") { $val = $Matches[1] }
-        else { $val = $val -replace '\s+#.*$', '' }
-        $cfg[$key] = $val
+        if ($line -match '^\s*(#|$)') { continue }
+        if ($line -notmatch '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$') { continue }
+        $cfg[$Matches[1]] = ConvertFrom-EnvValue $Matches[2]
     }
     return $cfg
 }
@@ -261,7 +281,7 @@ function Test-SettingValue {
     if ($Type -ne 'optmodel' -and $v -eq '') { return & $r $false $v 'a value is required' }
     if ($v -match "['""`$``]" -or $v -match "[\r\n]") { return & $r $false $v 'quotes, $ and backticks are not allowed' }
     if ($v.Contains('\') -and $Type -ne 'winpath') { return & $r $false $v 'backslashes are not allowed here' }
-    if ($v -match 'yourorg|yourrepo|CHANGEME|<' -or $v.StartsWith('12345678+')) { return & $r $false $v 'that is still the example value' }
+    if ($v -cmatch 'yourorg|yourrepo|CHANGEME|<' -or $v.StartsWith('12345678+')) { return & $r $false $v 'that is still the example value' }
     switch -Regex ($Type) {
         '^ip$' {
             if (Test-IPv4 $v) { return & $r $true $v '' }
@@ -331,8 +351,9 @@ function Test-SettingValue {
             return & $r $false $v 'expected a Windows folder without spaces, like C:\llama'
         }
         '^alias$' {
-            if ($v -cmatch '^[A-Za-z0-9._-]+$') { return & $r $true $v '' }
-            return & $r $false $v 'expected letters, digits, dots and dashes'
+            if ($v -cnotmatch '^[A-Za-z][A-Za-z0-9._-]*$') { return & $r $false $v 'expected a name starting with a letter (then letters, digits, dots, dashes)' }
+            if ($v.ToLowerInvariant() -in 'true', 'false', 'yes', 'no', 'on', 'off', 'null', 'y', 'n') { return & $r $false $v "'$v' would be read as a yes/no/null value in the YAML config" }
+            return & $r $true $v ''
         }
         '^text$' { return & $r $true $v '' }
         '^choice:(.+)$' {
@@ -401,8 +422,15 @@ function Read-Setting {
     param([Parameter(Mandatory)]$Row, [Parameter(Mandatory)][System.Collections.IDictionary]$Values)
     $def = ''
     $src = 'current'
-    if ($Values.Contains($Row.Key)) { $def = [string]$Values[$Row.Key] }
-    else { $d = Get-SettingDefault -Row $Row -Values $Values; $def = $d.Value; $src = $d.Source }
+    if ($Values.Contains($Row.Key)) {
+        $def = [string]$Values[$Row.Key]
+        $chk = Test-SettingValue -Type $Row.Type -Value $def
+        if ($def -ne '' -and -not $chk.Ok) {
+            Write-Warn "the current value of $($Row.Key) is not usable ($($chk.Error)); ignoring it"
+            $Values.Remove($Row.Key)
+        }
+    }
+    if (-not $Values.Contains($Row.Key)) { $d = Get-SettingDefault -Row $Row -Values $Values; $def = $d.Value; $src = $d.Source }
     Write-Host ''
     Write-Host "  $($Row.Help)"
     $hint = $def
@@ -416,7 +444,7 @@ function Read-Setting {
     while ($true) {
         $ans = Read-Answer "  $($Row.Prompt) [$hint]"
         if ($ans -eq '') { $ans = $def }
-        if ($opts.Count -gt 0 -and $ans -cmatch '^[0-9]+$' -and [int]$ans -ge 1 -and [int]$ans -le $opts.Count) { $ans = $opts[[int]$ans - 1] }
+        if ($opts.Count -gt 0 -and $ans -cmatch '^[0-9]{1,3}$' -and [int]$ans -ge 1 -and [int]$ans -le $opts.Count) { $ans = $opts[[int]$ans - 1] }
         $t = Test-SettingValue -Type $Row.Type -Value $ans
         if ($t.Ok) { $Values[$Row.Key] = $t.Norm; return }
         Write-Warn $t.Error
@@ -427,7 +455,7 @@ function Read-Setting {
 
 function ConvertTo-EnvValue([string]$Value) {
     if ($Value -cmatch '^[A-Za-z0-9._/:@+,=-]*$') { return $Value }
-    return "'$Value'"
+    return "'" + $Value.Replace("'", "'\''") + "'"
 }
 
 # Write-NodeEnv PATH $schema $values $extra  - same layout as `./setup.sh configure` writes
@@ -461,7 +489,16 @@ function Write-NodeEnv {
     if ($Extra.Count -gt 0) { $out.Add(''); $out.Add('# ---- Other settings (kept as found) ----'); foreach ($e in $Extra) { $out.Add($e) } }
     $dir = Split-Path -Parent $Path
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    [System.IO.File]::WriteAllText($Path, (($out -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+    $tmp = "$Path.tmp"
+    [System.IO.File]::WriteAllText($tmp, (($out -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
+}
+
+# Show-NodeEnv  - print what Write-NodeEnv would save
+function Show-NodeEnv {
+    param([object[]]$Schema, [System.Collections.IDictionary]$Values, [string[]]$Extra = @())
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try { Write-NodeEnv -Path $tmp -Schema $Schema -Values $Values -Extra $Extra; Write-Host (Get-Content -LiteralPath $tmp -Raw) } finally { Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue }
 }
 
 # Read-SettingsFile PATH $schema  - { Values; Extra }; derived advanced values that still equal their derivation are forgotten
@@ -475,7 +512,12 @@ function Read-SettingsFile {
         $file = Read-NodeEnv $Path
         foreach ($k in $file.Keys) {
             if ($known.ContainsKey($k)) { $values[$k] = [string]$file[$k] }
-            else { $extra.Add("$k=$(ConvertTo-EnvValue ([string]$file[$k]))") }
+        }
+        # everything that is not a comment, a blank or a setting we know is kept exactly as found
+        foreach ($line in Get-Content -LiteralPath $Path) {
+            if ($line -match '^\s*(#|$)') { continue }
+            if ($line -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=' -and $known.ContainsKey($Matches[1])) { continue }
+            $extra.Add($line)
         }
         foreach ($row in $Schema) {
             if ($row.Default -match '\{[A-Z0-9_]+\}' -and $row.Level -eq 'advanced' -and $values.Contains($row.Key) -and
@@ -524,11 +566,12 @@ function Invoke-ConfigWizard {
         [switch]$Print
     )
     # powershell -File passes "-Set A=1,B=2" as one string: split it ourselves
-    $Set = @($Set | ForEach-Object { $_ -split ',(?=[A-Z][A-Z0-9_]*=)' } | Where-Object { $_ })
-    $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
     $schema = Get-SettingsSchema
     $byKey = @{}
     foreach ($row in $schema) { $byKey[$row.Key] = $row }
+    $keyAlt = ($schema | ForEach-Object { [regex]::Escape($_.Key) }) -join '|'
+    $Set = @($Set | ForEach-Object { $_ -split ",(?=(?:$keyAlt)=)" } | Where-Object { $_ })
+    $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
     $state = Read-SettingsFile -Path $Path -Schema $schema
     $values = $state.Values
     $forced = @{}
@@ -545,8 +588,8 @@ function Invoke-ConfigWizard {
             if (-not (Test-Interactive)) { throw "-Only needs a terminal (or use -Set ${k}=VALUE)" }
             Read-Setting -Row $byKey[$k] -Values $values
         }
-        Complete-Settings -Schema $schema -Values $values -Scope $Scope
-        if ($Print) { return }
+        Complete-Settings -Schema $schema -Values $values -Scope $Scope -NoAuto
+        if ($Print) { Show-NodeEnv -Schema $schema -Values $values -Extra $state.Extra; return }
         Write-NodeEnv -Path $Path -Schema $schema -Values $values -Extra $state.Extra
         Write-Ok "saved $Path"
         return
@@ -588,7 +631,9 @@ function Invoke-ConfigWizard {
         elseif ($v -ne '' -and -not (Test-SettingValue -Type $row.Type -Value $v).Ok) { $problems += "$($row.Key) ($((Test-SettingValue -Type $row.Type -Value $v).Error))" }
     }
     if ($problems.Count -gt 0) { throw "invalid settings: $($problems -join '; '). Fix them in $Path or run Configure.ps1 again." }
-    if ($Print) { Write-Host (($schema | ForEach-Object { "$($_.Key)=$($values[$_.Key])" }) -join "`n"); return }
+    if ($values.Contains('DESKTOP_IP') -and $values.Contains('LAPTOP_IP') -and $values['DESKTOP_IP'] -eq $values['LAPTOP_IP']) { Write-Warn 'the laptop and the desktop have the same IP address' }
+    if ($values.Contains('NIGHT_ENABLED') -and $values['NIGHT_ENABLED'] -eq '1' -and $values['NIGHT_START'] -eq $values['NIGHT_END']) { Write-Warn 'the overnight tier starts and ends at the same time' }
+    if ($Print) { Show-NodeEnv -Schema $schema -Values $values -Extra $state.Extra; return }
     if ($ask) {
         Write-Host ''
         foreach ($row in $schema) {
@@ -602,6 +647,20 @@ function Invoke-ConfigWizard {
     Write-NodeEnv -Path $Path -Schema $schema -Values $values -Extra $state.Extra
     Write-Ok "saved $Path"
     if ($missing.Count -gt 0) { Write-Warn "not set yet: $($missing -join ' ') (you will be asked when a step needs them)" }
+}
+
+# Get-SettingsProblem PATH  - one message per setting in the file that fails validation
+function Get-SettingsProblem {
+    param([Parameter(Mandatory)][string]$Path)
+    $schema = Get-SettingsSchema
+    $state = Read-SettingsFile -Path $Path -Schema $schema
+    $problems = @()
+    foreach ($row in $schema) {
+        if (-not $state.Values.Contains($row.Key)) { continue }
+        $t = Test-SettingValue -Type $row.Type -Value ([string]$state.Values[$row.Key])
+        if (-not $t.Ok) { $problems += "$($row.Key): $($t.Error)" }
+    }
+    return , $problems
 }
 
 # Initialize-NodeConfig -Path P -Need KEYS  - the settings every Windows script starts with:
@@ -618,12 +677,24 @@ function Initialize-NodeConfig {
         if ($login -ne '') {
             $remote = Read-Answer 'Path of node.env on the laptop [~/HarnessSetup/config/node.env]'
             if ($remote -eq '') { $remote = '~/HarnessSetup/config/node.env' }
+            if ($login -cnotmatch '^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$' -or $remote -cnotmatch '^[A-Za-z0-9._~/-]+$') {
+                Write-Warn 'that does not look like user@address and a file path; asking the questions here instead.'
+                $login = ''
+            }
+        }
+        if ($login -ne '') {
             $dir = Split-Path -Parent $Path
             if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
             try {
-                & scp "${login}:${remote}" $Path
-                if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $Path)) { Write-Ok "copied the laptop's settings to $Path"; $imported = $true }
-                else { Write-Warn "could not copy it (scp exit $LASTEXITCODE); asking the questions here instead." }
+                & scp -- "${login}:${remote}" $Path
+                if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $Path)) {
+                    $probs = Get-SettingsProblem -Path $Path
+                    if ($probs.Count -eq 0) { Write-Ok "copied the laptop's settings to $Path"; $imported = $true }
+                    else {
+                        Write-Warn ("the copied file has settings that are not valid ($($probs -join '; ')); ignoring it.")
+                        Remove-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+                    }
+                } else { Write-Warn "could not copy it (scp exit $LASTEXITCODE); asking the questions here instead." }
             } catch { Write-Warn "could not run scp ($($_.Exception.Message)); asking the questions here instead." }
         }
         if (-not $imported) { Invoke-ConfigWizard -Path $Path -Scope desktop }

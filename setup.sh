@@ -28,7 +28,7 @@ load_agent_user() {
   if [[ -f ${NODE_ENV:-$HS_ROOT/config/node.env} ]]; then
     AGENT_USER=$(
       # shellcheck disable=SC1090
-      source "${NODE_ENV:-$HS_ROOT/config/node.env}" && printf '%s' "${AGENT_USER:-hermes}")
+      source <(sed 's/\r$//' "${NODE_ENV:-$HS_ROOT/config/node.env}") && printf '%s' "${AGENT_USER:-hermes}")
   fi
 }
 load_agent_user

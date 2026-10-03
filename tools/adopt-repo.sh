@@ -56,7 +56,7 @@ ask_text VERSION_FILE "File that holds the version" "$d_version"
 export INSTALL_CMD TEST_CMD LINT_CMD PACKAGE_CMD VERSION_FILE
 # the commands are substituted literally; refuse text that would break the generated files
 for v in INSTALL_CMD TEST_CMD LINT_CMD PACKAGE_CMD; do
-  [[ ${!v} != *@@* && ${!v} != *$'\n'* ]] || die "$v must be a single line without '@@'"
+  [[ ${!v} != *@@* && ${!v} != *$'\n'* && ${!v} != *$'\r'* ]] || die "$v must be a single line without '@@'"
 done
 
 write() { # write TEMPLATE DEST

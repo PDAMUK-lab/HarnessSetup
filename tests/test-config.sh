@@ -178,6 +178,74 @@ check "unknown lines in node.env survive a rewrite" test "$(val "$T/adv.env" MY_
 OUT=$(NODE_ENV="$T/adv.env" "$ROOT/setup.sh" configure --only LLM_PORT --answers /dev/null 2>&1); RC=$?
 check "scripted answers running out is a clear error" bash -c "[[ $RC -ne 0 ]] && grep -q 'ran out' <<<\"\$0\"" "$OUT"
 
+
+# =============================== file integrity (found by the review workflow)
+hv=$T/hostile.env
+cat >"$hv" <<ENV
+LAPTOP_IP=10.0.0.20
+DESKTOP_IP=10.0.0.30
+ROUTER_IP=10.0.0.1
+ADMIN_USER=james
+LAPTOP_MODEL_ALIAS="x' ; touch $T/PWNED ; echo '"
+export DASHBOARD_PORT=9120
+MY_ARR=(a b)
+MY_HOME="\$HOME/x"
+ENV
+NODE_ENV="$hv" "$ROOT/setup.sh" configure --defaults >/dev/null 2>&1
+# shellcheck disable=SC1090  # sourcing the file under test, as the stages do
+( set -a; source "$hv" ) >/dev/null 2>&1
+check "integrity: a value with a quote stays inert after the wizard rewrites the file" test ! -e "$T/PWNED"
+check "integrity: ...and still reads back identical" test "$(NODE_ENV="$hv" bash -c 'source "$1/lib/common.sh"; cfg_schema_load; cfg_parse_env "$NODE_ENV"; printf "%s" "${CFG_VAL[LAPTOP_MODEL_ALIAS]}"' _ "$ROOT")" = "x' ; touch $T/PWNED ; echo '"
+check "integrity: the rewritten file still sources cleanly" bash -c "set -e; set -a; source '$hv' >/dev/null 2>&1"
+check "integrity: an 'export KEY=value' line is honoured, not dropped" test "$(val "$hv" DASHBOARD_PORT)" = 9120
+check "integrity: an array assignment is kept exactly as found" grep -qxF 'MY_ARR=(a b)' "$hv"
+check "integrity: an unexpanded \$HOME is kept exactly as found" grep -qxF 'MY_HOME="$HOME/x"' "$hv"
+printf 'LAPTOP_MODEL_ALIAS="it'"'"'s"\nLAPTOP_IP=10.0.0.20\nDESKTOP_IP=10.0.0.30\nADMIN_USER=james\n' >"$T/apos.env"
+NODE_ENV="$T/apos.env" "$ROOT/setup.sh" configure --defaults >/dev/null 2>&1
+check "integrity: a benign apostrophe no longer breaks the file" bash -c "NODE_ENV='$T/apos.env'; source '$ROOT/lib/common.sh'; load_config 2>/dev/null; [[ \$LAPTOP_MODEL_ALIAS == \"it's\" ]]"
+for tricky in 'a b' 'a#b' 'a=b' 'x"y' "x'y" 'back\slash' 'tab	tab' '$HOME' '`id`' '*' '-rf' ''; do
+  roundtrip_ok() {
+    local q; q=$(cfg_quote "$tricky")
+    local back; back=$(bash -c "source /dev/stdin <<<\"V=\$1\"; printf '%s' \"\$V\"" _ "$q")
+    [[ $back == "$tricky" ]] && [[ $(cfg_unquote "$q") == "$tricky" ]]
+  }
+  check "quote round trip: shell and cfg_unquote both read back [$tricky]" roundtrip_ok
+done
+# CRLF files
+printf 'LAPTOP_IP=10.0.0.20\r\nDESKTOP_IP=10.0.0.30\r\nADMIN_USER=james\r\n' >"$T/crlf.env"
+check "CRLF: load_config strips the carriage returns" test "$( ( NODE_ENV="$T/crlf.env"; load_config; printf '%s' "$ADMIN_USER" ) | od -An -c | tr -d ' ')" = 'james'
+# the old pinned model file picks the quantization
+printf 'LAPTOP_IP=10.0.0.20\nDESKTOP_IP=10.0.0.30\nADMIN_USER=james\nLAPTOP_MODEL_FILE=Qwen3.5-9B-UD-Q4_K_XL.gguf\nDESKTOP_MODEL_FILE=Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf\n' >"$T/old.env"
+check "upgrade: load_config infers the quantization from a pinned file name" test "$( ( NODE_ENV="$T/old.env"; load_config; printf '%s/%s' "$LAPTOP_QUANT" "$DESKTOP_QUANT" ) )" = UD-Q4_K_XL/UD-Q4_K_XL
+NODE_ENV="$T/old.env" "$ROOT/setup.sh" configure --defaults >/dev/null 2>&1
+check "upgrade: the wizard writes the inferred quantization" test "$(val "$T/old.env" LAPTOP_QUANT)" = UD-Q4_K_XL
+# an unusable current value is not offered as the default
+cp "$ROOT/config/node.env.example" "$T/ph2.env"
+printf '\nacme\n' >"$T/ans-ph"
+OUT=$(NODE_ENV="$T/ph2.env" "$ROOT/setup.sh" configure --only GITHUB_ORG --answers "$T/ans-ph" 2>&1); RC=$?
+check "placeholder: --only asks again until a real value is given" test $RC -eq 0
+check "placeholder: ...and says the current value is not usable" has "not usable"
+check "placeholder: ...and saves the real value" test "$(val "$T/ph2.env" GITHUB_ORG)" = acme
+# --only must not adopt detected values for everything else
+printf 'GITHUB_ORG=acme\n' >"$T/min.env"
+printf 'vendor-a/worker\n' >"$T/ans-w"
+NODE_ENV="$T/min.env" "$ROOT/setup.sh" configure --only OR_WORKER_MODEL --answers "$T/ans-w" >/dev/null 2>&1
+check "--only: asked setting saved" test "$(val "$T/min.env" OR_WORKER_MODEL)" = vendor-a/worker
+check "--only: unrelated detected defaults (laptop ip, router) were NOT adopted silently" test "$(val "$T/min.env" LAPTOP_IP)/$(val "$T/min.env" ROUTER_IP)" = '<unset>/<unset>'
+# final scripted answer without a trailing newline
+printf 'acme' >"$T/nonl"
+OUT=$(NODE_ENV="$T/min.env" "$ROOT/setup.sh" configure --only GITHUB_ORG --answers "$T/nonl" 2>&1); RC=$?
+check "scripted input: the last answer may lack a trailing newline" test $RC -eq 0
+# symlinked settings file stays a symlink
+mkdir -p "$T/real"; cp "$T/min.env" "$T/real/node.env"; ln -sf "$T/real/node.env" "$T/link.env"
+NODE_ENV="$T/link.env" "$ROOT/setup.sh" configure --defaults >/dev/null 2>&1
+check "symlink: the link survives and the target is updated" bash -c "[[ -L '$T/link.env' ]] && grep -q '^GITHUB_ORG=acme' '$T/real/node.env'"
+check "no temp files are left next to the settings file" test -z "$(find "$T/real" -name '.node.env.*')"
+# admin == agent warning
+printf 'ADMIN_USER=hermes\n' >"$T/same.env"
+OUT=$(NODE_ENV="$T/same.env" "$ROOT/setup.sh" configure --defaults 2>&1)
+check "wizard: warns when the admin and agent accounts are the same" has "the agent should have its own account"
+
 # =============================== just-in-time prompting (cfg_ensure)
 cp "$T/d.env" "$T/jit.env"
 ens() { OUT=$(NODE_ENV="${ENS_FILE:-$T/jit.env}" bash -c 'source "$1/lib/common.sh"; shift; cfg_ensure "$@"' _ "$ROOT" "$@" 2>&1 </dev/null); RC=$?; }

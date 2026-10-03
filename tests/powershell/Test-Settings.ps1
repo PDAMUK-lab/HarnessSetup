@@ -135,13 +135,41 @@ Check 'a detected (auto) setting that is missing is never adopted silently' {
 
 # import the laptop's file over SSH instead of re-typing (scp is a stub in tests)
 $f4 = Join-Path $Tmp 'imported.env'
-Copy-Item "$Root/config/node.env.example" (Join-Path $Tmp 'laptop-node.env')
+Quiet { Invoke-ConfigWizard -Path (Join-Path $Tmp 'laptop-node.env') -Scope laptop -Defaults -Set 'LAPTOP_IP=192.168.1.150,DESKTOP_IP=192.168.1.100' }
 $env:FAKE_SCP_SRC = Join-Path $Tmp 'laptop-node.env'
 Use-Answers 'ai-node@10.0.0.20', ''
 $c4 = Initialize-NodeConfig -Path $f4 6>$null
 Clear-Answers
 Check 'import: copies the laptop file instead of asking questions' { (Test-Path $f4) -and $c4['LAPTOP_IP'] -eq '192.168.1.150' }
+# a file that is not valid (the example still has placeholders) is refused and the questions are asked instead
+$f5 = Join-Path $Tmp 'imported-bad.env'
+Copy-Item "$Root/config/node.env.example" (Join-Path $Tmp 'example-copy.env')
+$env:FAKE_SCP_SRC = Join-Path $Tmp 'example-copy.env'
+Use-Answers 'ai-node@10.0.0.20', '', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '', 'n', 'n', ''
+$c5 = Initialize-NodeConfig -Path $f5 6>$null 3>$null
+Clear-Answers
+Check 'import: an invalid file is refused and the questions are asked' { $c5['LAPTOP_IP'] -eq '10.0.0.20' -and -not (Get-Content $f5 -Raw).Contains('yourorg') }
+# a login or path that could be read as an option never reaches scp
+Use-Answers '-oProxyCommand=evil@host', '', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '', 'n', 'n', ''
+$f6 = Join-Path $Tmp 'imported-opt.env'
+$null = Initialize-NodeConfig -Path $f6 6>$null 3>$null
+Clear-Answers
+Check 'import: an option-looking login is rejected without calling scp' { (Test-Path $f6) -and (Read-NodeEnv $f6)['LAPTOP_IP'] -eq '10.0.0.20' }
 Remove-Item Env:FAKE_SCP_SRC
+
+# ---- file integrity: hostile values survive a rewrite inertly; extras and export lines are kept as found
+$f7 = Join-Path $Tmp 'hostile.env'
+Set-Content $f7 @("LAPTOP_IP=10.0.0.20", "DESKTOP_IP=10.0.0.30", "ROUTER_IP=10.0.0.1", "ADMIN_USER=james",
+    'LAPTOP_MODEL_ALIAS="x'' ; touch PWNED ; echo ''"', 'export DASHBOARD_PORT=9120', 'MY_ARR=(a b)', 'MY_Q="it''s"', 'FOO=$HOME/x')
+Quiet { Invoke-ConfigWizard -Path $f7 -Scope desktop -Defaults }
+$after = Get-Content $f7
+Check 'integrity: the export line is read as a setting' { (Read-NodeEnv $f7)['DASHBOARD_PORT'] -eq '9120' }
+Check 'integrity: a value with a single quote is re-quoted so it reads back identical' { (Read-NodeEnv $f7)['LAPTOP_MODEL_ALIAS'] -ceq "x' ; touch PWNED ; echo '" }
+Check 'integrity: unknown lines are kept exactly as found' { ($after -contains 'MY_ARR=(a b)') -and ($after -contains 'MY_Q="it''s"') -and ($after -contains 'FOO=$HOME/x') }
+Check 'integrity: ConvertFrom-EnvValue handles the shell quoting forms' {
+    (ConvertFrom-EnvValue "'a'\''b'") -ceq "a'b" -and (ConvertFrom-EnvValue '"a b" # c') -ceq 'a b' -and (ConvertFrom-EnvValue 'x\ y') -ceq 'x y' -and (ConvertFrom-EnvValue '"q\"r"') -ceq 'q"r' }
+Check 'integrity: the file has no BOM and no CR' {
+    $b = [System.IO.File]::ReadAllBytes($f7); -not ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB) -and -not ($b -contains 13) }
 
 # ---- parity: a file bash wrote survives a PowerShell read-and-rewrite byte for byte
 if ($env:HS_PARITY_FILE) {
