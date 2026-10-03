@@ -214,3 +214,23 @@ stage_end() {
 
 # Make the agent's tools visible in non-login shells
 use_hermes_path() { export PATH="$HOME/.local/bin:$PATH"; }
+
+# common_flag ARG  - handle the flags every stage shares; returns 1 if ARG is not one of them
+common_flag() {
+  case $1 in
+    --dry-run) DRY_RUN=1 ;;
+    --yes | -y) ASSUME_YES=1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# publish_shared  - copy the repo (with your config/node.env) to $HS_SHARED so the
+# agent user, which cannot read the admin's home directory, can run its stages.
+publish_shared() {
+  log "publishing $HS_ROOT -> $HS_SHARED for the agent user"
+  [[ $DRY_RUN == 1 ]] && { warn "[dry-run] skipped"; return 0; }
+  "${SUDO[@]}" rm -rf "$HS_SHARED"
+  "${SUDO[@]}" install -d -m 755 "$HS_SHARED"
+  tar -C "$HS_ROOT" --exclude=.git -cf - . | "${SUDO[@]}" tar -C "$HS_SHARED" --no-same-owner -xf -
+  "${SUDO[@]}" chmod -R a+rX,go-w "$HS_SHARED"
+}
