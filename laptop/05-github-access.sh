@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TITLE: GitHub access for the agent (token login, git identity, clone repos)
 # RUN-AS: hermes
-# GUIDE: Step 8 (laptop side)
+# GUIDE: Step 8
 # Needs the machine account, rulesets and fine-grained token from docs/RUNBOOK.md (GitHub web steps).
 # Options: --reauth (log in again even if gh is already logged in)
 set -Eeuo pipefail

@@ -78,7 +78,7 @@ check "09: --vulkan drops the CUDA flags" lacks "DGGML_CUDA"
 dry 10
 check "10: exits 0" test "$RC" -eq 0
 check "10: creates the llm system user" has "adduser --system --group --home /srv/llm llm"
-check "10: downloads as llm and fails on HTTP errors" has "runuser -u llm -- curl --fail"
+check "10: downloads as llm and fails on HTTP errors" hasre "(runuser -u llm --|sudo -u llm) curl --fail"
 check "10: download is resumable" has -- "--continue-at"
 check "10: installs the systemd unit" has "llama-server.service"
 check "10: enables and starts it" has "enable --now llama-server"

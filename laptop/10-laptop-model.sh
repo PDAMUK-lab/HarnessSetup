@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TITLE: Laptop model service (Qwen3.5-9B, context cache in RAM)
 # RUN-AS: admin
-# GUIDE: Step 18 and the laptop half of Step 20
+# GUIDE: Steps 18, 20
 # Options: --bench (measure context cache in VRAM vs RAM first)  --no-start (install, don't start)
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

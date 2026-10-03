@@ -103,6 +103,7 @@ Write-CmdFile -Path $startCmd -Lines (New-LlamaStartScript -Cfg $cfg -Tier Day)
 Write-Ok "wrote $startCmd"
 Write-Host "    --n-cpu-moe $($cfg['DESKTOP_N_CPU_MOE']) keeps every layer's experts in RAM (safe start). Tune it as in guide Step 19:"
 Write-Host '    lower it until Task Manager > GPU > Dedicated GPU memory sits near 7.3 GB, and keep Memory under ~90%.'
+if (Test-Path "$llama\llama-fit-params.exe") { Write-Host "    This build has llama-fit-params.exe: run it with the same model and -c $($cfg['DESKTOP_CTX']) and use the placement it suggests." }
 
 Write-Step 'Step 19.6: Windows firewall - only the laptop may reach the model port'
 $ruleName = "llama-server $($cfg['LLM_PORT']) (laptop only)"

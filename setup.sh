@@ -43,12 +43,13 @@ is_done() { # is_done ID RUN-AS
 }
 
 cmd_list() {
-  local f id who
-  printf '%-4s %-7s %-10s %s\n' ID RUN-AS GUIDE TITLE
+  local f id who mark
+  printf '%-3s %-7s %-13s %s\n' ID RUN-AS GUIDE TITLE
   for f in $(stages); do
     id=$(basename "$f" | cut -d- -f1); who=$(meta "$f" RUN-AS)
-    printf '%-4s %-7s %-10s %s %s\n' "$id" "$who" "$(meta "$f" GUIDE)" "$(meta "$f" TITLE)" \
-      "$(is_done "$id" "$who" && echo '[done]' || true)"
+    mark=''
+    if is_done "$id" "$who"; then mark='[done]'; fi
+    printf '%-3s %-7s %-13s %s %s\n' "$id" "$who" "$(meta "$f" GUIDE)" "$(meta "$f" TITLE)" "$mark"
   done
   echo
   echo "Manual steps between stages are in docs/RUNBOOK.md. Helpers: $(find "$HS_ROOT/tools" -name '*.sh' -printf '%f ' | sed 's/\.sh//g')"
@@ -104,6 +105,6 @@ case $cmd in
     name=$1; shift
     run_script "$(find_script tool "$name")" "$@"
     ;;
-  help | -h | --help) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  help | -h | --help) sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$cmd' (try ./setup.sh help)" ;;
 esac
