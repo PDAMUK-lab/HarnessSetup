@@ -803,3 +803,95 @@ function Test-ToolCall {
         return [bool]($prop.Value[0].function.name -eq 'get_weather')
     } catch { return $false }
 }
+
+# ============================ llama.cpp releases and servers ============================
+
+# Select-LlamaRelease -Releases $list -Patterns 'regex',...  - the newest non-draft release that has an asset matching EVERY
+# pattern. Not /releases/latest: that is a source-only stable tag; the build releases (bNNNN) are marked pre-release, and a
+# new one can be listed before its zips are uploaded. Returns $null when none of the releases qualifies.
+function Select-LlamaRelease {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Releases, [Parameter(Mandatory)][string[]]$Patterns)
+    foreach ($rel in $Releases) {
+        if ($rel.PSObject.Properties['draft'] -and $rel.draft) { continue }
+        if (-not $rel.PSObject.Properties['assets']) { continue }
+        $names = @($rel.assets | ForEach-Object { $_.name })
+        $missing = @($Patterns | Where-Object { $p = $_; -not ($names | Where-Object { $_ -match $p }) })
+        if ($missing.Count -eq 0) { return $rel }
+    }
+    return $null
+}
+
+# Get-LlamaReleases  - the ten newest llama.cpp releases (pre-releases included), newest first
+function Get-LlamaReleases {
+    return , @(Invoke-RestMethod -Uri 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10' -Headers @{ 'User-Agent' = 'HarnessSetup' })
+}
+
+# Get-LlamaServerProcess -Dir C:\llama  - the llama-server processes that run from that folder and no other (the V100 server has
+# the same program name as the day server). WMI shows the path of elevated processes too, so a plain shell can look.
+function Get-LlamaServerProcess {
+    param([Parameter(Mandatory)][string]$Dir)
+    $prefix = $Dir.TrimEnd('\') + '\'
+    return , @(Get-CimInstance -ClassName Win32_Process -Filter "Name LIKE 'llama-server%'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+}
+
+# Stop-LlamaServer -Dir C:\llama  - stop those processes (stopping by program name would take the other server down too)
+function Stop-LlamaServer {
+    param([Parameter(Mandatory)][string]$Dir)
+    foreach ($p in (Get-LlamaServerProcess -Dir $Dir)) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
+# ============================ desktop away (Desktop-Mode.ps1) ============================
+
+# Get-LlamaTaskNames -Cfg  - the scheduled tasks that keep the desktop's model servers running
+function Get-LlamaTaskNames {
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Cfg)
+    $names = @('llama-server')
+    if ($Cfg['V100_ENABLED'] -eq '1') { $names += 'llama-v100' }
+    if ($Cfg['NIGHT_ENABLED'] -eq '1') { $names += 'llama-night', 'llama-day' }
+    return , $names
+}
+
+# Get-LlamaServerDirs -Cfg  - the folders whose llama-server.exe belongs to the kit
+function Get-LlamaServerDirs {
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Cfg)
+    $dirs = @($Cfg['DESKTOP_LLAMA_DIR'])
+    if ($Cfg['V100_ENABLED'] -eq '1') { $dirs += $Cfg['V100_CUDA_DIR'] }
+    return , $dirs
+}
+
+# Get-LaptopDesktopCommand -Cfg -Action off|on [-For 4h]  - the command line that runs hermes-desktop on the laptop as the agent user
+function Get-LaptopDesktopCommand {
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Cfg,
+        [Parameter(Mandatory)][ValidateSet('off', 'on')][string]$Action,
+        [string]$For = ''
+    )
+    if ($For -ne '' -and $For -cnotmatch '^[0-9]{1,3}[mhd]$') { throw "-For expects a duration like 90m, 4h or 1d (got '$For')" }
+    $agent = $Cfg['AGENT_USER']
+    $cmd = "sudo -u $agent -H /home/$agent/.local/bin/hermes-desktop $Action"
+    if ($For -ne '' -and $Action -eq 'off') { $cmd += " --for $For" }
+    return $cmd
+}
+
+# Get-AwayReturnTime -Now $date -For 4h  - when the desktop starts its servers again for a timed absence: five minutes before
+# the laptop puts the endpoints back (a model needs a few minutes to load), at least one minute from now
+function Get-AwayReturnTime {
+    param([Parameter(Mandatory)][datetime]$Now, [Parameter(Mandatory)][string]$For)
+    if ($For -cnotmatch '^([0-9]{1,3})([mhd])$') { throw "-For expects a duration like 90m, 4h or 1d (got '$For')" }
+    $n = [int]$Matches[1]
+    $span = switch ($Matches[2]) { 'm' { [TimeSpan]::FromMinutes($n) } 'h' { [TimeSpan]::FromHours($n) } default { [TimeSpan]::FromDays($n) } }
+    $early = $span - [TimeSpan]::FromMinutes(5)
+    if ($early -lt [TimeSpan]::FromMinutes(1)) { $early = [TimeSpan]::FromMinutes(1) }
+    return $Now.Add($early)
+}
+
+# New-StopLlamaScript -Dir C:\llama  - lines of a cmd file that stops the llama-server running from that folder only
+function New-StopLlamaScript {
+    param([Parameter(Mandatory)][string]$Dir)
+    $d = $Dir.TrimEnd('\')
+    return @(
+        '@echo off',
+        "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"Get-CimInstance Win32_Process | Where-Object { `$_.Name -like 'llama-server*' -and `$_.ExecutablePath -like '$d\*' } | ForEach-Object { Stop-Process -Id `$_.ProcessId -Force }`""
+    )
+}

@@ -57,11 +57,15 @@ if (-not $SkipModelDownload) {
 Write-CmdFile -Path "$llama\start-llama-27b.cmd" -Lines (New-LlamaStartScript -Cfg $cfg -Tier Night)
 Write-Ok "wrote $llama\start-llama-27b.cmd (-ngl $($cfg['NIGHT_NGL']); raise it until dedicated GPU memory is about 7.3 GB)"
 
+Write-CmdFile -Path "$llama\stop-llama.cmd" -Lines (New-StopLlamaScript -Dir $llama)
+Write-Ok "wrote $llama\stop-llama.cmd (stops only the server that runs from $llama)"
+
 Write-Step 'swap tasks (they wake the PC)'
 Invoke-Action "tasks llama-night at $($cfg['NIGHT_START']) and llama-day at $($cfg['NIGHT_END'])" {
     $settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries
-    $night = New-ScheduledTaskAction -Execute cmd.exe -Argument "/c taskkill /im llama-server.exe /f & start `"`" $llama\start-llama-27b.cmd"
-    $day = New-ScheduledTaskAction -Execute cmd.exe -Argument "/c taskkill /im llama-server.exe /f & start `"`" $llama\start-llama.cmd"
+    # stop only THIS folder's server (the V100 server has the same program name), then start the other model
+    $night = New-ScheduledTaskAction -Execute cmd.exe -Argument "/c call $llama\stop-llama.cmd & start `"`" $llama\start-llama-27b.cmd"
+    $day = New-ScheduledTaskAction -Execute cmd.exe -Argument "/c call $llama\stop-llama.cmd & start `"`" $llama\start-llama.cmd"
     Register-ScheduledTask -TaskName llama-night -Action $night -Trigger (New-ScheduledTaskTrigger -Daily -At $cfg['NIGHT_START']) -Settings $settings -Force | Out-Null
     Register-ScheduledTask -TaskName llama-day -Action $day -Trigger (New-ScheduledTaskTrigger -Daily -At $cfg['NIGHT_END']) -Settings $settings -Force | Out-Null
 }

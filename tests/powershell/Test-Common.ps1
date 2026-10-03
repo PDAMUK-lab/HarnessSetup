@@ -98,5 +98,44 @@ Check 'Test-ToolCall: sends the API key' { Test-ToolCall -BaseUrl "http://127.0.
 Check 'Test-ToolCall: fails without the key' { -not (Test-ToolCall -BaseUrl "http://127.0.0.1:$keyed" -Model m) }
 Check 'Wait-Http sends headers (health needs the key)' { Wait-Http -Url "http://127.0.0.1:$keyed/health" -Seconds 10 -Headers @{ Authorization = 'Bearer secret' } }
 
+# ---- llama.cpp release selection (the "latest" release is a source-only tag; the builds are pre-releases)
+function New-Rel([string]$Tag, [string[]]$Assets, [bool]$Draft = $false) {
+    [pscustomobject]@{ tag_name = $Tag; draft = $Draft; prerelease = $true; assets = @($Assets | ForEach-Object { [pscustomobject]@{ name = $_ } }) }
+}
+$vk = '^llama-.+-bin-win-vulkan-x64\.zip$'
+$rels = @(
+    (New-Rel 'b3' @('llama-b3-bin-win-cpu-x64.zip')),                                   # uploaded halfway: no Vulkan zip yet
+    (New-Rel 'b2' @('llama-b2-bin-win-vulkan-x64.zip', 'llama-b2-bin-win-cuda-12.4-x64.zip') $true),   # a draft
+    (New-Rel 'b1' @('llama-b1-bin-win-vulkan-x64.zip', 'llama-b1-bin-win-cuda-12.4-x64.zip', 'cudart-llama-bin-win-cuda-12.4-x64.zip')),
+    (New-Rel 'v0.5.0' @('nightly-tag.txt')))
+Check 'Select-LlamaRelease skips an incomplete release and a draft' { (Select-LlamaRelease -Releases $rels -Patterns $vk).tag_name -eq 'b1' }
+Check 'Select-LlamaRelease needs EVERY pattern (CUDA zip and its runtime)' { (Select-LlamaRelease -Releases $rels -Patterns '^llama-.+-bin-win-cuda-12\.\d+-x64\.zip$', '^cudart-llama-bin-win-cuda-12\.\d+-x64\.zip$').tag_name -eq 'b1' }
+Check 'Select-LlamaRelease: a CUDA zip without its runtime bundle does not qualify' {
+    $half = @((New-Rel 'b9' @('llama-b9-bin-win-cuda-12.4-x64.zip'))) + $rels
+    (Select-LlamaRelease -Releases $half -Patterns '^llama-.+-bin-win-cuda-12\.\d+-x64\.zip$', '^cudart-llama-bin-win-cuda-12\.\d+-x64\.zip$').tag_name -eq 'b1' }
+Check 'Select-LlamaRelease takes the newest complete one' { (Select-LlamaRelease -Releases (@(New-Rel 'b4' @('llama-b4-bin-win-vulkan-x64.zip')) + $rels) -Patterns $vk).tag_name -eq 'b4' }
+Check 'Select-LlamaRelease returns nothing when no release qualifies' { $null -eq (Select-LlamaRelease -Releases $rels -Patterns '^llama-.+-bin-win-hip-x64\.zip$') }
+Check 'Select-LlamaRelease copes with an empty list' { $null -eq (Select-LlamaRelease -Releases @() -Patterns $vk) }
+
+# ---- desktop away
+$cfgA = [ordered]@{ AGENT_USER = 'hermes'; DESKTOP_LLAMA_DIR = 'C:\llama'; V100_ENABLED = '0'; NIGHT_ENABLED = '0'; V100_CUDA_DIR = 'C:\llama-cuda' }
+Check 'Get-LlamaTaskNames: only the day server by default' { (Get-LlamaTaskNames -Cfg $cfgA) -join ',' -eq 'llama-server' }
+$cfgB = [ordered]@{} + $cfgA; $cfgB['V100_ENABLED'] = '1'; $cfgB['NIGHT_ENABLED'] = '1'
+Check 'Get-LlamaTaskNames: V100 and night tasks when those tiers are on' { (Get-LlamaTaskNames -Cfg $cfgB) -join ',' -eq 'llama-server,llama-v100,llama-night,llama-day' }
+Check 'Get-LlamaServerDirs: the V100 folder only when the tier is on' { ((Get-LlamaServerDirs -Cfg $cfgA) -join ',') -eq 'C:\llama' -and ((Get-LlamaServerDirs -Cfg $cfgB) -join ',') -eq 'C:\llama,C:\llama-cuda' }
+Check 'Get-LaptopDesktopCommand: off runs hermes-desktop as the agent user' { (Get-LaptopDesktopCommand -Cfg $cfgA -Action off) -ceq 'sudo -u hermes -H /home/hermes/.local/bin/hermes-desktop off' }
+Check 'Get-LaptopDesktopCommand: off --for' { (Get-LaptopDesktopCommand -Cfg $cfgA -Action off -For 4h) -ceq 'sudo -u hermes -H /home/hermes/.local/bin/hermes-desktop off --for 4h' }
+Check 'Get-LaptopDesktopCommand: on ignores -For' { (Get-LaptopDesktopCommand -Cfg $cfgA -Action on -For 4h) -ceq 'sudo -u hermes -H /home/hermes/.local/bin/hermes-desktop on' }
+Check 'Get-LaptopDesktopCommand: a duration with shell text is refused' { Throws { Get-LaptopDesktopCommand -Cfg $cfgA -Action off -For '4h; reboot' } }
+Check 'Get-LaptopDesktopCommand: a duration without a unit is refused' { Throws { Get-LaptopDesktopCommand -Cfg $cfgA -Action off -For '4' } }
+$t0 = [datetime]'2026-10-03T12:00:00'
+Check 'Get-AwayReturnTime: five minutes before the laptop (4h)' { (Get-AwayReturnTime -Now $t0 -For 4h) -eq [datetime]'2026-10-03T15:55:00' }
+Check 'Get-AwayReturnTime: minutes and days' { (Get-AwayReturnTime -Now $t0 -For 90m) -eq [datetime]'2026-10-03T13:25:00' -and (Get-AwayReturnTime -Now $t0 -For 1d) -eq [datetime]'2026-10-04T11:55:00' }
+Check 'Get-AwayReturnTime: never sooner than a minute from now' { (Get-AwayReturnTime -Now $t0 -For 3m) -eq [datetime]'2026-10-03T12:01:00' }
+Check 'Get-AwayReturnTime: rejects a bad duration' { Throws { Get-AwayReturnTime -Now $t0 -For 'soon' } }
+$stop = (New-StopLlamaScript -Dir 'C:\llama\') -join "`n"
+Check 'New-StopLlamaScript: stops only the server in that folder' { $stop.Contains("-like 'C:\llama\*'") -and $stop.Contains("-like 'llama-server*'") -and -not $stop.Contains('taskkill') }
+Check 'New-StopLlamaScript: no percent signs (cmd would eat them)' { -not $stop.Contains('%') }
+
 Write-Host "powershell helpers: $pass passed, $fail failed"
 if ($fail -gt 0) { exit 1 }

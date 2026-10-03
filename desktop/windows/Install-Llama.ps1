@@ -70,13 +70,15 @@ if ((Test-Path "$llama\llama-server.exe") -and -not $UpdateLlama) {
     Write-Ok "llama-server.exe already in $llama (use -UpdateLlama to replace it)"
 } else {
     Invoke-Action 'download and extract the latest llama-*-bin-win-vulkan-x64.zip' {
-        $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest' -Headers @{ 'User-Agent' = 'HarnessSetup' }
+        # not /releases/latest: that is a source-only tag; the builds are pre-releases
+        $rel = Select-LlamaRelease -Releases (Get-LlamaReleases) -Patterns '^llama-.+-bin-win-vulkan-x64\.zip$'
+        if (-not $rel) { throw 'None of the ten newest llama.cpp releases has a win-vulkan-x64 zip. Download it by hand from https://github.com/ggml-org/llama.cpp/releases' }
         $asset = Select-VulkanAsset $rel.assets
         $zip = Join-Path $env:TEMP $asset.name
         Write-Host "    $($rel.tag_name): $($asset.name)"
         & curl.exe -L --fail -o $zip $asset.browser_download_url
         if ($LASTEXITCODE -ne 0) { throw 'download of the llama.cpp zip failed' }
-        Get-Process llama-server -ErrorAction SilentlyContinue | Stop-Process -Force
+        Stop-LlamaServer -Dir $llama
         Expand-Archive -Path $zip -DestinationPath $llama -Force
         Remove-Item $zip
         # some zips unpack into a subfolder: move the binaries up to $llama
@@ -154,7 +156,7 @@ if ($startNow) {
     Write-Step 'Step 20: start the server and run the tool-call smoke test'
     Invoke-Action "start the 'llama-server' task and wait for $base/health" {
         Stop-ScheduledTask -TaskName 'llama-server' -ErrorAction SilentlyContinue
-        Get-Process llama-server -ErrorAction SilentlyContinue | Stop-Process -Force
+        Stop-LlamaServer -Dir $llama
         Start-ScheduledTask -TaskName 'llama-server'
         $key = (Get-Content $keyFile -Raw).Trim()
         Write-Host '    loading the model (a few minutes the first time)...'

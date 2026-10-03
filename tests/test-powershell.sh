@@ -13,6 +13,7 @@ pass=0 failn=0
 check() { local n=$1; shift; if "$@"; then pass=$((pass+1)); else failn=$((failn+1)); echo "FAIL: $n"; fi; }
 ps() { "$PWSH" -NoProfile -NonInteractive "$@"; }
 has() { grep -qF -- "$1" <<<"$OUT"; }
+lacks() { ! grep -qF -- "$1" <<<"$OUT"; }
 
 # ---- parse every script
 parse_all() { ps -File "$ROOT/tests/powershell/Parse-All.ps1" "$ROOT/desktop,$ROOT/tests/powershell"; }
@@ -89,6 +90,37 @@ mkdir -p "$T/profile/.ssh" && echo "ssh-ed25519 AAAA test" >"$T/profile/.ssh/id_
 run_ps Setup-LaptopAccess.ps1 -DryRun -NoTunnelFile
 check "Setup-LaptopAccess: reuses an existing key" has "using the existing key"
 check "Setup-LaptopAccess: -NoTunnelFile skips the shortcut" bash -c "! grep -q 'hermes-tunnel.cmd' <<<\"\$0\"" "$OUT"
+
+# ---- Desktop-Mode.ps1: the desktop out of the loop and back (the ssh call is a stub that records its arguments)
+cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=1|' -e 's|^V100_ENABLED=.*|V100_ENABLED=1|'
+export FAKE_LOG="$T/ps-calls.log"; : >"$FAKE_LOG"
+run_ps Desktop-Mode.ps1 away -DryRun -Yes
+check "Desktop-Mode away -DryRun exits 0" test $RC -eq 0
+check "Desktop-Mode away: tells the laptop first, as the agent user" has 'ssh ai-node@192.168.1.150 "sudo -u hermes -H /home/hermes/.local/bin/hermes-desktop off"'
+check "Desktop-Mode away: stops and disables every server task (day, V100, night, day swap)" bash -c "for t in llama-server llama-v100 llama-night llama-day; do grep -q \"stop and disable the scheduled task '\$t'\" <<<\"\$0\" || exit 1; done" "$OUT"
+check "Desktop-Mode away: stops each server by folder, not by program name" bash -c "grep -q 'stop the llama-server that runs from C:.llama\$' <<<\"\$0\" && grep -q 'runs from C:.llama-cuda' <<<\"\$0\" && ! grep -qi taskkill <<<\"\$0\"" "$OUT"
+check "Desktop-Mode away: no return task without -For" lacks "starts the servers again at"
+run_ps Desktop-Mode.ps1 away -For 3h -DryRun -Yes
+check "Desktop-Mode away -For 3h: the laptop gets --for 3h" has "hermes-desktop off --for 3h"
+check "Desktop-Mode away -For 3h: schedules the servers' return" has "scheduled task 'llama-return' starts the servers again at"
+run_ps Desktop-Mode.ps1 away -NoLaptop -DryRun -Yes
+check "Desktop-Mode away -NoLaptop: no ssh, and says what to run on the laptop" bash -c "! grep -q '^\[dry-run\] ssh' <<<\"\$0\" && grep -q 'hermes-desktop off' <<<\"\$0\"" "$OUT"
+run_ps Desktop-Mode.ps1 back -DryRun -Yes
+check "Desktop-Mode back -DryRun exits 0" test $RC -eq 0
+check "Desktop-Mode back: enables the tasks and starts the day and V100 servers" bash -c "grep -q \"enable the scheduled task 'llama-night'\" <<<\"\$0\" && grep -q \"start the scheduled task 'llama-server'\" <<<\"\$0\" && grep -q \"start the scheduled task 'llama-v100'\" <<<\"\$0\" && ! grep -q \"start the scheduled task 'llama-night'\" <<<\"\$0\"" "$OUT"
+check "Desktop-Mode back: waits for the servers, then tells the laptop" bash -c "[[ \$(grep -n 'wait until the model ports answer' <<<\"\$0\" | cut -d: -f1) -lt \$(grep -n 'hermes-desktop on' <<<\"\$0\" | cut -d: -f1) ]]" "$OUT"
+run_ps Desktop-Mode.ps1 away -For 4 -DryRun -Yes
+check "Desktop-Mode: a duration without a unit is refused" bash -c "[[ $RC -ne 0 ]] && grep -q 'expects a duration' <<<\"\$0\"" "$OUT"
+run_ps Desktop-Mode.ps1 back -For 4h -DryRun -Yes
+check "Desktop-Mode: -For is refused with back" bash -c "[[ $RC -ne 0 ]] && grep -q \"only goes with 'away'\" <<<\"\$0\"" "$OUT"
+run_ps Desktop-Mode.ps1 away -For '4h; reboot' -DryRun -Yes
+check "Desktop-Mode: shell text in -For is refused" test $RC -ne 0
+cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=0|'
+run_ps Desktop-Mode.ps1 away -DryRun -Yes
+check "Desktop-Mode away (no V100, no night tier): only the day server" bash -c "grep -q \"scheduled task 'llama-server'\" <<<\"\$0\" && ! grep -q llama-v100 <<<\"\$0\" && ! grep -q llama-night <<<\"\$0\"" "$OUT"
+run_ps Desktop-Mode.ps1 status
+check "Desktop-Mode status works anywhere (exit 0)" test $RC -eq 0
+cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=1|'
 
 # ---- -Yes: no questions at all, defaults taken (empty answers file: any question would fail the run)
 cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=0|'
