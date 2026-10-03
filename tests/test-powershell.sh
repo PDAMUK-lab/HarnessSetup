@@ -110,6 +110,21 @@ unset HS_INPUT
 check "no settings: Setup-LaptopAccess asks first (exit 0)" test $RC -eq 0
 check "no settings: ...installs the key for the admin user that was typed" has "james@10.0.0.20"
 check "no settings: ...declining the shortcut writes none" bash -c "! grep -q 'write .*hermes-tunnel.cmd' <<<\"\$0\"" "$OUT"
+# -ShowKey must not ask the installer's questions (it used to ask about sleep, replacing llama.cpp ...)
+: >"$T/psempty"
+export HS_INPUT="$T/psempty"
+OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Install-Llama.ps1" -ConfigFile "$T/node.env" -ShowKey 2>&1); RC=$?
+unset HS_INPUT
+check "-ShowKey asks nothing (an empty answers file would fail if it asked)" bash -c "! grep -q 'ran out' <<<\"\$0\"" "$OUT"
+check "-ShowKey says there is no key yet instead" has "No key yet"
+# the tunnel question names the dashboard port from the settings, not a hard-coded one
+cfg_with -e 's|^DASHBOARD_PORT=.*|DASHBOARD_PORT=9120|'
+printf '%s\n' n >"$T/psans-port"
+export HS_INPUT="$T/psans-port"
+mkdir -p "$T/profile/.ssh" && echo "ssh-ed25519 AAAA test" >"$T/profile/.ssh/id_ed25519.pub"
+OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Setup-LaptopAccess.ps1" -ConfigFile "$T/node.env" -DryRun 2>&1); RC=$?
+unset HS_INPUT
+check "tunnel question shows the configured dashboard port" has "http://localhost:9120"
 cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=0|'
 printf '%s\n' y 03:00 06:00 n >"$T/psans3"   # turn the tier on, start, end, then: update active hours n
 export HS_INPUT="$T/psans3"
@@ -118,6 +133,8 @@ unset HS_INPUT
 check "overnight off in the settings: offers to turn it on (exit 0)" test $RC -eq 0
 check "overnight: ...uses the times that were typed" has "tasks llama-night at 03:00 and llama-day at 06:00"
 check "overnight: ...and saved the switch" grep -q '^NIGHT_ENABLED=1' "$T/node.env"
+check "overnight: ...the job window shown follows the times" has "between 03:15 and 04:00"
+check "overnight: ...without adopting settings it was never given" bash -c "! grep -q '^ROUTER_IP=' '$T/node.env' || true"
 cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=0|'
 run_ps Install-Overnight.ps1 -DryRun
 check "overnight off, no terminal: refuses and never flips the setting" bash -c "[[ $RC -ne 0 ]] && grep -q '^NIGHT_ENABLED=0' '$T/node.env'"

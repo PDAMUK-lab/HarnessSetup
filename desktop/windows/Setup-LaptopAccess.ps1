@@ -3,7 +3,8 @@
   Step 5 (desktop side) and Step 15: key-only SSH to the laptop, and the dashboard tunnel shortcut.
 .DESCRIPTION
   1. Creates an ed25519 key if you have none (ssh-keygen asks for a passphrase; choose one).
-  2. Installs the public key on the laptop (you type the laptop password ONCE, here).
+  2. Installs the public key on the laptop (you type the laptop password here; if you also let it copy the
+     laptop's settings you are asked once more, because that happens before the key exists).
   3. Proves a key-only login works. Only then is it safe to run ./setup.sh run 02 on the laptop.
   4. Offers to write hermes-tunnel.cmd to your Desktop (pin it to the taskbar).
   Settings (laptop address, admin account ...) are asked for when config\node.env does not have them yet.
@@ -30,7 +31,7 @@ $cfg = Initialize-NodeConfig -Path $ConfigFile -Need 'LAPTOP_IP', 'ADMIN_USER', 
 Assert-Config $cfg 'LAPTOP_IP', 'ADMIN_USER', 'DASHBOARD_PORT'
 if ($NoTunnelFile) { $makeTunnel = $false }
 elseif ($TunnelFile) { $makeTunnel = $true }
-else { $makeTunnel = Read-YesNo -Question 'Create the hermes-tunnel.cmd shortcut on your Desktop? (opens the dashboard at http://localhost:9119)' -Default $true }
+else { $makeTunnel = Read-YesNo -Question "Create the hermes-tunnel.cmd shortcut on your Desktop? (it opens the dashboard at http://localhost:$($cfg['DASHBOARD_PORT']))" -Default $true }
 $target = "$($cfg['ADMIN_USER'])@$($cfg['LAPTOP_IP'])"
 
 $sshDir = Join-Path $env:USERPROFILE '.ssh'
@@ -60,8 +61,8 @@ Invoke-Action "ssh $target (append the key to ~/.ssh/authorized_keys)" {
 
 Write-Step 'proving a key-only login works (no password allowed)'
 Invoke-Action "ssh -o BatchMode=yes -o PasswordAuthentication=no $target" {
-    $out = & ssh -o BatchMode=yes -o PasswordAuthentication=no $target 'echo key-login-ok' 2>&1
-    if (($out | Out-String) -notmatch 'key-login-ok') { throw "key login failed: $out" }
+    $out = Invoke-NativeText { & ssh -o BatchMode=yes -o PasswordAuthentication=no $target 'echo key-login-ok' }
+    if ($out -notmatch 'key-login-ok') { throw "key login failed: $out" }
     Write-Ok 'key-only login works'
 }
 

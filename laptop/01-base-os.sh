@@ -22,8 +22,14 @@ load_config
 stage_begin
 APT=(env DEBIAN_FRONTEND=noninteractive apt-get -y)
 
-pci=$(lspci 2>/dev/null || true)
-if grep -qi 'nvidia' <<<"$pci"; then gpu_default=y; else gpu_default=n; fi
+# NVIDIA's PCI vendor id is 0x10de; reading /sys works before pciutils (lspci) is installed
+has_nvidia() {
+  local pci vendors
+  pci=$(lspci 2>/dev/null || true)
+  vendors=$(cat /sys/bus/pci/devices/*/vendor 2>/dev/null || true)
+  grep -qi 'nvidia' <<<"$pci" || grep -qx '0x10de' <<<"$vendors"
+}
+if has_nvidia; then gpu_default=y; else gpu_default=n; fi
 ask_flag INSTALL_NVIDIA "Install the NVIDIA 550 driver for the GTX 1070? (Debian's own package; newer drivers drop Pascal. Say no on a machine without an NVIDIA card.)" "$gpu_default"
 
 # shellcheck disable=SC1091
@@ -42,8 +48,7 @@ sudo_run "${APT[@]}" full-upgrade
 if [[ $INSTALL_NVIDIA == 1 ]]; then
   log "Step 3: NVIDIA 550 driver for the GTX 1070 (Pascal)"
   sudo_run "${APT[@]}" install pciutils
-  pci=$(lspci 2>/dev/null || true)
-  grep -qi 'nvidia' <<<"$pci" || fail_or_warn "no NVIDIA GPU found by lspci (use --skip-nvidia if that is intended)"
+  has_nvidia || fail_or_warn "no NVIDIA GPU found (use --skip-nvidia if that is intended)"
 
   # Guard rails from the guide: newer drivers drop Pascal and the GPU vanishes at the next reboot.
   if dpkg-query -W -f='${Status}' nvidia-open-kernel-dkms 2>/dev/null | grep -q 'install ok installed'; then

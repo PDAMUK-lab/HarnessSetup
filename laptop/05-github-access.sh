@@ -22,7 +22,7 @@ use_hermes_path
 need_cmd gh git
 require_vars GITHUB_ORG GITHUB_REPOS GITHUB_MACHINE_USER GITHUB_NOREPLY_EMAIL
 [[ $GITHUB_ORG != yourorg && $GITHUB_REPOS != yourrepo ]] ||
-  fail_or_warn "GITHUB_ORG / GITHUB_REPOS in config/node.env still hold the example values"
+  fail_or_warn "GITHUB_ORG / GITHUB_REPOS still hold the example values: run ./setup.sh configure --only GITHUB_ORG GITHUB_REPOS"
 [[ $GITHUB_NOREPLY_EMAIL != 12345678+* ]] || fail_or_warn "GITHUB_NOREPLY_EMAIL still holds the example value (machine account > Settings > Emails)"
 
 who=$(gh api user -q .login 2>/dev/null || true)

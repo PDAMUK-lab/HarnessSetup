@@ -368,7 +368,10 @@ function Test-SettingValue {
 # Get-NetworkDetect  - this PC's address, gateway and prefix (null when it cannot tell, e.g. not on Windows)
 function Get-NetworkDetect {
     try {
-        $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Sort-Object RouteMetric | Select-Object -First 1
+        $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop |
+            Where-Object { $_.NextHop -and $_.NextHop -ne '0.0.0.0' } |
+            Sort-Object { $_.RouteMetric + (Get-NetIPInterface -InterfaceIndex $_.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue).InterfaceMetric } |
+            Select-Object -First 1
         $addr = Get-NetIPAddress -InterfaceIndex $route.ifIndex -AddressFamily IPv4 -ErrorAction Stop |
             Where-Object { $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1
         return [pscustomobject]@{ Gateway = [string]$route.NextHop; Ip = [string]$addr.IPAddress; Prefix = [int]$addr.PrefixLength }
@@ -419,7 +422,7 @@ function Test-SettingUsable {
 
 # Read-Setting $row $values  - ask one setting until the answer is valid; stores it in $values
 function Read-Setting {
-    param([Parameter(Mandatory)]$Row, [Parameter(Mandatory)][System.Collections.IDictionary]$Values)
+    param([Parameter(Mandatory)]$Row, [Parameter(Mandatory)][System.Collections.IDictionary]$Values, [switch]$AllowSkip)
     $def = ''
     $src = 'current'
     if ($Values.Contains($Row.Key)) {
@@ -430,7 +433,11 @@ function Read-Setting {
             $Values.Remove($Row.Key)
         }
     }
-    if (-not $Values.Contains($Row.Key)) { $d = Get-SettingDefault -Row $Row -Values $Values; $def = $d.Value; $src = $d.Source }
+    if (-not $Values.Contains($Row.Key)) {
+        $d = Get-SettingDefault -Row $Row -Values $Values; $def = $d.Value; $src = $d.Source
+        # a default derived from a setting that is not known yet (e.g. "-hermes") is no default at all
+        if ($def -ne '' -and $Row.Type -ne 'optmodel' -and -not (Test-SettingValue -Type $Row.Type -Value $def).Ok) { $def = '' }
+    }
     Write-Host ''
     Write-Host "  $($Row.Help)"
     $hint = $def
@@ -439,11 +446,15 @@ function Read-Setting {
     elseif ($Row.Type -like 'choice:*') {
         $opts = $Row.Type.Substring(7) -split ','
         for ($i = 0; $i -lt $opts.Count; $i++) { Write-Host ('    {0}) {1}' -f ($i + 1), $opts[$i]) }
-    } elseif (-not $hint) { $hint = if ($Row.Type -eq 'optmodel') { 'none' } else { 'required' } }
+    } elseif (-not $hint) { $hint = if ($Row.Type -eq 'optmodel') { 'none' } elseif ($AllowSkip) { 'Enter to answer later' } else { 'required' } }
     if ($src -eq 'detected') { $hint = "$hint, detected" }
     while ($true) {
         $ans = Read-Answer "  $($Row.Prompt) [$hint]"
         if ($ans -eq '') { $ans = $def }
+        if ($ans -eq '' -and $AllowSkip -and $Row.Type -ne 'optmodel') {
+            Write-Host '  (left for later: you will be asked when a step needs it)'
+            return
+        }
         if ($opts.Count -gt 0 -and $ans -cmatch '^[0-9]{1,3}$' -and [int]$ans -ge 1 -and [int]$ans -le $opts.Count) { $ans = $opts[[int]$ans - 1] }
         $t = Test-SettingValue -Type $Row.Type -Value $ans
         if ($t.Ok) { $Values[$Row.Key] = $t.Norm; return }
@@ -554,6 +565,24 @@ function Get-EffectiveConfig {
     return $vals
 }
 
+# Set-NodeSettings -Path P -Set "KEY=VALUE",...  - change just those settings (validated) and save; nothing else is touched
+function Set-NodeSettings {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string[]]$Set)
+    $schema = Get-SettingsSchema
+    $state = Read-SettingsFile -Path $Path -Schema $schema
+    foreach ($kv in $Set) {
+        $k, $v = $kv -split '=', 2
+        $row = $schema | Where-Object { $_.Key -eq $k } | Select-Object -First 1
+        if (-not $row) { throw "unknown setting '$k'" }
+        $t = Test-SettingValue -Type $row.Type -Value $v
+        if (-not $t.Ok) { throw "${k}: $($t.Error)" }
+        $state.Values[$k] = $t.Norm
+    }
+    Complete-Settings -Schema $schema -Values $state.Values -NoAuto
+    Write-NodeEnv -Path $Path -Schema $schema -Values $state.Values -Extra $state.Extra
+    Write-Ok "saved $Path"
+}
+
 # Invoke-ConfigWizard  - what Configure.ps1 does (and Initialize-NodeConfig on a first run)
 function Invoke-ConfigWizard {
     param(
@@ -614,7 +643,7 @@ function Invoke-ConfigWizard {
                 continue
             }
             if ($row.Group -ne $grp) { $grp = $row.Group; Write-Host ''; Write-Host "== $grp ==" -ForegroundColor Cyan }
-            Read-Setting -Row $row -Values $values
+            Read-Setting -Row $row -Values $values -AllowSkip
         }
     }
     & $pass 'basic'
@@ -719,6 +748,24 @@ function Initialize-NodeConfig {
         }
     }
     return (Get-EffectiveConfig -Path $Path)
+}
+
+# Invoke-NativeText { & tool args }  - run a native command and return its stdout+stderr as one string.
+# Windows PowerShell 5.1 turns a native command's stderr into a terminating error under
+# $ErrorActionPreference = 'Stop'; here it is just text. $LASTEXITCODE is left for the caller.
+function Invoke-NativeText {
+    param([Parameter(Mandatory)][scriptblock]$Block)
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { return ((& $Block 2>&1 | ForEach-Object { "$_" }) -join "`n") } finally { $ErrorActionPreference = $old }
+}
+
+# Add-ClockMinutes "HH:MM" MINUTES  - clock arithmetic around midnight, e.g. 01:00 +75 -> 02:15
+function Add-ClockMinutes {
+    param([Parameter(Mandatory)][string]$Time, [int]$Minutes)
+    $h, $m = $Time -split ':'
+    $t = ((([int]$h * 60 + [int]$m + $Minutes) % 1440) + 1440) % 1440
+    return ('{0:D2}:{1:D2}' -f [int][math]::Floor($t / 60), [int]($t % 60))
 }
 
 # Wait-Http URL SECONDS [Headers]  - poll until the URL answers 2xx

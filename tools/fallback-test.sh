@@ -2,7 +2,7 @@
 # TITLE: Prove the fallback chain with the internet off
 # RUN-AS: admin
 # GUIDE: Step 29
-# NEEDS: GITHUB_REPOS
+# NEEDS: GITHUB_REPOS DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS
 # Cuts outbound 443 for a few minutes. A trap ALWAYS restores the firewall and resumes the schedules,
 # even if you press Ctrl-C or a step fails.
 # Options (asked when not given): --sleep | --skip-sleep (whether you will put the desktop to sleep for step 2)
@@ -21,6 +21,12 @@ done
 load_config
 need_cmd ufw
 ask_flag DO_SLEEP "Will you put the desktop to sleep for step 2? (this proves the laptop takes over when the desktop is off)" y
+skipped=()
+if [[ $DO_SLEEP == 1 ]] && ! is_interactive && [[ $DRY_RUN != 1 ]]; then
+  warn "step 2 needs you to put the desktop to sleep, and there is no terminal to ask you on: skipping it"
+  DO_SLEEP=0
+fi
+if [[ $DO_SLEEP != 1 ]]; then skipped+=("step 2 (desktop asleep, laptop answers)"); fi
 
 cut_done=0 paused=0
 cleanup() {
@@ -62,7 +68,7 @@ ask() { # ask "label" "expected alias" "command"
 ask "1. desktop on: the default profile falls back to the desktop model" "$DESKTOP_MODEL_ALIAS" 'hermes chat -q "Which model are you? One line."'
 if [[ $DO_SLEEP == 1 ]]; then
   echo "Now put the desktop to sleep, wait about 20 seconds, then press Enter."
-  [[ $ASSUME_YES == 1 || $DRY_RUN == 1 ]] || read -r -p "Ready? " _ </dev/tty
+  [[ $DRY_RUN == 1 ]] || read_answer "Ready? (press Enter) "
   ask "2. desktop asleep: falls back to the laptop model" "$LAPTOP_MODEL_ALIAS" 'hermes chat -q "Which model are you? One line."'
 fi
 ask "3. the local profile works offline" "" "hermes -p local chat -q \"List the files in ~/repos/$CRON_REPO\""
@@ -73,5 +79,9 @@ if ((failures)); then
   echo "per turn, and with the internet off that one fallback is the second OpenRouter model, which also fails. Keep the chain for"
   echo "ordinary outages and switch with 'hermes-mode local' when you know the internet is out."
   exit 1
+fi
+if ((${#skipped[@]})); then
+  warn "NOT tested: ${skipped[*]}. The checks that ran passed, but the laptop fallback is not proven yet."
+  exit 0
 fi
 ok "fallback behaviour confirmed"

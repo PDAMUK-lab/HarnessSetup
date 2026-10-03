@@ -33,18 +33,25 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Common.ps1"
 $script:HsDryRun = [bool]$DryRun
 $script:HsAssumeYes = [bool]$Yes
-Assert-Admin
+if (-not $ShowKey) { Assert-Admin }   # showing the key needs no elevation
 if (-not $ConfigFile) { $ConfigFile = Get-DefaultConfigPath }
 $need = 'LAPTOP_IP', 'DESKTOP_IP', 'LLM_PORT', 'DESKTOP_QUANT', 'DESKTOP_MODEL_FILE', 'DESKTOP_MODEL_URL', 'DESKTOP_MODEL_ALIAS',
     'DESKTOP_CTX', 'DESKTOP_N_CPU_MOE', 'DESKTOP_CACHE_RAM_MB', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR'
-$cfg = Initialize-NodeConfig -Path $ConfigFile -Need $need
-Assert-Config $cfg $need
+# -ShowKey only needs to know where the key is: no unrelated questions
+$cfg = Initialize-NodeConfig -Path $ConfigFile -Need $(if ($ShowKey) { @('DESKTOP_LLAMA_DIR') } else { $need })
+if (-not $ShowKey) { Assert-Config $cfg $need }
 
 $llama = $cfg['DESKTOP_LLAMA_DIR']
 $models = $cfg['DESKTOP_MODELS_DIR']
 $keyFile = "$llama\api-key.txt"
 $startCmd = "$llama\start-llama.cmd"
 $base = "http://$($cfg['DESKTOP_IP']):$($cfg['LLM_PORT'])"
+
+if ($ShowKey) {
+    if (-not (Test-Path $keyFile)) { throw "No key yet: $keyFile" }
+    Write-Host (Get-Content $keyFile -Raw)
+    return
+}
 
 # options not given on the command line are asked
 if ((Test-Path "$llama\llama-server.exe") -and -not $PSBoundParameters.ContainsKey('UpdateLlama')) {
@@ -54,12 +61,6 @@ $NeverSleepOnAC = Resolve-Option -Bound $PSBoundParameters -Name NeverSleepOnAC 
     -Question 'Make Windows never sleep while on mains power? (keeps the desktop model available; otherwise Hermes falls back to the laptop whenever the desktop sleeps)'
 if ($PSBoundParameters.ContainsKey('NoStart')) { $startNow = -not $NoStart }
 else { $startNow = Read-YesNo -Question 'Start the server when it is installed, and run the tool-call smoke test?' -Default $true }
-
-if ($ShowKey) {
-    if (-not (Test-Path $keyFile)) { throw "No key yet: $keyFile" }
-    Write-Host (Get-Content $keyFile -Raw)
-    return
-}
 
 Write-Step 'folders'
 Invoke-Action "create $llama and $models" { New-Item -ItemType Directory -Force -Path $llama, $models | Out-Null }
@@ -84,7 +85,7 @@ if ((Test-Path "$llama\llama-server.exe") -and -not $UpdateLlama) {
     }
 }
 Invoke-Action 'llama-cli.exe --list-devices (the RX 6600 XT must be listed)' {
-    $devices = & "$llama\llama-cli.exe" --list-devices 2>&1 | Out-String
+    $devices = Invoke-NativeText { & "$llama\llama-cli.exe" --list-devices }
     if ($LASTEXITCODE -eq -1073741515) { throw 'llama-cli.exe will not start: install the latest Microsoft Visual C++ Redistributable (x64), then re-run.' }
     Write-Host $devices
     if ($devices -notmatch '6600') { Write-Warn 'no RX 6600 XT in the device list. Install the current AMD Adrenalin driver (Step 19.1) and re-run.' }

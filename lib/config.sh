@@ -174,6 +174,23 @@ cfg_valid_ip() {
   [[ $1 =~ ^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$ ]]
 }
 
+# cfg_time_add HH:MM MINUTES  - clock arithmetic around midnight, e.g. 01:00 +75 -> 02:15
+cfg_time_add() {
+  local h=${1%%:*} m=${1#*:} t
+  t=$(((10#$h * 60 + 10#$m + $2) % 1440))
+  ((t < 0)) && t=$((t + 1440))
+  printf '%02d:%02d' $((t / 60)) $((t % 60))
+}
+
+# cfg_time_words HH:MM  - the way the Hermes scheduler examples spell it: 2am, 2:15am, 11:30pm
+cfg_time_words() {
+  local h=$((10#${1%%:*})) m=${1#*:} ap=am
+  ((h >= 12)) && ap=pm
+  h=$((h % 12))
+  ((h == 0)) && h=12
+  if [[ $m == 00 ]]; then printf '%d%s' "$h" "$ap"; else printf '%d:%s%s' "$h" "$m" "$ap"; fi
+}
+
 # cfg_validate TYPE VALUE  - status 0 if valid; CFG_NORM holds the normalised value, CFG_ERR the complaint
 cfg_validate() {
   local type=$1 v=$2 lo hi w
@@ -446,9 +463,10 @@ cfg_fill_rest() {
   for k in "${CFG_KEYS[@]}"; do cfg_take_default "$k" "${1:-}"; done
 }
 
-# cfg_prompt KEY  - ask one setting until the answer is valid
+# cfg_prompt KEY [skip]  - ask one setting until the answer is valid. With "skip", a setting that has
+# no default may be left for later (Enter): it is asked again when a step needs it.
 cfg_prompt() {
-  local key=$1 def='' src=current hint opts='' i w ans type
+  local key=$1 def='' src=current hint opts='' i w ans type allow_skip=${2:-}
   type=${CFG_TYPE[$key]}
   def=${CFG_VAL[$key]-}
   if [[ -n $def ]] && ! cfg_validate "$type" "$def"; then
@@ -459,6 +477,8 @@ cfg_prompt() {
   if [[ -z ${CFG_VAL[$key]+x} ]]; then
     cfg_default "$key"
     def=$CFG_DEF src=$CFG_DEF_SRC
+    # a default derived from a setting that is not known yet (e.g. "-hermes") is no default at all
+    if [[ -n $def && $type != optmodel ]] && ! cfg_validate "$type" "$def"; then def=''; fi
   fi
   printf '\n' >&2
   fold -s -w 74 <<<"${CFG_HELP[$key]}" | sed 's/^/  /' >&2
@@ -478,7 +498,9 @@ cfg_prompt() {
     *)
       hint=$def
       if [[ -z $hint ]]; then
-        if [[ $type == optmodel ]]; then hint=none; else hint=required; fi
+        if [[ $type == optmodel ]]; then hint=none
+        elif [[ -n $allow_skip ]]; then hint='Enter to answer later'
+        else hint=required; fi
       fi
       ;;
   esac
@@ -487,6 +509,10 @@ cfg_prompt() {
     read_answer "  ${CFG_PROMPT[$key]} [$hint]: "
     ans=$ANSWER
     [[ -n $ans ]] || ans=$def
+    if [[ -z $ans && -n $allow_skip && $type != optmodel ]]; then
+      printf '  (left for later: you will be asked when a step needs it)\n' >&2
+      return 0
+    fi
     if [[ $type == choice:* && $ans =~ ^[0-9]+$ ]]; then
       i=1
       for w in ${opts//,/ }; do
@@ -527,7 +553,7 @@ _cfg_pass() {
       grp=${CFG_GROUP[$k]}
       printf '\n\033[1m== %s ==\033[0m\n' "$grp" >&2
     fi
-    cfg_prompt "$k"
+    cfg_prompt "$k" skip
   done
 }
 
@@ -638,6 +664,51 @@ MSG
     warn "not set yet: ${missing[*]} (you will be asked when a step needs them, or run ./setup.sh configure)"
   fi
   return 0
+}
+
+# cfg_require_value KEY VALUE  - a step that only makes sense with KEY=VALUE: offer to change it (never silently)
+cfg_require_value() {
+  local key=$1 want=$2 file=${NODE_ENV:-$HS_ROOT/config/node.env} cur
+  cfg_schema_load
+  cfg_reset_values
+  cfg_parse_env "$file"
+  cfg_infer_quants
+  cfg_drop_derived
+  [[ -n ${CFG_SCOPE[$key]+x} ]] || die "internal: unknown setting '$key' in a NEEDS header"
+  cfg_default "$key"
+  cur=${CFG_VAL[$key]-$CFG_DEF}
+  [[ $cur == "$want" ]] && return 0
+  if is_interactive && ask_yesno "This step needs ${CFG_PROMPT[$key]} to be '$want', but it is '$cur'. Change it now?" y; then
+    CFG_VAL[$key]=$want
+    cfg_fill_rest noauto
+    cfg_write_env "$file"
+    ok "$key=$want saved to $file"
+  else
+    die "this step needs $key=$want (it is '$cur'). Run: ./setup.sh configure --set $key=$want"
+  fi
+}
+
+# cfg_check FILE  - validate every setting in the file; the status says whether all are usable
+cfg_check() {
+  local file=$1 k bad=0 later=0
+  cfg_schema_load
+  cfg_reset_values
+  cfg_parse_env "$file"
+  cfg_infer_quants
+  for k in "${CFG_KEYS[@]}"; do
+    cfg_when_ok "$k" || continue
+    if [[ -n ${CFG_VAL[$k]+x} ]]; then
+      if ! cfg_validate "${CFG_TYPE[$k]}" "${CFG_VAL[$k]}"; then
+        warn "$k='${CFG_VAL[$k]}': $CFG_ERR"
+        bad=$((bad + 1))
+      fi
+    elif [[ ${CFG_LEVEL[$k]} == basic && ( ${CFG_DEFAULT[$k]} == auto:* || -z ${CFG_DEFAULT[$k]} ) ]] && cfg_in_scope "$k"; then
+      log "not set yet: $k (${CFG_PROMPT[$k]}) - you will be asked when a step needs it"
+      later=$((later + 1))
+    fi
+  done
+  if ((bad)); then die "$bad setting(s) in $file are not valid. Fix them with ./setup.sh configure --only KEY"; fi
+  ok "$file: every setting that is set is valid${later:+ ($later more will be asked later)}"
 }
 
 # cfg_ensure KEY...  - each setting must have a valid value. Ask for the ones that do not (and save them).

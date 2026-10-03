@@ -14,7 +14,14 @@ Settings and options are asked for instead of edited or guessed.
   watcher, fallback-test sleep step, verify's model tests, overnight task, which repo, adopt-repo's commands with
   project detection; on Windows: sleep, replace llama.cpp, start now, tunnel shortcut, active hours).
   `--yes` and no-terminal runs take the safe default (never an unattended reboot, never auto-enabling the overnight tier).
-- `load_config` applies schema defaults, so a short settings file is enough.
+- `load_config` applies schema defaults, so a short settings file is enough; the dispatcher always validates the
+  addresses and admin account, and a `# NEEDS:` entry `KEY=VALUE` (the overnight tier) offers to change a setting
+  instead of telling you to edit a file.
+- A multi-agent review of this work found and we fixed: settings-file rewrites that could turn an inert value into
+  code (quote escaping, round-trip parser on both platforms), dropped `export` lines, CRLF files, glob and octal
+  edge cases, unusable values offered as defaults, silent adoption of detected addresses, stale done-markers after a
+  failed re-run, `NODE_ENV` not reaching the agent's copy, npm/cargo/go package defaults that did not write `dist/`,
+  hard-coded overnight times, and a fallback test that claimed more than it tested.
 - Fixes found by the new tests: `CRON_REPO` unbound before GitHub settings exist; Windows option handling with
   `$PSBoundParameters`.
 

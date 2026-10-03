@@ -298,10 +298,16 @@ common_flag() {
 publish_shared() {
   log "publishing $HS_ROOT -> $HS_SHARED for the agent user"
   [[ $DRY_RUN == 1 ]] && { warn "[dry-run] skipped"; return 0; }
-  "${SUDO[@]}" rm -rf "$HS_SHARED"
-  "${SUDO[@]}" install -d -m 755 "$HS_SHARED"
-  tar -C "$HS_ROOT" --exclude=.git -cf - . | "${SUDO[@]}" tar -C "$HS_SHARED" --no-same-owner -xf -
-  "${SUDO[@]}" chmod -R a+rX,go-w "$HS_SHARED"
+  local nf=${NODE_ENV:-$HS_ROOT/config/node.env} new="$HS_SHARED.new" old="$HS_SHARED.old"
+  # build the new copy beside the old one, then swap, so a failed copy never leaves the agent without a kit
+  "${SUDO[@]}" rm -rf "$new" "$old"
+  "${SUDO[@]}" install -d -m 755 "$new" || die "cannot create $new"
+  tar -C "$HS_ROOT" --exclude=.git -cf - . | "${SUDO[@]}" tar -C "$new" --no-same-owner -xf - || die "could not copy the kit to $new"
+  if [[ -f $nf ]]; then "${SUDO[@]}" install -D -m 644 "$nf" "$new/config/node.env" || die "could not copy the settings to $new"; fi
+  "${SUDO[@]}" chmod -R a+rX,go-w "$new"
+  if [[ -e $HS_SHARED ]]; then "${SUDO[@]}" mv "$HS_SHARED" "$old"; fi
+  "${SUDO[@]}" mv "$new" "$HS_SHARED" || die "could not put the new kit in place at $HS_SHARED"
+  "${SUDO[@]}" rm -rf "$old"
 }
 
 # shellcheck source=lib/config.sh

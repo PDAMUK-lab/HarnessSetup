@@ -32,7 +32,7 @@ if ($cfg['NIGHT_ENABLED'] -ne '1') {
     if (-not (Test-Interactive) -or -not (Read-YesNo -Question 'The overnight tier is switched off in your settings. Turn it on now?' -Default $true)) {
         throw 'The overnight tier is off (NIGHT_ENABLED=0). Run .\Configure.ps1 -Only NIGHT_ENABLED to turn it on.'
     }
-    Invoke-ConfigWizard -Path $ConfigFile -Scope desktop -Defaults -Set 'NIGHT_ENABLED=1'
+    Set-NodeSettings -Path $ConfigFile -Set 'NIGHT_ENABLED=1'   # changes only that setting
     if (Test-Interactive) { Invoke-ConfigWizard -Path $ConfigFile -Scope desktop -Only 'NIGHT_START', 'NIGHT_END' }
 }
 $cfg = Initialize-NodeConfig -Path $ConfigFile -Need 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR', 'NIGHT_MODEL_FILE', 'NIGHT_MODEL_URL',
@@ -87,5 +87,5 @@ if ($SetUpdateActiveHours) {
 
 Write-Host ''
 Write-Host 'Remember: sign-in stays on (lock the screen, do not sign out) and the PC must sleep, not hibernate.' -ForegroundColor Yellow
-Write-Host 'Schedule overnight jobs between 01:15 and about 05:00, one per night. Pinned jobs never fall back.'
+Write-Host "Schedule overnight jobs between $(Add-ClockMinutes $cfg['NIGHT_START'] 15) and $(Add-ClockMinutes $cfg['NIGHT_END'] -120), one per night. Pinned jobs never fall back."
 Write-Host 'Next, on the laptop:  tools/overnight-laptop.sh prints the order (test by hand, then enable the job).'

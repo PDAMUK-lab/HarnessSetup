@@ -21,6 +21,10 @@ load_config
 use_hermes_path
 if [[ -z $REPO && $GITHUB_REPOS == *" "* ]]; then ask_text REPO "Which repo should the smoke test use? ($GITHUB_REPOS)" "$CRON_REPO"; fi
 REPO=${REPO:-$CRON_REPO}
+case " $GITHUB_REPOS " in
+  *" $REPO "*) ;;
+  *) die "'$REPO' is not one of your repositories ($GITHUB_REPOS)" ;;
+esac
 dir=$HOME/repos/$REPO
 [[ -d $dir/.git ]] || die "$dir is not a clone (run stage 05)"
 cd "$dir" || exit 1

@@ -40,5 +40,5 @@ MANUAL STEP (needs your OpenRouter key, so it is not scripted):
   2. In the agent's session:   sudo machinectl shell $AGENT_USER@     then:   hermes model
      Choose OpenRouter, paste the key, and pick the planner (main) model from the live list.
   3. Check it:   cd ~/repos/$CRON_REPO && hermes --tui   and ask it to summarise the repo and how to run its tests.
-Then fill in the OR_* model IDs in config/node.env and run:  ./setup.sh run 07
+Then run:  ./setup.sh run 07   (it asks for the worker, reviewer and summariser model IDs)
 MSG

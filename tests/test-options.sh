@@ -94,7 +94,8 @@ ans 'n\ny\n'; printf 'I am qwen3.6-35b-a3b\nfiles\n' >"$T/answers"
 OUT=$(FAKE_ANSWERS="$T/answers" "$ROOT/setup.sh" tool fallback-test 2>&1 </dev/null); RC=$?
 check "fallback-test: asks whether you will sleep the desktop" has "put the desktop to sleep for step 2?"
 check "fallback-test: the Continue? confirmation reads the same scripted answers" test $RC -eq 0
-check "fallback-test: no to sleeping skips step 2" lacks "desktop asleep"
+check "fallback-test: no to sleeping skips step 2" lacks "2. desktop asleep"
+check "fallback-test: ...and says it was not tested" has "NOT tested: step 2"
 noans
 
 # ---- tools/overnight-laptop: the task is asked for
@@ -127,6 +128,8 @@ ans '\n\n\n\n\n'; adopt "$T/js"
 check "adopt (npm): accepting every guess works" test $RC -eq 0
 check "adopt (npm): guessed npm ci / npm test" grep -qF 'Test (must pass before any push): `npm test`' "$T/js/AGENTS.md"
 check "adopt (npm): guessed lint" grep -qF 'Lint: `npm run lint`' "$T/js/AGENTS.md"
+check "adopt (npm): the guessed package command writes into dist/ (the release workflow publishes dist/*)" grep -q 'npm pack --pack-destination dist' "$T/js/AGENTS.md"
+check "adopt (npm): ...in the release workflow too" grep -q 'pack-destination dist' "$T/js/.github/workflows/release.yml"
 check "adopt (npm): guessed version file" grep -qF 'Version lives in: `package.json`' "$T/js/AGENTS.md"
 ans '\n\n\n\n\n'; adopt "$T/py"
 check "adopt (python): guessed pytest" grep -qF '`pytest -q`' "$T/py/AGENTS.md"

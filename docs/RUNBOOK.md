@@ -243,7 +243,7 @@ restore the day server, resume the job. Jobs run between 01:15 and about 05:00, 
 Build a test set first: 10 to 20 real tasks, each judged by passing tests, run as one-shot cron jobs in the `local`
 profile; every change below must improve the pass rate or you undo it. Setting-driven changes
 (`./setup.sh configure --only KEY`, then re-run stage 10 or `Install-Llama.ps1`): quantizations, `DESKTOP_N_CPU_MOE`,
-`REASONING_EFFORT` and `MAX_CONCURRENT_CHILDREN` (the last two under `--advanced`). For the A/B of the MiMo distill (`-m` and `--alias`), MTP speculative decoding
+`REASONING_EFFORT` and `MAX_CONCURRENT_CHILDREN` (the last two are `--advanced` settings that stage 07 applies: re-run `./setup.sh run 07`). For the A/B of the MiMo distill (`-m` and `--alias`), MTP speculative decoding
 (`--spec-type draft-mtp --spec-draft-n-max 2` with the `-MTP-GGUF` repo) and `-ctk bf16 -ctv bf16`, edit the unit or
 `start-llama.cmd` by hand as the guide's table says. Server logs show tokens per second:
 `journalctl -u llama-server -f` on the laptop, the console window on the desktop.

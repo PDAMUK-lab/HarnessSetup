@@ -171,6 +171,47 @@ Check 'integrity: ConvertFrom-EnvValue handles the shell quoting forms' {
 Check 'integrity: the file has no BOM and no CR' {
     $b = [System.IO.File]::ReadAllBytes($f7); -not ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB) -and -not ($b -contains 13) }
 
+# ---- answer later (wizard) vs required (just in time)
+$rowWorker = $schema | Where-Object { $_.Key -eq 'OR_WORKER_MODEL' }
+Use-Answers ''
+$vals = [ordered]@{}
+Quiet { Read-Setting -Row $rowWorker -Values $vals -AllowSkip }
+Clear-Answers
+Check 'AllowSkip: Enter leaves a setting with no default unset' { -not $vals.Contains('OR_WORKER_MODEL') }
+Use-Answers '', 'vendor-a/worker'
+$vals2 = [ordered]@{}
+Quiet { Read-Setting -Row $rowWorker -Values $vals2 }
+Clear-Answers
+Check 'without AllowSkip an empty answer is refused and asked again' { $vals2['OR_WORKER_MODEL'] -eq 'vendor-a/worker' }
+Use-Answers ''
+$rowUser = $schema | Where-Object { $_.Key -eq 'GITHUB_MACHINE_USER' }
+$vals3 = [ordered]@{}
+Quiet { Read-Setting -Row $rowUser -Values $vals3 -AllowSkip }
+Clear-Answers
+Check 'a default derived from an unknown setting ("-hermes") is not offered' { -not $vals3.Contains('GITHUB_MACHINE_USER') }
+Use-Answers '99999999999', '2'
+$rowQ = $schema | Where-Object { $_.Key -eq 'DESKTOP_QUANT' }
+$vals4 = [ordered]@{}
+Quiet { Read-Setting -Row $rowQ -Values $vals4 }
+Clear-Answers
+Check 'a huge number at a choice prompt is just invalid, not a crash' { $vals4['DESKTOP_QUANT'] -eq 'UD-Q4_K_XL' }
+
+# ---- Set-NodeSettings changes only what it is told to
+$f8 = Join-Path $Tmp 'setonly.env'
+Set-Content $f8 @('LAPTOP_IP=10.0.0.20', 'DESKTOP_IP=10.0.0.30', 'ADMIN_USER=james')
+Quiet { Set-NodeSettings -Path $f8 -Set 'NIGHT_ENABLED=1' }
+$r8 = Read-NodeEnv $f8
+Check 'Set-NodeSettings: the setting is set' { $r8['NIGHT_ENABLED'] -eq '1' }
+Check 'Set-NodeSettings: the existing values are kept' { $r8['LAPTOP_IP'] -eq '10.0.0.20' -and $r8['ADMIN_USER'] -eq 'james' }
+Check 'Set-NodeSettings: no detected address is adopted for the settings that were never given' { -not $r8.Contains('ROUTER_IP') -and -not $r8.Contains('LAN_CIDR') }
+Check 'Set-NodeSettings: an invalid value is refused' { Throws { Set-NodeSettings -Path $f8 -Set 'NIGHT_ENABLED=maybe' } }
+
+# ---- a native command's stderr is text, not an error, under $ErrorActionPreference = 'Stop'
+$old = $ErrorActionPreference; $ErrorActionPreference = 'Stop'
+$txt = Invoke-NativeText { & bash -c 'echo out; echo err >&2' }
+$ErrorActionPreference = $old
+Check 'Invoke-NativeText returns stdout and stderr and does not throw' { $txt -match 'out' -and $txt -match 'err' }
+
 # ---- parity: a file bash wrote survives a PowerShell read-and-rewrite byte for byte
 if ($env:HS_PARITY_FILE) {
     $schema2 = Get-SettingsSchema

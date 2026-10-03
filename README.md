@@ -39,8 +39,10 @@ The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps betwee
 - **Just in time.** A stage asks only for the settings it needs and that are still missing: stage 05 asks for your
   GitHub account, stage 07 for the OpenRouter models, and so on. Nothing is asked twice.
 - **Options** (install Docker? NVIDIA driver? CUDA or Vulkan? benchmark first? start the release watcher? never sleep
-  on mains power?) are asked when you did not give the flag. Flags still work and skip the question; `--yes` (or
-  running without a terminal) takes the safe default and never reboots on its own.
+  on mains power?) are asked when you did not give the flag. Flags still work and skip the question. `--yes` (or
+  running without a terminal) takes each question's default and answers *yes* to confirmations, like `apt -y`; it
+  never reboots on its own and never switches a setting on, and the safety checks (SSH source address, DNS server,
+  a valid key login) still run.
 - **Windows** asks the same way (`Configure.ps1`, or any installer on its first run), and can copy the laptop's
   settings over SSH so the shared answers are typed once.
 - The settings file is plain text (`config/node.env`, git-ignored, no secrets). Editing it by hand still works;
@@ -55,7 +57,7 @@ The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps betwee
 | 5 key-only SSH | `desktop/windows/Setup-LaptopAccess.ps1`, `laptop/02-ssh-hardening.sh` | script |
 | 6 agent user | `laptop/03-agent-user.sh` | script |
 | 7 build tools, Node 22, `gh` | `laptop/04-dev-tools.sh` | script |
-| 8 GitHub machine account, rulesets, token | [runbook §3](docs/RUNBOOK.md) | manual |
+| 8 GitHub machine account, rulesets, token | [runbook §2](docs/RUNBOOK.md) | manual |
 | 8 laptop login, clones, proof of the guard rails | `laptop/05-github-access.sh`, `tools/github-smoke-test.sh` | script |
 | 9 install Hermes | `laptop/06-hermes-install.sh` | script |
 | 10 OpenRouter key and planner | `hermes model` | manual |
@@ -79,8 +81,9 @@ The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps betwee
 
 - **Re-runnable.** Every stage skips what is already in place. Stage completion is recorded
   (`/var/lib/harness-setup/done`, and `~/.harness-setup/done` for the agent user); `./setup.sh list` shows it.
-- **Dry run first.** `--dry-run` prints every command and every file it would write and changes nothing.
-  Windows scripts take `-DryRun`.
+- **Dry run first.** `--dry-run` prints every command and every file it would write and changes nothing on the
+  machine. It still asks for, and saves, your settings (`config/node.env` is not a system change), so the preview
+  reflects your answers. Windows scripts take `-DryRun`.
 - **No secrets in the repo.** `config/node.env` holds addresses and model names only (and is git-ignored). The
   GitHub token and OpenRouter key are typed into prompts or `hermes model`; the desktop key is generated on
   Windows, kept in `C:\llama\api-key.txt` (ACL-restricted) and pasted once into the laptop's `~/.hermes/.env`

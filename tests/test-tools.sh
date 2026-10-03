@@ -62,8 +62,10 @@ check "verify: prose answer (no --jinja) is a FAIL with a hint" bash -c "grep -E
 
 # ================= fallback-test.sh
 : >"$FAKE_LOG"; printf 'I am qwen3.6-35b-a3b\nI am qwen3.5-9b\nfile1 file2\n' >"$T/answers"
-OUT=$(FAKE_ANSWERS="$T/answers" bash "$ROOT/tools/fallback-test.sh" --yes 2>&1); RC=$?
+printf 'y\n\n' >"$T/ftans"   # Continue? y, then Enter when the desktop is asleep
+OUT=$(ASSUME_YES=0 HS_INPUT="$T/ftans" FAKE_ANSWERS="$T/answers" bash "$ROOT/tools/fallback-test.sh" --sleep 2>&1); RC=$?
 check "fallback-test: succeeds when every step answers" test $RC -eq 0
+check "fallback-test: claims confirmation only when every step ran" has "fallback behaviour confirmed"
 check "fallback-test: desktop answer recognised" has "answered by qwen3.6-35b-a3b"
 check "fallback-test: laptop answer recognised" has "answered by qwen3.5-9b"
 check "fallback-test: order is pause, cut internet, ask, restore, resume" bash -c "
@@ -71,11 +73,17 @@ check "fallback-test: order is pause, cut internet, ask, restore, resume" bash -
   [[ \$(l 'hermes pause') -lt \$(l 'ufw insert 1 deny out 443/tcp') && \$(l 'ufw insert 1 deny out 443/tcp') -lt \$(l 'hermes chat') && \$(l 'hermes chat') -lt \$(l 'ufw delete deny out 443/tcp') && \$(l 'ufw delete deny out 443/tcp') -lt \$(l 'hermes resume') ]]"
 check "fallback-test: local profile step ran" logged "hermes -p local chat"
 : >"$FAKE_LOG"; printf 'FAIL\nI am qwen3.5-9b\nfiles\n' >"$T/answers"
-OUT=$(FAKE_ANSWERS="$T/answers" bash "$ROOT/tools/fallback-test.sh" --yes 2>&1); RC=$?
+OUT=$(ASSUME_YES=0 HS_INPUT="$T/ftans" FAKE_ANSWERS="$T/answers" bash "$ROOT/tools/fallback-test.sh" --sleep 2>&1); RC=$?
 check "fallback-test: a failing step makes the run fail" test $RC -eq 1
 check "fallback-test: failure explains the one-fallback-per-turn case" has "stops after one fallback"
 check "fallback-test: firewall is restored even after a failure" logged "ufw delete deny out 443/tcp"
 check "fallback-test: schedules resumed even after a failure" logged "hermes resume"
+# without a terminal the sleep step cannot be done: it is reported as NOT tested, not as passed
+: >"$FAKE_LOG"; printf 'I am qwen3.6-35b-a3b\nfiles\n' >"$T/answers"
+OUT=$(FAKE_ANSWERS="$T/answers" bash "$ROOT/tools/fallback-test.sh" --yes 2>&1); RC=$?
+check "fallback-test --yes: still exits 0 for the checks that ran" test $RC -eq 0
+check "fallback-test --yes: says step 2 was NOT tested" has "NOT tested: step 2"
+check "fallback-test --yes: does not claim the fallback is confirmed" lacks "fallback behaviour confirmed"
 : >"$FAKE_LOG"
 OUT=$(bash "$ROOT/tools/fallback-test.sh" --yes --dry-run 2>&1); RC=$?
 check "fallback-test: dry run changes nothing" bash -c "test $RC -eq 0 && ! grep -q . '$FAKE_LOG'"

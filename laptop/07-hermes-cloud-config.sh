@@ -2,8 +2,8 @@
 # TITLE: Roles on OpenRouter: workers, reviewer, compression, worktree isolation
 # RUN-AS: hermes
 # GUIDE: Step 11
-# NEEDS: OR_WORKER_MODEL OR_REVIEW_MODEL OR_COMPRESSION_MODEL
-# Needs `hermes model` done (planner + OpenRouter key) and the OR_* IDs set in config/node.env.
+# NEEDS: OR_WORKER_MODEL OR_REVIEW_MODEL OR_COMPRESSION_MODEL REASONING_EFFORT MAX_CONCURRENT_CHILDREN MAX_ITERATIONS
+# Needs `hermes model` done (planner + OpenRouter key). The worker, reviewer and summariser model IDs are asked for.
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh

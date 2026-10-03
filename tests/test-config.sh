@@ -70,6 +70,10 @@ while IFS='|' read -r vt vv vw vn vwhy; do
   check "validate $vt '$vv': $vwhy" v "$vt" "$vv" "$vw" "$vn"
 done <"$ROOT/tests/validator-cases.psv"
 
+check "cfg_time_add: +15" test "$(cfg_time_add 01:00 15)" = 01:15
+check "cfg_time_add: -120" test "$(cfg_time_add 07:00 -120)" = 05:00
+check "cfg_time_add: wraps past midnight" test "$(cfg_time_add 23:30 75)/$(cfg_time_add 00:10 -30)" = 00:45/23:40
+check "cfg_time_words: the scheduler's spelling" test "$(cfg_time_words 02:00)/$(cfg_time_words 01:15)/$(cfg_time_words 12:30)/$(cfg_time_words 00:05)/$(cfg_time_words 23:00)" = 2am/1:15am/12:30pm/12:05am/11pm
 check "cfg_net /24"               test "$(cfg_net 192.168.1.150/24)" = 192.168.1.0/24
 check "cfg_net /20"               test "$(cfg_net 172.16.37.9/20)" = 172.16.32.0/20
 

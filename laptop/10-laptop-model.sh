@@ -2,7 +2,7 @@
 # TITLE: Laptop model service (Qwen3.5-9B, context cache in RAM)
 # RUN-AS: admin
 # GUIDE: Steps 18, 20
-# NEEDS: LAPTOP_QUANT LAPTOP_MODEL_FILE LAPTOP_MODEL_URL LAPTOP_MODEL_ALIAS LAPTOP_CTX LLM_PORT
+# NEEDS: LAPTOP_QUANT LAPTOP_MODEL_FILE LAPTOP_MODEL_URL LAPTOP_MODEL_ALIAS LAPTOP_CTX LLM_PORT LAPTOP_CACHE_RAM_MB
 # Options (asked when not given): --bench | --no-bench   --start | --no-start
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -47,7 +47,7 @@ if [[ $START == 1 ]]; then
     log "waiting for the model to load (up to 3 minutes)"
     if ! wait_http "http://127.0.0.1:$LLM_PORT/health" 180; then
       journalctl -u llama-server -n 25 --no-pager || true
-      die "llama-server did not come up. If you see a CUDA out-of-memory error, switch LAPTOP_MODEL_FILE/URL to the UD-Q4_K_XL file in config/node.env and re-run this stage."
+      die "llama-server did not come up. If you see a CUDA out-of-memory error, choose the smaller file with ./setup.sh configure --only LAPTOP_QUANT (pick UD-Q4_K_XL) and re-run this stage."
     fi
     ids=$(curl -s "http://127.0.0.1:$LLM_PORT/v1/models" | jq -r '.data[].id')
     [[ $ids == "$LAPTOP_MODEL_ALIAS" ]] || die "server reports model '$ids', expected '$LAPTOP_MODEL_ALIAS'"

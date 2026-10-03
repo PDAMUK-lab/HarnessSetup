@@ -37,13 +37,13 @@ fi
 # a guess from the project type, offered as the default for each question
 d_install='' d_test='' d_lint='' d_package='' d_version=VERSION
 if [[ -f $target/package.json ]]; then
-  d_install='npm ci' d_test='npm test' d_lint='npm run lint' d_package='npm pack' d_version=package.json
+  d_install='npm ci' d_test='npm test' d_lint='npm run lint' d_package='mkdir -p dist && npm pack --pack-destination dist' d_version=package.json
 elif [[ -f $target/pyproject.toml || -f $target/setup.py ]]; then
-  d_install='pip install -e .[dev]' d_test='pytest -q' d_lint='ruff check .' d_package='python -m build' d_version=pyproject.toml
+  d_install='pip install -e .[dev]' d_test='pytest -q' d_lint='ruff check .' d_package='python -m build' d_version=pyproject.toml   # writes dist/
 elif [[ -f $target/Cargo.toml ]]; then
-  d_install='cargo fetch' d_test='cargo test' d_lint='cargo clippy' d_package='cargo build --release' d_version=Cargo.toml
+  d_install='cargo fetch' d_test='cargo test' d_lint='cargo clippy' d_package='cargo package && mkdir -p dist && cp target/package/*.crate dist/' d_version=Cargo.toml
 elif [[ -f $target/go.mod ]]; then
-  d_install='go mod download' d_test='go test ./...' d_lint='go vet ./...' d_package='go build ./...'
+  d_install='go mod download' d_test='go test ./...' d_lint='go vet ./...' d_package='mkdir -p dist && go build -o dist/ ./...'
 elif [[ -f $target/Makefile ]]; then
   d_install='make install' d_test='make test' d_package='make dist'
 fi

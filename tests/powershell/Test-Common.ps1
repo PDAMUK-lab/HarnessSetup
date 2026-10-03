@@ -28,6 +28,11 @@ Check 'Assert-Config accepts set keys' { -not (Throws { Assert-Config $cfg 'LAPT
 Check 'Assert-Config rejects an empty key' { Throws { Assert-Config $cfg 'OR_WORKER_MODEL' } }
 Check 'Assert-Config rejects a missing key' { Throws { Assert-Config $cfg 'NOT_THERE' } }
 
+# ---- clock arithmetic (overnight window)
+Check 'Add-ClockMinutes: +15' { (Add-ClockMinutes '01:00' 15) -eq '01:15' }
+Check 'Add-ClockMinutes: -120 from 07:00' { (Add-ClockMinutes '07:00' -120) -eq '05:00' }
+Check 'Add-ClockMinutes: wraps past midnight' { (Add-ClockMinutes '23:30' 75) -eq '00:45' -and (Add-ClockMinutes '00:10' -30) -eq '23:40' }
+
 # ---- New-ApiKey
 $k1 = New-ApiKey; $k2 = New-ApiKey
 Check 'New-ApiKey is 64 hex characters' { $k1 -match '^[0-9a-f]{64}$' }

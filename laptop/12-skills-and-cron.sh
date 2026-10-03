@@ -2,7 +2,7 @@
 # TITLE: /release skill, cron clones, nightly tests, release watcher
 # RUN-AS: hermes
 # GUIDE: Steps 25, 27
-# NEEDS: GITHUB_ORG GITHUB_REPOS
+# NEEDS: GITHUB_ORG GITHUB_REPOS CRON_MODEL
 # Options (asked when not given): --active | --paused  (the release-watcher should only run once the
 #          release workflow from Step 26 exists)
 set -Eeuo pipefail
