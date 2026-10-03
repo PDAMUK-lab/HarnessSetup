@@ -11,6 +11,8 @@ sed -E \
   -e 's|^OR_COMPRESSION_MODEL=.*|OR_COMPRESSION_MODEL=vendor-a/mid|' -e 's|^OR_FALLBACK_MODEL=.*|OR_FALLBACK_MODEL=vendor-c/fallback|' \
   "$ROOT/config/node.env.example" >"$T/node.env"
 export NODE_ENV="$T/node.env" DESTDIR="$T/root" DRY_RUN_SHOW=0
+# stubs for sudo/ufw/hermes keep these dry runs independent of the machine they run on
+export PATH="$ROOT/tests/fakebin:$PATH" FAKE_LOG=/dev/null
 
 dry() { # dry ID [opts] -> output in $OUT, status in $RC
   OUT=$("$ROOT/setup.sh" run "$@" --dry-run --yes 2>&1); RC=$?

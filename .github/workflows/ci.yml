@@ -1,0 +1,20 @@
+name: ci
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck jq python3-yaml
+          shellcheck --version | head -2
+          pwsh --version
+      - name: Tests
+        run: STRICT=1 bash tests/run-tests.sh
