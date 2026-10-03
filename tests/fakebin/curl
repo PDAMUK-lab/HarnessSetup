@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test stub for curl: only the two URLs the stages use in a real run
+case "$*" in
+  *api/status*) echo '{"auth_required": false}' ;;
+  *hermes-agent*install.sh*) printf 'mkdir -p "$HOME/.local/bin"\ncp "%s" "$HOME/.local/bin/hermes"\n' "${FAKE_HERMES_SRC:-$(dirname "$0")/hermes}" ;;
+esac
+exit 0

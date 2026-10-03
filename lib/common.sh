@@ -130,8 +130,8 @@ put_file() {
     rm -f "$tmp"
     return 0
   fi
-  if [[ -n $DESTDIR ]]; then
-    install -D -m "$mode" "$tmp" "$target"
+  if [[ -n $DESTDIR || $owner == self ]]; then
+    install -D -m "$mode" "$tmp" "$target"   # owner "self": a file in the caller's own home, no sudo
   else
     "${SUDO[@]}" install -D -m "$mode" -o "${owner%%:*}" -g "${owner##*:}" "$tmp" "$target"
   fi
@@ -197,7 +197,7 @@ stage_begin() {
   log "Stage $(stage_id): $title  [$(stage_meta GUIDE)]"
   case $who in
     hermes)
-      [[ $(id -un) == "${AGENT_USER:-hermes}" || $DRY_RUN == 1 ]] ||
+      [[ $(id -un) == "${AGENT_USER:-hermes}" || $DRY_RUN == 1 || ${HS_ALLOW_ANY_USER:-0} == 1 ]] ||
         die "this stage runs as the agent user. Use: ./setup.sh run $(stage_id)"
       ;;
     admin)
@@ -214,6 +214,12 @@ stage_end() {
 
 # Make the agent's tools visible in non-login shells
 use_hermes_path() { export PATH="$HOME/.local/bin:$PATH"; }
+
+# need_user_session  - systemctl --user needs the login session machinectl provides
+need_user_session() {
+  [[ -n ${XDG_RUNTIME_DIR:-} || $DRY_RUN == 1 ]] ||
+    die "no user session bus. Run this through ./setup.sh (it uses machinectl), not 'sudo -iu'."
+}
 
 # common_flag ARG  - handle the flags every stage shares; returns 1 if ARG is not one of them
 common_flag() {
