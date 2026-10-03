@@ -278,8 +278,19 @@ stage_end() {
 # Make the agent's tools visible in non-login shells
 use_hermes_path() { export PATH="$HOME/.local/bin:$PATH"; }
 
-# need_user_session  - systemctl --user needs the login session machinectl provides
+# user_bus_env  - `sudo -u USER` is not a login session, so XDG_RUNTIME_DIR is unset: point systemctl --user at the
+# user manager that linger keeps running (HS_RUN_USER_DIR is the test seam)
+user_bus_env() {
+  local dir=${HS_RUN_USER_DIR:-/run/user/$(id -u)}
+  if [[ -z ${XDG_RUNTIME_DIR:-} && -d $dir ]]; then export XDG_RUNTIME_DIR=$dir; fi
+  if [[ -n ${XDG_RUNTIME_DIR:-} && -z ${DBUS_SESSION_BUS_ADDRESS:-} && -S $XDG_RUNTIME_DIR/bus ]]; then
+    export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
+  fi
+}
+
+# need_user_session  - systemctl --user needs the login session machinectl provides (or the lingering user manager)
 need_user_session() {
+  user_bus_env
   [[ -n ${XDG_RUNTIME_DIR:-} || $DRY_RUN == 1 ]] ||
     die "no user session bus. Run this through ./setup.sh (it uses machinectl), not 'sudo -iu'."
 }

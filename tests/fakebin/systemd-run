@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-# Test stub for systemd-run: record the call (the timer that returns the desktop to the loop)
-echo "systemd-run $*" >>"${FAKE_LOG:-/dev/null}"
+# Test stub for systemd-run: record the call (the timer that returns the desktop to the loop) and the user-bus environment
+echo "systemd-run $* [XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-} BUS=${DBUS_SESSION_BUS_ADDRESS:-}]" >>"${FAKE_LOG:-/dev/null}"
 exit 0

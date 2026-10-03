@@ -153,6 +153,18 @@ check "off --for 4h: exits 0" test $RC -eq 0
 check "off --for 4h: sets a timer that runs 'on'" bash -c "grep -q -- 'systemd-run --user --on-active=4h --unit=hermes-desktop-return' '$FAKE_LOG' && grep 'systemd-run' '$FAKE_LOG' | grep -q 'hermes-desktop on'"
 check "off --for 4h: the flag says when it comes back" grep -q 'comes back by itself at' "$flag"
 loop on
+# reached through `sudo -u hermes` from the desktop: no XDG_RUNTIME_DIR, so the tool finds the lingering user manager itself
+mkdir -p "$T/run-user"; python3 -c "import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])" "$T/run-user/bus"
+: >"$FAKE_LOG"
+OUT=$(env -u XDG_RUNTIME_DIR HS_RUN_USER_DIR="$T/run-user" bash "$ROOT/tools/desktop-loop.sh" off --for 2h 2>&1); RC=$?
+check "off --for without a login session: finds the user manager" bash -c "[[ $RC -eq 0 ]] && grep -q 'XDG_RUNTIME_DIR=$T/run-user BUS=unix:path=$T/run-user/bus' '$FAKE_LOG'"
+: >"$FAKE_LOG"
+OUT=$(env -u XDG_RUNTIME_DIR HS_RUN_USER_DIR="$T/run-user" bash "$ROOT/tools/desktop-loop.sh" on 2>&1); RC=$?
+check "on without a login session: still cancels the return timer on the user manager" bash -c "[[ $RC -eq 0 ]] && grep -q 'systemctl --user stop hermes-desktop-return.timer.*XDG_RUNTIME_DIR=$T/run-user' '$FAKE_LOG'"
+loop on
+: >"$FAKE_LOG"; cp "$cfg" "$T/cfg.nobus"
+OUT=$(env -u XDG_RUNTIME_DIR HS_RUN_USER_DIR="$T/no-such-dir" bash "$ROOT/tools/desktop-loop.sh" off --for 2h 2>&1); RC=$?
+check "off --for with no user manager at all: refuses before changing anything" bash -c "[[ $RC -ne 0 ]] && grep -q 'no user session bus' <<<\"\$0\" && [[ ! -e '$flag' ]] && cmp -s '$cfg' '$T/cfg.nobus'" "$OUT"
 loop off --for 90m
 check "off --for 90m is accepted" test $RC -eq 0
 loop on

@@ -33,6 +33,7 @@ pcfg=$HOME/.hermes/profiles/local/config.yaml
 flag=$(desktop_away_flag)
 timer=hermes-desktop-return
 
+user_bus_env   # reached through `sudo -u hermes` from the desktop: no login session, so find the user manager
 cancel_timer() { if [[ $DRY_RUN != 1 ]]; then systemctl --user stop "$timer.timer" "$timer.service" >/dev/null 2>&1 || true; fi; }
 show_order() {
   local p m n=0
@@ -49,6 +50,7 @@ case $ACTION in
   off)
     need_configs
     require_vars OR_FALLBACK_MODEL
+    if [[ -n $DUR ]]; then need_user_session; fi   # before anything changes: a timer needs the user manager
     cancel_timer   # a new 'off' replaces an earlier timer
     since=$(date '+%F %H:%M')
     note="since $since"
@@ -59,7 +61,6 @@ case $ACTION in
     if [[ $DRY_RUN == 1 ]]; then log "[dry-run] would write '$note' to $flag"; else mkdir -p "$(dirname "$flag")" && printf '%s\n' "$note" >"$flag"; fi
     chain_apply "$cfg" "$pcfg"
     if [[ -n $DUR ]]; then
-      need_user_session
       run systemd-run --user --on-active="$DUR" --unit="$timer" --description="Put the desktop back in Hermes's loop" "$HOME/.local/bin/hermes-desktop" on
     fi
     if [[ $DRY_RUN != 1 ]]; then
