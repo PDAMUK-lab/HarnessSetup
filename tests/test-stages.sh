@@ -124,6 +124,15 @@ OUT=$(SSH_CLIENT="192.168.1.100 5555 22" "$ROOT/setup.sh" run 13 --dry-run --yes
 check "13: no warning when connected from the allowed address" lacks "would cut you off"
 OUT=$(SSH_CLIENT="10.9.9.9 5555 22" "$ROOT/setup.sh" run 13 --dry-run --yes --force 2>&1)
 check "13: --force silences the lock-out warning" lacks "would cut you off"
+dry 13
+check "13: no V100 rule while the tier is off" bash -c "! grep -q 'port 8081' <<<\"\$0\"" "$OUT"
+sed 's|^V100_ENABLED=.*|V100_ENABLED=1|' "$T/node.env" >"$T/v100.env"
+OUT=$(NODE_ENV="$T/v100.env" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1); OUT=${OUT//\\/}
+check "13: the V100 port is allowed for the desktop" has "allow out to 192.168.1.100 port 8081 proto tcp"
+check "13: ...before the LAN deny" test "$(lineno 'allow out to 192.168.1.100 port 8081')" -lt "$(lineno 'deny out to 192.168.1.0/24')"
+sed 's|^V100_PORT=.*|V100_PORT=9001|' "$T/v100.env" >"$T/v100b.env"
+OUT=$(NODE_ENV="$T/v100b.env" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1); OUT=${OUT//\\/}
+check "13: the V100 port follows the setting" has "port 9001 proto tcp"
 
 # ---- bookkeeping: a marker makes the stage show as done and 'next' skips it
 mkdir -p "$DESTDIR/var/lib/harness-setup/done" && echo now >"$DESTDIR/var/lib/harness-setup/done/01"

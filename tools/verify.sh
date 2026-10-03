@@ -2,7 +2,7 @@
 # TITLE: Final checks (the guide's Step 33 table, automated where a machine can judge)
 # RUN-AS: admin
 # GUIDE: Step 33
-# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED
+# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS
 # Options (asked when not given): --models | --no-models (the two tool-call smoke tests can take a few minutes)
 # Prints PASS / FAIL / WARN / MANUAL per check. Exit status is 1 if anything FAILED.
 set -Euo pipefail
@@ -78,14 +78,22 @@ if [[ $MODELS == 1 ]]; then
 else
   res manual 9 "tool-call smoke test on both models" "re-run without --no-models"
 fi
+if [[ ${V100_ENABLED:-0} == 1 ]]; then
+  vcode=$(http_code -H "Authorization: Bearer $key" "http://$DESKTOP_IP:$V100_PORT/health")
+  is_eq "$vcode" 200 9 "V100 model port reachable" warn "got \"$vcode\" - fine if the desktop is off"
+  if [[ $MODELS == 1 && $vcode == 200 ]]; then
+    if tool_call_smoke "http://$DESKTOP_IP:$V100_PORT" "$V100_MODEL_ALIAS" "$key"; then res pass 9 "V100 model answers with a tool call"; else res fail 9 "V100 model answers with a tool call"; fi
+  fi
+fi
 fb=$(agent_exec 'hermes fallback list' 2>&1 || true)
 o=$(grep -n openrouter <<<"$fb" | head -1 | cut -d: -f1); d=$(grep -n desktop <<<"$fb" | head -1 | cut -d: -f1); l=$(grep -n laptop <<<"$fb" | head -1 | cut -d: -f1)
 if [[ -n $o && -n $d && -n $l && $o -lt $d && $d -lt $l ]]; then res pass 10 "fallback chain: OpenRouter, then desktop, then laptop"; else res fail 10 "fallback chain: OpenRouter, then desktop, then laptop"; fi
 
 ms=$(agent_exec 'hermes-mode status' 2>&1 || true)
-code_of() { grep -E "^$1" <<<"$ms" | sed 's/.*: *//' | tr -d '[:space:]'; }
+code_of() { grep -E "^$1 " <<<"$ms" | sed 's/.*: *//' | tr -d '[:space:]'; }
 is_eq "$(code_of laptop)" 200 11 "hermes-mode: laptop 200"
 is_eq "$(code_of desktop)" 200 11 "hermes-mode: desktop 200" warn "fine if the desktop is off"
+if [[ ${V100_ENABLED:-0} == 1 ]]; then is_eq "$(code_of desktop-v100)" 200 11 "hermes-mode: desktop-v100 200" warn "fine if the desktop is off"; fi
 is_eq "$(code_of openrouter)" 200 11 "hermes-mode: openrouter 200"
 res manual 12 "hermes-mode local / cloud round trip" "answer from $DESKTOP_MODEL_ALIAS, then cloud restored"
 res manual 13 "/model custom:laptop:$LAPTOP_MODEL_ALIAS mid-session"

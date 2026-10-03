@@ -4,7 +4,7 @@
 exec </dev/null
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-T=$(mktemp -d); trap 'kill ${srv1:-} ${srv2:-} 2>/dev/null; rm -rf "$T"' EXIT
+T=$(mktemp -d); trap 'kill ${srv1:-} ${srv2:-} ${srv3:-} 2>/dev/null; rm -rf "$T"' EXIT
 pass=0 failn=0
 check() { local n=$1; shift; if "$@"; then pass=$((pass+1)); else failn=$((failn+1)); echo "FAIL: $n"; fi; }
 has() { grep -qF -- "$1" <<<"$OUT"; }
@@ -59,6 +59,19 @@ check "verify: tool-call checks pass against a --jinja-like server" bash -c "! g
 sed -i "s|^LLM_PORT=.*|LLM_PORT=$((port + 1))|" "$T/models.env"
 OUT=$(NODE_ENV="$T/models.env" FAKE_CURL_REAL=1 bash "$ROOT/tools/verify.sh" 2>&1)
 check "verify: prose answer (no --jinja) is a FAIL with a hint" bash -c "grep -E 'FAIL.*laptop answers with a tool call.*jinja' <<<\"\$0\"" "$OUT"
+# the optional V100 tier: its own port, checked only when switched on
+OUT=$(NODE_ENV="$T/models.env" FAKE_CURL_REAL=1 bash "$ROOT/tools/verify.sh" 2>&1)
+check "verify: no V100 lines while the tier is off" lacks "V100 model"
+python3 "$ROOT/tests/fakebin/fake_llm.py" "$((port + 3))" tool & srv3=$!
+sleep 1
+sed -e "s|^LLM_PORT=.*|LLM_PORT=$port|" -e 's|^DESKTOP_IP=.*|DESKTOP_IP=127.0.0.1|' -e 's|^V100_ENABLED=.*|V100_ENABLED=1|' -e "s|^V100_PORT=.*|V100_PORT=$((port + 3))|" "$T/node.env" >"$T/v100v.env"
+OUT=$(NODE_ENV="$T/v100v.env" FAKE_CURL_REAL=1 FAKE_MODEL_ID=x bash "$ROOT/tools/verify.sh" 2>&1)
+check "verify: V100 port is checked when the tier is on" has "V100 model port reachable"
+check "verify: V100 tool call is checked for real" has "V100 model answers with a tool call"
+check "verify: ...and passes against a --jinja-like server" bash -c "! grep -E 'FAIL.*V100' <<<\"\$0\"" "$OUT"
+sed -i "s|^V100_PORT=.*|V100_PORT=$((port + 20))|" "$T/v100v.env"
+OUT=$(NODE_ENV="$T/v100v.env" FAKE_CURL_REAL=1 FAKE_MODEL_ID=x bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: an unreachable V100 server is a WARN (the desktop may be off)" bash -c "grep -E 'WARN.*V100 model port reachable' <<<\"\$0\"" "$OUT"
 
 # ================= fallback-test.sh
 : >"$FAKE_LOG"; printf 'I am qwen3.6-35b-a3b\nI am qwen3.5-9b\nfile1 file2\n' >"$T/answers"
@@ -103,6 +116,61 @@ check "overnight: job runs in the cron clone" bash -c "grep 'cron create' '$FAKE
 : >"$FAKE_LOG"
 OUT=$(NODE_ENV="$T/night.env" bash "$ROOT/tools/overnight-laptop.sh" --task "again" 2>&1); RC=$?
 check "overnight: re-run does not duplicate the job" bash -c "! grep -q 'cron create' '$FAKE_LOG'"
+
+# ================= v100-laptop.sh
+cfgy=$HOME/.hermes/config.yaml
+printf 'model:\n  provider: openrouter\nfallback_providers:\n  - provider: openrouter\n    model: "c/f"\n  - provider: custom:desktop\n    model: qwen3.6-35b-a3b\n  - provider: custom:laptop\n    model: qwen3.5-9b\nproviders:\n  desktop:\n    api: http://192.168.1.100:8080/v1\n' >"$cfgy"
+printf "DESKTOP_LLM_KEY=testkey\n" >"$HOME/.hermes/.env"
+printf 'model:\n  provider: custom:desktop\n  default: qwen3.6-35b-a3b\ndelegation:\n  model: qwen3.5-9b\n' >"$HOME/.hermes/profiles/local/config.yaml"
+yget() { python3 - "$1" "$2" <<'PY'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+for part in sys.argv[2].split("."):
+    d = d[int(part)] if isinstance(d, list) else d[part]
+print(d)
+PY
+}
+: >"$FAKE_LOG"
+OUT=$(bash "$ROOT/tools/v100-laptop.sh" 2>&1); RC=$?
+check "v100: refuses while V100_ENABLED=0" test $RC -ne 0
+sed 's|^V100_ENABLED=.*|V100_ENABLED=1|' "$T/node.env" >"$T/v100.env"
+sed 's|^V100_PORT=.*|V100_PORT=8080|' "$T/v100.env" >"$T/v100-same.env"
+OUT=$(NODE_ENV="$T/v100-same.env" bash "$ROOT/tools/v100-laptop.sh" 2>&1); RC=$?
+check "v100: refuses a port equal to the day server's" bash -c "[[ $RC -ne 0 ]] && grep -q 'V100_PORT and LLM_PORT' <<<\"\$0\"" "$OUT"
+: >"$FAKE_LOG"; cp "$cfgy" "$T/config.before"
+OUT=$(NODE_ENV="$T/v100.env" bash "$ROOT/tools/v100-laptop.sh" --dry-run 2>&1); RC=$?
+check "v100: dry run exits 0 and changes nothing" bash -c "[[ $RC -eq 0 ]] && cmp -s '$cfgy' '$T/config.before' && [[ ! -e '$HOME/.hermes/hermes-mode.d/desktop-v100' ]]"
+check "v100: dry run shows the endpoint it would add" has "http://192.168.1.100:8081/v1"
+OUT=$(NODE_ENV="$T/v100.env" bash "$ROOT/tools/v100-laptop.sh" 2>&1); RC=$?
+pc=$HOME/.hermes/profiles/local/config.yaml
+check "v100: exits 0" test $RC -eq 0
+check "v100: main config gets the endpoint" test "$(yget "$cfgy" providers.desktop-v100.api)" = http://192.168.1.100:8081/v1
+check "v100: ...with the shared key variable" test "$(yget "$cfgy" providers.desktop-v100.key_env)" = DESKTOP_LLM_KEY
+check "v100: the local profile gets the endpoint too" test "$(yget "$pc" providers.desktop-v100.default_model)" = qwen3.8-27b
+check "v100: the existing desktop endpoint is kept" test "$(yget "$cfgy" providers.desktop.api)" = http://192.168.1.100:8080/v1
+check "v100: chain is OpenRouter, V100, desktop, laptop" test "$(for i in 0 1 2 3; do yget "$cfgy" fallback_providers.$i.provider; done | tr '\n' ' ')" = "openrouter custom:desktop-v100 custom:desktop custom:laptop "
+check "v100: the V100 is the local profile's first choice" test "$(yget "$pc" model.provider)/$(yget "$pc" model.default)" = custom:desktop-v100/qwen3.8-27b
+check "v100: the local profile falls back to the desktop, then the laptop" test "$(yget "$pc" fallback_providers.0.provider) $(yget "$pc" fallback_providers.1.provider)" = "custom:desktop custom:laptop"
+check "v100: other local profile settings are untouched" test "$(yget "$pc" delegation.model)" = qwen3.5-9b
+check "v100: registers a hermes-mode probe" grep -qxF 'desktop-v100 qwen3.8-27b|http://192.168.1.100:8081/health' "$HOME/.hermes/hermes-mode.d/desktop-v100"
+check "v100: reports the server as reachable" has "the V100 server answers on 192.168.1.100:8081"
+HM=$(bash "$HOME/.local/bin/hermes-mode" status 2>&1)
+check "v100: hermes-mode status shows the V100 line" grep -q '^desktop-v100 qwen3.8-27b *: 200' <<<"$HM"
+check "v100: ...beside the day server's line" grep -q '^desktop qwen3.6-35b-a3b *: 200' <<<"$HM"
+sed 's|^V100_PRIMARY=.*|V100_PRIMARY=0|' "$T/v100.env" >"$T/v100-second.env"
+OUT=$(NODE_ENV="$T/v100-second.env" bash "$ROOT/tools/v100-laptop.sh" 2>&1); RC=$?
+check "v100: V100_PRIMARY=0 puts the desktop model first" test "$(for i in 0 1 2 3; do yget "$cfgy" fallback_providers.$i.provider; done | tr '\n' ' ')" = "openrouter custom:desktop custom:desktop-v100 custom:laptop "
+check "v100: ...and in the local profile" test "$(yget "$pc" model.provider) $(yget "$pc" fallback_providers.0.provider)" = "custom:desktop custom:desktop-v100"
+rm -f "$HOME/.hermes/.env"
+OUT=$(NODE_ENV="$T/v100.env" bash "$ROOT/tools/v100-laptop.sh" 2>&1); RC=$?
+check "v100: without the desktop key it says to run stage 11" bash -c "[[ $RC -ne 0 ]] && grep -q 'run stage 11 first' <<<\"\$0\"" "$OUT"
+printf "DESKTOP_LLM_KEY=testkey\n" >"$HOME/.hermes/.env"
+OUT=$(NODE_ENV="$T/v100.env" FAKE_UFW_ACTIVE=1 FAKE_UFW_RULES='8080/tcp ALLOW OUT 192.168.1.100' bash "$ROOT/tools/v100-laptop.sh" 2>&1)
+check "v100: warns when the firewall has no rule for the V100 port" has "re-run ./setup.sh run 13"
+OUT=$(NODE_ENV="$T/v100.env" FAKE_UFW_ACTIVE=1 FAKE_UFW_RULES='8081/tcp ALLOW OUT 192.168.1.100' bash "$ROOT/tools/v100-laptop.sh" 2>&1)
+check "v100: ...and stays quiet when the rule is there" lacks "re-run ./setup.sh run 13"
+OUT=$(NODE_ENV="$T/v100.env" FAKE_HTTP_CODE=000 bash "$ROOT/tools/v100-laptop.sh" 2>&1); RC=$?
+check "v100: an unreachable server is a warning, not a failure" bash -c "[[ $RC -eq 0 ]] && grep -q 'Install-V100.ps1' <<<\"\$0\"" "$OUT"
 
 # ================= adopt-repo.sh
 git init -q "$T/proj"

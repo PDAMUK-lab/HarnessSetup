@@ -128,6 +128,19 @@ check "11: records completion" done_marker 11
 stage_with_key
 check "11: re-run is idempotent" test $RC -eq 0
 check "11: profile created exactly once" test "$(grep -c 'profile create local' "$FAKE_LOG")" -eq 1
+out_lacks() { ! grep -qF -- "$1" <<<"$OUT"; }
+out_has() { grep -qF -- "$1" <<<"$OUT"; }
+check "11: no V100 hint while the tier is off" out_lacks 'v100-laptop'
+mkdir -p "$HOME/.hermes/hermes-mode.d"; echo 'desktop-v100 x|http://h/health' >"$HOME/.hermes/hermes-mode.d/desktop-v100"
+stage_with_key
+check "11: a stale V100 probe is removed while the tier is off" test ! -e "$HOME/.hermes/hermes-mode.d/desktop-v100"
+echo 'desktop-v100 x|http://h/health' >"$HOME/.hermes/hermes-mode.d/desktop-v100"
+sed 's|^V100_ENABLED=.*|V100_ENABLED=1|' "$NODE_ENV" >"$T/v100.env"
+OUT=$(NODE_ENV="$T/v100.env" DESKTOP_LLM_KEY=abc123def bash "$ROOT"/laptop/11-*.sh 2>&1); RC=$?
+check "11: with the tier on, the stage still succeeds" test $RC -eq 0
+check "11: ...keeps the V100 probe" test -e "$HOME/.hermes/hermes-mode.d/desktop-v100"
+check "11: ...and suggests the V100 tool" out_has 'tool v100-laptop'
+rm -f "$HOME/.hermes/hermes-mode.d/desktop-v100"
 hm=$HOME/.local/bin/hermes-mode
 : >"$FAKE_LOG"
 "$hm" local >/dev/null 2>&1

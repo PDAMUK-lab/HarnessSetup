@@ -12,5 +12,12 @@ case "${1:-status}" in
 esac
 echo "laptop  @@LAPTOP_MODEL_ALIAS@@      : $(probe http://127.0.0.1:@@LLM_PORT@@/health)"
 echo "desktop @@DESKTOP_MODEL_ALIAS@@ : $(probe -H "Authorization: Bearer $KEY" http://@@DESKTOP_IP@@:@@LLM_PORT@@/health)"
+# extra local endpoints (for example the V100 tier) register a "label|health url" file here
+for f in "$HOME"/.hermes/hermes-mode.d/*; do
+  [[ -f $f ]] || continue
+  IFS='|' read -r label url <"$f" || true
+  [[ -n ${url:-} ]] || continue
+  printf '%-30s: %s\n' "$label" "$(probe -H "Authorization: Bearer $KEY" "$url")"
+done
 echo "openrouter              : $(probe https://openrouter.ai/api/v1/models)"
 hermes profile list

@@ -2,7 +2,7 @@
 # TITLE: Firewall and file permissions
 # RUN-AS: admin
 # GUIDE: Step 28
-# NEEDS: ROUTER_IP LAN_CIDR DESKTOP_IP SSH_ALLOWED_FROM LLM_PORT
+# NEEDS: ROUTER_IP LAN_CIDR DESKTOP_IP SSH_ALLOWED_FROM LLM_PORT V100_ENABLED V100_PORT
 # Options: --force (apply even if this SSH session does not come from SSH_ALLOWED_FROM)
 # NOTE: the agent has root, so it can change these rules. They guard against mistakes, not against the agent.
 set -Eeuo pipefail
@@ -47,6 +47,9 @@ sudo_run ufw allow out to "$ROUTER_IP" port 53 comment 'DNS'
 sudo_run ufw allow out 123/udp comment 'NTP'
 sudo_run ufw allow out 67/udp comment 'DHCP renewals'
 sudo_run ufw allow out to "$DESKTOP_IP" port "$LLM_PORT" proto tcp comment 'desktop model'
+if [[ ${V100_ENABLED:-0} == 1 ]]; then
+  sudo_run ufw allow out to "$DESKTOP_IP" port "$V100_PORT" proto tcp comment 'desktop V100 model'
+fi
 sudo_run ufw deny out to "$LAN_CIDR" comment 'nothing else on the LAN'
 sudo_run ufw allow out 80/tcp
 sudo_run ufw allow out 443/tcp
@@ -63,6 +66,10 @@ if [[ $DRY_RUN != 1 ]]; then
   if [[ $c == 200 ]]; then ok "openrouter reachable (200)"; else warn "openrouter returned '$c'"; fi
   c=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://$DESKTOP_IP:$LLM_PORT/health" || true)
   if [[ $c == 200 || $c == 401 ]]; then ok "desktop model port answers ($c)"; else warn "desktop model returned '$c' (is the desktop on?)"; fi
+  if [[ ${V100_ENABLED:-0} == 1 ]]; then
+    c=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://$DESKTOP_IP:$V100_PORT/health" || true)
+    if [[ $c == 200 || $c == 401 ]]; then ok "desktop V100 model port answers ($c)"; else warn "desktop V100 model returned '$c' (is the desktop on, and the V100 server started?)"; fi
+  fi
   if timeout 3 bash -c "(exec 3<>/dev/tcp/$DESKTOP_IP/445)" 2>/dev/null; then
     warn "desktop port 445 is REACHABLE - the LAN deny rule is not working"
   else

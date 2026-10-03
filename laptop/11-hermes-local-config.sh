@@ -2,7 +2,7 @@
 # TITLE: Local endpoints, fallback chain, the `local` profile, hermes-mode
 # RUN-AS: hermes
 # GUIDE: Steps 21-23
-# NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT DESKTOP_MODEL_ALIAS DESKTOP_CTX LAPTOP_CTX LAPTOP_MODEL_ALIAS
+# NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT DESKTOP_MODEL_ALIAS DESKTOP_CTX LAPTOP_CTX LAPTOP_MODEL_ALIAS V100_ENABLED
 # Needs the desktop API key printed by Install-Llama.ps1 (prompted, or set DESKTOP_LLM_KEY in the environment).
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -66,6 +66,8 @@ rm -f "$frag"
 
 # ---- Step 23: one command to switch modes
 install_template "$HS_ROOT/templates/bin/hermes-mode.tpl" "$HOME/.local/bin/hermes-mode" 755 self
+# this stage rewrites the chain without the V100 tier; the tool puts it back (and registers its probe)
+if [[ ${V100_ENABLED:-0} != 1 ]]; then run rm -f "$HOME/.hermes/hermes-mode.d/desktop-v100"; fi
 
 if [[ $DRY_RUN != 1 ]]; then
   hermes fallback list || warn "'hermes fallback list' failed - check the fallback_providers block in $cfg"
@@ -78,5 +80,8 @@ Manual steps left in this phase:
     (Use 'hermes -p local ...': a bare 'local' command is shadowed by the shell builtin of the same name.)
   * Try it:  hermes-mode local ; hermes chat -q "Which model are you?"   (expect $DESKTOP_MODEL_ALIAS)
     Turn the desktop off and ask again: expect $LAPTOP_MODEL_ALIAS after a short retry. Then: hermes-mode cloud
-Next: ./setup.sh run 12
 MSG
+if [[ ${V100_ENABLED:-0} == 1 ]]; then
+  echo "The V100 tier is on: run  ./setup.sh tool v100-laptop  to add the V100 endpoint to the chain again."
+fi
+echo "Next: ./setup.sh run 12"

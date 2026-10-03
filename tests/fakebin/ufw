@@ -1,3 +1,8 @@
 #!/usr/bin/env bash
 echo "ufw $*" >>"${FAKE_LOG:-/dev/null}"
+# FAKE_UFW_ACTIVE=1 makes `ufw status` look like a running firewall; FAKE_UFW_RULES adds rule lines to it
+if [[ ${1:-} == status && -n ${FAKE_UFW_ACTIVE:-} ]]; then
+  echo "Status: active"
+  [[ -n ${FAKE_UFW_RULES:-} ]] && printf '%s\n' "$FAKE_UFW_RULES"
+fi
 exit 0
