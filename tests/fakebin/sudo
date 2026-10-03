@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Test stub for sudo: drop the flags and run the command as the current user
+echo "sudo $*" >>"${FAKE_LOG:-/dev/null}"
+while [[ ${1:-} == -* ]]; do case $1 in -u) shift 2 ;; *) shift ;; esac; done
+exec "$@"

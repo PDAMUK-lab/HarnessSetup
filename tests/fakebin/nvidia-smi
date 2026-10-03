@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+[[ ${FAKE_NVIDIA:-ok} == missing ]] && { echo "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver." >&2; exit 9; }
+echo "| NVIDIA-SMI 550.163.01   Driver Version: 550.163.01   CUDA Version: 12.4 |"
+echo "|   0  NVIDIA GeForce GTX 1070   Off | 00000000:01:00.0 Off |  N/A |"
+echo "|  N/A   45C  P8   9W / 151W |   7012MiB /  8192MiB |"

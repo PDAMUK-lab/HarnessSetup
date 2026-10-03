@@ -210,6 +210,18 @@ set_env_var() {
   fi
 }
 
+# agent_exec "COMMAND"  - run a shell command as the agent user in a real login session (machinectl) and
+# return its exit status. machinectl does not reliably pass the status through, so the command echoes it.
+# HS_AGENT_RUNNER=script is the test seam: it receives the command string instead.
+agent_exec() {
+  local cmd=$1 out rc
+  if [[ -n ${HS_AGENT_RUNNER:-} ]]; then "$HS_AGENT_RUNNER" "$cmd"; return; fi
+  out=$("${SUDO[@]}" machinectl -q shell "$AGENT_USER@" /bin/bash -c "export PATH=\$HOME/.local/bin:\$PATH; $cmd; echo __RC=\$?" 2>&1 | tr -d '\r') || true
+  rc=$(sed -n 's/^__RC=//p' <<<"$out" | tail -1)
+  grep -v '^__RC=' <<<"$out" || true
+  return "${rc:-1}"
+}
+
 # ---- stage bookkeeping ------------------------------------------------------
 
 # stage_meta KEY  - read a "# KEY: value" header from the running script

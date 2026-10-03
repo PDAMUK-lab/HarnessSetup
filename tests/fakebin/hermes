@@ -8,6 +8,14 @@ case "${1:-} ${2:-}" in
   "profile create")
     dst=$HOME/.hermes/profiles/$3; mkdir -p "$dst"
     if [[ " $* " == *" --clone "* ]]; then cp "$HOME/.hermes/config.yaml" "$HOME/.hermes/.env" "$dst/" 2>/dev/null; fi ;;
+  "chat -q")
+    if [[ -n ${FAKE_ANSWERS:-} && -s $FAKE_ANSWERS ]]; then
+      line=$(head -1 "$FAKE_ANSWERS"); sed -i 1d "$FAKE_ANSWERS"
+      [[ $line == FAIL ]] && { echo "error: all providers failed" >&2; exit 1; }
+      echo "$line"
+    fi ;;
+  "gateway status") echo "gateway: running" ;;
+  "fallback list") printf '1. openrouter\n2. custom:desktop\n3. custom:laptop\n' ;;
   "profile list") echo default; ls "$HOME/.hermes/profiles" 2>/dev/null ;;
   "cron list") cat "$home/fake-cron" 2>/dev/null ;;
   "cron create")

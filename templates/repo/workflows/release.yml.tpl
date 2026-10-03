@@ -10,9 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: @@INSTALL_CMD@@
-      - run: @@TEST_CMD@@
-      - run: @@PACKAGE_CMD@@            # output in dist/
+      - run: |
+          @@INSTALL_CMD@@
+      - run: |
+          @@TEST_CMD@@
+      - name: Package (output in dist/)
+        run: |
+          @@PACKAGE_CMD@@
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

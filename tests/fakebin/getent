@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+echo "151.101.66.132  deb.debian.org"

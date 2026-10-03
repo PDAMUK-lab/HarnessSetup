@@ -9,5 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: @@INSTALL_CMD@@
-      - run: @@TEST_CMD@@
+      - run: |
+          @@INSTALL_CMD@@
+      - run: |
+          @@TEST_CMD@@
