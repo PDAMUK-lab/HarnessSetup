@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Common.ps1"
 $script:HsAssumeYes = [bool]$Yes
 if (-not $ConfigFile) { $ConfigFile = Get-DefaultConfigPath }
-$cfg = Initialize-NodeConfig -Path $ConfigFile -Need 'LAPTOP_IP', 'DESKTOP_IP', 'LLM_PORT', 'DESKTOP_MODEL_FILE', 'DESKTOP_MODEL_ALIAS', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR'
+$cfg = Initialize-NodeConfig -Path $ConfigFile -Need 'LAPTOP_IP', 'DESKTOP_IP', 'LLM_PORT', 'DESKTOP_MODEL_FILE', 'DESKTOP_MODEL_ALIAS', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR', 'V100_ENABLED'
 $ToolCall = Resolve-Option -Bound $PSBoundParameters -Name ToolCall -Current ([bool]$ToolCall) -Default $false `
     -Question 'Also run the tool-call smoke test? (slow: it makes the model think)'
 $llama = $cfg['DESKTOP_LLAMA_DIR']
@@ -54,6 +54,7 @@ if ($hasKey) {
         if ($ToolCall) { Check (Test-ToolCall -BaseUrl $base -Model $served -ApiKey $key) 'tool-call smoke test' }
     }
 }
+if ($cfg['V100_ENABLED'] -eq '1') { Write-Host 'The V100 tier is on: run .\Check-V100.ps1 for the cards and their server.' -ForegroundColor Cyan }
 $os = Get-CimInstance Win32_OperatingSystem
 $usedPct = [math]::Round(100 * (1 - $os.FreePhysicalMemory / $os.TotalVisibleMemorySize))
 Check ($usedPct -lt 90) "memory use is $usedPct% (stay under ~90% at Q5, or switch to UD-Q4_K_XL)" 'WARN'

@@ -122,6 +122,56 @@ run_ps Desktop-Mode.ps1 status
 check "Desktop-Mode status works anywhere (exit 0)" test $RC -eq 0
 cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=1|'
 
+# ---- the V100 tier: Install-V100.ps1 (dry run, nvidia-smi is a stub that answers like two V100 cards) and Check-V100.ps1
+cfg_with -e 's|^V100_ENABLED=.*|V100_ENABLED=1|'
+FAKE_V100=2 run_ps Install-V100.ps1 -DryRun -Yes
+check "Install-V100 -DryRun exits 0" test $RC -eq 0
+check "Install-V100: lists the cards it found" has "GPU 1: Tesla V100-SXM2-16GB"
+check "Install-V100: takes the CUDA 12 build, in its own folder" has "newest llama-*-bin-win-cuda-12.x-x64.zip"
+check "Install-V100: requires the CUDA devices to be listed" has "CUDA devices must be listed"
+check "Install-V100: downloads the 27B model" has "Qwen3.8-27B-UD-Q5_K_XL.gguf"
+check "Install-V100: writes its own start script" has "write C:\\llama-cuda\\start-llama-v100.cmd"
+check "Install-V100: rewrites the Vulkan day script with the NVIDIA guard" has "write C:\\llama\\start-llama.cmd"
+check "Install-V100: checks the Vulkan server sees no NVIDIA card" has "no NVIDIA card"
+check "Install-V100: firewall rule is laptop-only on its own port" has "firewall rule 'llama-server 8081 (laptop only)' from 192.168.1.150"
+check "Install-V100: its own scheduled task" has "scheduled task 'llama-v100'"
+check "Install-V100: points at the laptop steps" bash -c "grep -q 'tool v100-laptop' <<<\"\$0\" && grep -q 'run 13' <<<\"\$0\"" "$OUT"
+FAKE_V100=2 FAKE_V100_DRIVER=591.59 run_ps Install-V100.ps1 -DryRun -Yes
+check "Install-V100: warns about a driver that dropped the V100" has "R590 and newer dropped the V100"
+FAKE_V100=2 FAKE_V100_WIDTH=1 run_ps Install-V100.ps1 -DryRun -Yes
+check "Install-V100: warns about a PCIe x1 slot" has "runs at PCIe x1"
+FAKE_V100=2 FAKE_V100_MEM=32768 run_ps Install-V100.ps1 -DryRun -Yes
+check "Install-V100: warns when V100_VRAM_GB disagrees with the cards" has "V100_VRAM_GB is 16"
+FAKE_V100=2 run_ps Install-V100.ps1 -DryRun -Yes -SkipModelDownload -NoStart
+check "Install-V100: -SkipModelDownload skips the download" lacks "curl.exe -L --fail -C"
+check "Install-V100: -NoStart skips the start" lacks "start the 'llama-v100' task"
+FAKE_V100=2 run_ps Install-V100.ps1 -DryRun -Yes -DownloadDriver
+check "Install-V100 -DownloadDriver: fetches the R580 data-center driver and checks the signature" bash -c "grep -q 'driver 582.78' <<<\"\$0\" && grep -q 'check its signature' <<<\"\$0\"" "$OUT"
+sed -i 's|^V100_PORT=.*|V100_PORT=8080|' "$T/node.env"
+FAKE_V100=2 run_ps Install-V100.ps1 -DryRun -Yes
+check "Install-V100: the same port as the day server is refused" bash -c "[[ $RC -ne 0 ]] && grep -q 'both 8080' <<<\"\$0\"" "$OUT"
+cfg_with -e 's|^V100_ENABLED=.*|V100_ENABLED=0|'
+FAKE_V100=2 run_ps Install-V100.ps1 -DryRun -Yes
+check "Install-V100: refuses while the tier is off, and says how to turn it on" bash -c "[[ $RC -ne 0 ]] && grep -q 'V100_ENABLED=0' <<<\"\$0\" && grep -q 'Configure.ps1 -Only V100_ENABLED' <<<\"\$0\"" "$OUT"
+check "Install-V100: ...and did not switch it on by itself" grep -q '^V100_ENABLED=0' "$T/node.env"
+
+FAKE_V100=2 run_ps Check-V100.ps1
+check "Check-V100 on two healthy cards: exit 0" test $RC -eq 0
+check "Check-V100: counts the cards" has "nvidia-smi lists 2 V100 card(s)"
+check "Check-V100: checks the driver mode" has "driver mode is TCC"
+check "Check-V100: says the tier is not switched on yet" has "not switched on yet"
+FAKE_V100=1 run_ps Check-V100.ps1
+check "Check-V100: one card of two is a FAIL" bash -c "[[ $RC -ne 0 ]] && grep -q 'lists 1 V100' <<<\"\$0\"" "$OUT"
+FAKE_V100=2 FAKE_V100_DRIVER=591.59 run_ps Check-V100.ps1
+check "Check-V100: R590 or newer is a FAIL" bash -c "[[ $RC -ne 0 ]] && grep -q 'still supports the V100' <<<\"\$0\"" "$OUT"
+FAKE_V100=2 FAKE_V100_WIDTH=1 FAKE_V100_TEMP=90 FAKE_V100_MODE=MCDM run_ps Check-V100.ps1
+check "Check-V100: a slow link, a hot card and another driver mode are warnings, not failures" bash -c "[[ $RC -eq 0 ]] && grep -q 'PCIe link gen 3 x1' <<<\"\$0\" && grep -q '90 C' <<<\"\$0\" && grep -q 'driver mode is MCDM' <<<\"\$0\"" "$OUT"
+FAKE_NVIDIA=missing run_ps Check-V100.ps1
+check "Check-V100: a broken driver is a FAIL" test $RC -ne 0
+OUT=$(USERPROFILE="$T/profile" FAKE_V100=2 ps -File "$ROOT/desktop/windows/Check-V100.ps1" -ConfigFile "$T/no-such-file.env" 2>&1); RC=$?
+check "Check-V100 needs no settings file" test $RC -eq 0
+cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=1|'
+
 # ---- -Yes: no questions at all, defaults taken (empty answers file: any question would fail the run)
 cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=0|'
 : >"$T/psnone"

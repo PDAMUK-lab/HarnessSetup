@@ -137,5 +137,76 @@ $stop = (New-StopLlamaScript -Dir 'C:\llama\') -join "`n"
 Check 'New-StopLlamaScript: stops only the server in that folder' { $stop.Contains("-like 'C:\llama\*'") -and $stop.Contains("-like 'llama-server*'") -and -not $stop.Contains('taskkill') }
 Check 'New-StopLlamaScript: no percent signs (cmd would eat them)' { -not $stop.Contains('%') }
 
+# ---- V100 tier helpers
+$cudaRels = @(
+    (New-Rel 'b6' @('llama-b6-bin-win-cuda-13.4-x64.zip', 'cudart-llama-bin-win-cuda-13.4-x64.zip', 'llama-b6-bin-win-vulkan-x64.zip')),   # CUDA 13 only: no Volta
+    (New-Rel 'b5' @('llama-b5-bin-win-cuda-12.4-x64.zip', 'llama-b5-bin-win-cuda-13.4-x64.zip')),                                          # no runtime bundle
+    (New-Rel 'b4' @('llama-b4-bin-win-cuda-12.4-x64.zip', 'cudart-llama-bin-win-cuda-12.4-x64.zip', 'llama-b4-bin-win-cuda-13.4-x64.zip', 'cudart-llama-bin-win-cuda-13.4-x64.zip')))
+$pick = Select-CudaRelease -Releases $cudaRels
+Check 'Select-CudaRelease: skips CUDA 13 only and a release without the runtime bundle' { $pick.Release.tag_name -eq 'b4' }
+Check 'Select-CudaRelease: returns the CUDA 12 zip and its own runtime bundle' { $pick.Main.name -eq 'llama-b4-bin-win-cuda-12.4-x64.zip' -and $pick.Runtime.name -eq 'cudart-llama-bin-win-cuda-12.4-x64.zip' -and $pick.CudaVersion -eq '12.4' }
+Check 'Select-CudaRelease: prefers the highest 12.x' {
+    $r = New-Rel 'b7' @('llama-b7-bin-win-cuda-12.4-x64.zip', 'cudart-llama-bin-win-cuda-12.4-x64.zip', 'llama-b7-bin-win-cuda-12.9-x64.zip', 'cudart-llama-bin-win-cuda-12.9-x64.zip')
+    (Select-CudaRelease -Releases @($r)).CudaVersion -eq '12.9' }
+Check 'Select-CudaRelease: nothing when only CUDA 13 exists' { $null -eq (Select-CudaRelease -Releases @($cudaRels[0])) }
+Check 'Select-CudaRelease: skips a draft' { $null -eq (Select-CudaRelease -Releases @((New-Rel 'b8' @('llama-b8-bin-win-cuda-12.4-x64.zip', 'cudart-llama-bin-win-cuda-12.4-x64.zip') $true))) }
+
+$smiText = "0, Tesla V100-SXM2-16GB, GPU-aaaa, 00000000:41:00.0, 16384, 200.00, 300.00, 100.00, 300.00, TCC, 582.78, 3, 4`n1, Tesla V100-SXM2-32GB, GPU-bbbb, 00000000:42:00.0, 32768, 300.00, 300.00, [N/A], [N/A], WDDM, 582.78, 3, 1`nnot a gpu line`n"
+$g = Get-NvidiaGpus -Text $smiText
+Check 'Get-NvidiaGpus: reads both cards' { $g.Count -eq 2 -and $g[0].Name -eq 'Tesla V100-SXM2-16GB' -and $g[1].MemoryMiB -eq 32768 }
+Check 'Get-NvidiaGpus: reads power, driver model, driver version and the PCIe link' { $g[0].PowerLimitW -eq 200 -and $g[0].DriverModel -eq 'TCC' -and $g[0].DriverVersion -eq '582.78' -and $g[0].PcieGen -eq 3 -and $g[0].PcieWidth -eq 4 -and $g[1].PcieWidth -eq 1 }
+Check 'Get-NvidiaGpus: [N/A] becomes nothing, not a crash' { $null -eq $g[1].PowerMinW -and $null -eq $g[1].PowerMaxW }
+Check 'Get-NvidiaGpus: an error message is not a card' { (Get-NvidiaGpus -Text "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver.").Count -eq 0 }
+Check 'Get-NvidiaGpus: empty text' { (Get-NvidiaGpus -Text '').Count -eq 0 }
+Check 'Get-V100PowerLimit: the request when it is inside the range' { (Get-V100PowerLimit -Gpu $g[0] -Requested 200) -eq 200 }
+Check 'Get-V100PowerLimit: never above the card default' { (Get-V100PowerLimit -Gpu $g[0] -Requested 400) -eq 300 }
+Check 'Get-V100PowerLimit: a low-power module (default 163 W, max 250 W) is never pushed past its default' {
+    $ls = [pscustomobject]@{ PowerDefaultW = 163.0; PowerMinW = 100.0; PowerMaxW = 250.0 }
+    (Get-V100PowerLimit -Gpu $ls -Requested 200) -eq 163 -and (Get-V100PowerLimit -Gpu $ls -Requested 120) -eq 120 }
+Check 'Get-V100PowerLimit: not below the card minimum' { (Get-V100PowerLimit -Gpu $g[0] -Requested 50) -eq 100 }
+Check 'Get-V100PowerLimit: 0 leaves the stock limit' { $null -eq (Get-V100PowerLimit -Gpu $g[0] -Requested 0) }
+Check 'Get-V100PowerLimit: unknown limits (N/A) just pass the request through' { (Get-V100PowerLimit -Gpu $g[1] -Requested 220) -eq 220 }
+
+$fit27 = Get-V100Fit -FileBytes 17.2e9 -Context 131072 -ModelFile 'Qwen3.8-27B-UD-Q4_K_XL.gguf' -TotalMiB 32768 -Gpus 2
+Check 'Get-V100Fit: 27B Q4 fits two 16 GB cards with 128K context' { $fit27.Fits -and $fit27.KnownModel -and $fit27.KvGiB -ge 4.2 -and $fit27.KvGiB -le 4.3 -and $fit27.MarginGiB -gt 6 }
+Check 'Get-V100Fit: reports the memory in GiB (32768 MiB is 32 GiB)' { $fit27.TotalGiB -eq 32 }
+Check 'Get-V100Fit: ...but not one 16 GB card' { -not (Get-V100Fit -FileBytes 17.2e9 -Context 131072 -ModelFile 'Qwen3.8-27B-UD-Q4_K_XL.gguf' -TotalMiB 16384 -Gpus 1).Fits }
+Check 'Get-V100Fit: f16 context needs more than q8_0' { (Get-V100Fit -FileBytes 17.2e9 -Context 131072 -ModelFile 'Qwen3.8-27B-UD-Q4_K_XL.gguf' -TotalMiB 32768 -Gpus 2 -KvType f16).NeededGiB -gt $fit27.NeededGiB }
+Check 'Get-V100Fit: the 35B-A3B has a much smaller context cache' { (Get-V100Fit -FileBytes 22.4e9 -Context 131072 -ModelFile 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf' -TotalMiB 32768 -Gpus 2).KvGiB -lt 1.5 }
+Check 'Get-V100Fit: an unknown model is flagged and sized like the 27B' { $u = Get-V100Fit -FileBytes 10e9 -Context 65536 -ModelFile 'Some-Other.gguf' -TotalMiB 32768 -Gpus 2; (-not $u.KnownModel) -and $u.KvGiB -eq 2.1 }
+
+$cfgV = [ordered]@{} + $cfg
+$cfgV['V100_ENABLED'] = '1'; $cfgV['V100_COUNT'] = '2'; $cfgV['V100_CUDA_DIR'] = 'C:\llama-cuda'; $cfgV['V100_MODEL_FILE'] = 'Qwen3.8-27B-UD-Q5_K_XL.gguf'; $cfgV['V100_MODEL_ALIAS'] = 'qwen3.8-27b'
+$cfgV['V100_PORT'] = '8081'; $cfgV['V100_CTX'] = '131072'; $cfgV['V100_POWER_LIMIT_W'] = '200'
+$v100 = New-V100StartScript -Cfg $cfgV -Gpus $g
+$vtext = $v100 -join "`n"
+Check 'V100 start script: launches the CUDA server with the model and alias' { $vtext.Contains('C:\llama-cuda\llama-server.exe -m C:\models\Qwen3.8-27B-UD-Q5_K_XL.gguf --alias qwen3.8-27b ^') }
+Check 'V100 start script: listens on the desktop address and its own port, key from the day server''s file' { $vtext.Contains('--host 192.168.1.100 --port 8081 --api-key-file C:\llama\api-key.txt ^') }
+Check 'V100 start script: names the devices, layer split, matched q8_0 context cache' { $vtext.Contains('--device CUDA0,CUDA1 --split-mode layer --jinja -ngl 99 -fa on -np 1 -c 131072 -ctk q8_0 -ctv q8_0 ^') }
+Check 'V100 start script: never the f16/q8_0 mix (no compiled CUDA kernel)' { -not $vtext.Contains('-ctk f16') }
+Check 'V100 start script: the CUDA environment' { $vtext.Contains('set CUDA_DEVICE_ORDER=PCI_BUS_ID') -and $vtext.Contains('set CUDA_SCALE_LAUNCH_QUEUES=4x') -and $vtext.Contains('set CUDA_CACHE_MAXSIZE=4294967296') -and $vtext.Contains('set GGML_CUDA_DISABLE_GRAPHS=1') }
+Check 'V100 start script: sets the power limit on each card at every start (200 W)' { @($v100 | Where-Object { $_ -match 'nvidia-smi.exe" -i [01] -pl 200 >nul$' }).Count -eq 2 }
+Check 'V100 start script: runs from the CUDA folder so no other backend is picked up' { $vtext.Contains('cd /d C:\llama-cuda') }
+Check 'V100 start script: no --tensor-split, no --n-cpu-moe' { -not $vtext.Contains('--tensor-split') -and -not $vtext.Contains('-ts ') -and -not $vtext.Contains('n-cpu-moe') }
+Check 'V100 start script: every line but the last that ends the command continues with ^' {
+    $i = [array]::IndexOf($v100, ($v100 | Where-Object { $_ -like '*llama-server.exe -m*' } | Select-Object -First 1))
+    (@($v100[$i..($v100.Count - 2)] | Where-Object { $_ -notmatch ' \^$' }).Count -eq 0) -and ($v100[-1] -notmatch '\^$') }
+$cfgW = [ordered]@{} + $cfgV; $cfgW['V100_POWER_LIMIT_W'] = '0'; $cfgW['V100_COUNT'] = '1'; $cfgW['V100_MODEL_FILE'] = 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf'
+$v35 = (New-V100StartScript -Cfg $cfgW -Gpus @($g[0])) -join "`n"
+Check 'V100 start script: power limit 0 sets nothing' { -not $v35.Contains('-pl ') }
+Check 'V100 start script: one card, and the 35B-A3B sampling and thinking flags' { $v35.Contains('--device CUDA0 ') -and $v35.Contains('preserve_thinking') -and $v35.Contains('--temp 0.6') }
+Check 'V100 start script: the 27B uses the reasoning-effort flags' { $vtext.Contains('reasoning_effort') -and $vtext.Contains('--temp 1.0') }
+
+$cfgG = [ordered]@{} + $cfg; $cfgG['V100_ENABLED'] = '1'
+$guarded = New-LlamaStartScript -Cfg $cfgG -Tier Day
+Check 'Vulkan day script: hides NVIDIA''s Vulkan driver while the V100 tier is on' { $guarded[0] -eq 'set VK_LOADER_DRIVERS_DISABLE=*nv*' -and $guarded[1].StartsWith('C:\llama\llama-server.exe') }
+Check 'Vulkan day script: unchanged while the tier is off' { (New-LlamaStartScript -Cfg $cfg -Tier Day)[0].StartsWith('C:\llama\llama-server.exe') }
+Check 'Vulkan night script: guarded too' { (New-LlamaStartScript -Cfg $cfgG -Tier Night)[0] -eq 'set VK_LOADER_DRIVERS_DISABLE=*nv*' }
+
+$listText = "Available devices:`n  CUDA0: Tesla V100-SXM2-16GB (16384 MiB, 16000 MiB free)`n  CUDA1: Tesla V100-SXM2-16GB (16384 MiB, 16100 MiB free)`n  Vulkan0: AMD Radeon(TM) RX 6600 XT (8176 MiB, 8000 MiB free)`n"
+$devs = Get-LlamaDevices -Text $listText
+Check 'Get-LlamaDevices: parses CUDA and Vulkan lines' { $devs.Count -eq 3 -and $devs[0].Name -eq 'CUDA0' -and $devs[1].FreeMiB -eq 16100 -and $devs[2].Description -eq 'AMD Radeon(TM) RX 6600 XT' }
+Check 'Get-LlamaDevices: "(none)" and empty text give no devices' { (Get-LlamaDevices -Text "Available devices:`n  (none)`n").Count -eq 0 -and (Get-LlamaDevices -Text '').Count -eq 0 }
+
 Write-Host "powershell helpers: $pass passed, $fail failed"
 if ($fail -gt 0) { exit 1 }

@@ -145,7 +145,11 @@ function New-LlamaStartScript {
         "$dir\llama-server.exe -m $models\$file --alias $alias ^",
         "  --host $($Cfg['DESKTOP_IP']) --port $($Cfg['LLM_PORT']) --api-key-file $dir\api-key.txt ^"
     )
-    return @($head + $tail)
+    # With the V100 tier on, keep this Vulkan server on the RX 6600 XT: hide NVIDIA's Vulkan driver from it (a V100 is compute-only
+    # and should not show up in Vulkan at all; this makes sure, and Install-V100.ps1 / Check-V100.ps1 verify it)
+    $guard = @()
+    if ($Cfg.Contains('V100_ENABLED') -and $Cfg['V100_ENABLED'] -eq '1') { $guard = @('set VK_LOADER_DRIVERS_DISABLE=*nv*') }
+    return @($guard + $head + $tail)
 }
 
 # Write-CmdFile PATH LINES  - cmd.exe wants CRLF line endings, no BOM
@@ -895,3 +899,167 @@ function New-StopLlamaScript {
         "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command `"Get-CimInstance Win32_Process | Where-Object { `$_.Name -like 'llama-server*' -and `$_.ExecutablePath -like '$d\*' } | ForEach-Object { Stop-Process -Id `$_.ProcessId -Force }`""
     )
 }
+
+# ============================ V100 GPU tier (optional) ============================
+# Pure helpers for Install-V100.ps1 / Check-V100.ps1: they parse text and compute, so the tests run anywhere.
+
+# Select-CudaRelease -Releases $list  - the newest non-draft release that has a CUDA 12.x Windows zip AND its runtime bundle.
+# CUDA 13 builds have no Volta code, so only 12.x qualifies; the highest 12.x wins. Returns Release, Main, Runtime, CudaVersion or $null.
+function Select-CudaRelease {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Releases)
+    foreach ($rel in $Releases) {
+        if ($rel.PSObject.Properties['draft'] -and $rel.draft) { continue }
+        if (-not $rel.PSObject.Properties['assets']) { continue }
+        $assets = @($rel.assets)
+        $mains = @($assets | Where-Object { $_.name -match '^llama-.+-bin-win-cuda-(12\.[0-9]+)-x64\.zip$' } |
+                ForEach-Object { [pscustomobject]@{ Asset = $_; Version = [version]([regex]::Match($_.name, 'cuda-(12\.[0-9]+)-x64').Groups[1].Value) } } |
+                Sort-Object -Property Version -Descending)
+        foreach ($m in $mains) {
+            $rtName = "cudart-llama-bin-win-cuda-$($m.Version.ToString(2))-x64.zip"
+            $rt = $assets | Where-Object { $_.name -eq $rtName } | Select-Object -First 1
+            if ($rt) { return [pscustomobject]@{ Release = $rel; Main = $m.Asset; Runtime = $rt; CudaVersion = $m.Version.ToString(2) } }
+        }
+    }
+    return $null
+}
+
+# Get-NvidiaGpus TEXT  - parse the output of
+#   nvidia-smi --query-gpu=index,name,uuid,pci.bus_id,memory.total,power.limit,power.default_limit,power.min_limit,power.max_limit,driver_model.current,driver_version,pcie.link.gen.current,pcie.link.width.current --format=csv,noheader,nounits
+function Get-NvidiaGpus {
+    param([AllowEmptyString()][string]$Text = '')
+    $found = @()
+    foreach ($line in ($Text -split "`r?`n")) {
+        $f = @($line -split ',\s*')
+        if ($f.Count -lt 13 -or $f[0] -notmatch '^[0-9]+$') { continue }
+        $num = { param($v) if ($v -match '^[0-9]+(\.[0-9]+)?$') { [double]$v } else { $null } }
+        $found += [pscustomobject]@{
+            Index = [int]$f[0]; Name = $f[1]; Uuid = $f[2]; BusId = $f[3]
+            MemoryMiB = & $num $f[4]; PowerLimitW = & $num $f[5]; PowerDefaultW = & $num $f[6]; PowerMinW = & $num $f[7]; PowerMaxW = & $num $f[8]
+            DriverModel = $f[9]; DriverVersion = $f[10]; PcieGen = & $num $f[11]; PcieWidth = & $num $f[12]
+        }
+    }
+    return , $found
+}
+
+# Get-V100PowerLimit -Gpu $g -Requested 200  - the limit to set: the request, never above the card's default, clamped to the
+# range the card reports; $null when the request is 0 (leave the stock limit)
+function Get-V100PowerLimit {
+    param([Parameter(Mandatory)][object]$Gpu, [Parameter(Mandatory)][int]$Requested)
+    if ($Requested -le 0) { return $null }
+    $w = [double]$Requested
+    if ($null -ne $Gpu.PowerDefaultW -and $w -gt $Gpu.PowerDefaultW) { $w = $Gpu.PowerDefaultW }
+    if ($null -ne $Gpu.PowerMinW -and $w -lt $Gpu.PowerMinW) { $w = $Gpu.PowerMinW }
+    if ($null -ne $Gpu.PowerMaxW -and $w -gt $Gpu.PowerMaxW) { $w = $Gpu.PowerMaxW }
+    return [int][math]::Floor($w)
+}
+
+# Get-V100Fit -FileBytes N -Context 131072 -ModelFile x.gguf -TotalMiB 32768 -Gpus 2 [-KvType q8_0]
+# A rough estimate of the VRAM a model needs: the file, the context cache of the attention layers, the small recurrent state and a
+# compute buffer per card. Qwen3.5/3.6/3.8 are hybrid models: only 1 layer in 4 (27B: 16 layers x 4 KV heads x 256; 35B-A3B:
+# 10 layers x 2 KV heads x 256) keeps a context cache. An unknown model is treated like the 27B, which is the larger of the two.
+function Get-V100Fit {
+    param(
+        [Parameter(Mandatory)][double]$FileBytes,
+        [Parameter(Mandatory)][int]$Context,
+        [Parameter(Mandatory)][string]$ModelFile,
+        [Parameter(Mandatory)][double]$TotalMiB,
+        [Parameter(Mandatory)][int]$Gpus,
+        [ValidateSet('q8_0', 'f16')][string]$KvType = 'q8_0'
+    )
+    $elements = 16 * 2 * 4 * 256     # per token, 27B-class (and the fallback)
+    $known = $false
+    if ($ModelFile -match '(?i)Qwen3\.[0-9]+-27B') { $known = $true }
+    elseif ($ModelFile -match '(?i)Qwen3\.[0-9]+-35B-A3B') { $elements = 10 * 2 * 2 * 256; $known = $true }
+    $bytesPerElement = if ($KvType -eq 'f16') { 2.0 } else { 1.0625 }
+    $gib = 1GB
+    $kv = $elements * $bytesPerElement * $Context
+    $needed = ($FileBytes + $kv) / $gib + 0.2 + 1.5 * $Gpus
+    $total = $TotalMiB / 1024
+    $margin = $total - $needed
+    return [pscustomobject]@{
+        NeededGiB = [math]::Round($needed, 1); TotalGiB = [math]::Round($total, 1); MarginGiB = [math]::Round($margin, 1)
+        KvGiB = [math]::Round($kv / $gib, 1); Fits = ($margin -ge (1.0 * $Gpus)); KnownModel = $known
+    }
+}
+
+# New-V100StartScript -Cfg $cfg -Gpus $gpuObjects  - lines of the cmd file that starts the CUDA llama-server on the V100s.
+# Layer split over plain PCIe; the KV types match (q8_0/q8_0 has a compiled flash-attention kernel on CUDA, f16/q8_0 does not);
+# the power limit is set at every start because Windows forgets it at reboot.
+function New-V100StartScript {
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Cfg,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Gpus
+    )
+    $dir = $Cfg['V100_CUDA_DIR']
+    $day = $Cfg['DESKTOP_LLAMA_DIR']
+    $models = $Cfg['DESKTOP_MODELS_DIR']
+    $count = [int]$Cfg['V100_COUNT']
+    $devices = (0..($count - 1) | ForEach-Object { "CUDA$_" }) -join ','
+    $lines = @(
+        '@echo off',
+        'rem Generated by Install-V100.ps1: re-run the installer instead of editing this file.',
+        'set CUDA_DEVICE_ORDER=PCI_BUS_ID',
+        'set CUDA_SCALE_LAUNCH_QUEUES=4x',
+        'set CUDA_CACHE_MAXSIZE=4294967296',
+        'rem CUDA graphs on Volta had a reported memory leak; remove the next line to try them (llama.cpp issue 25835)',
+        'set GGML_CUDA_DISABLE_GRAPHS=1'
+    )
+    foreach ($g in $Gpus) {
+        $w = Get-V100PowerLimit -Gpu $g -Requested ([int]$Cfg['V100_POWER_LIMIT_W'])
+        if ($null -ne $w) { $lines += "`"$env:SystemRoot\System32\nvidia-smi.exe`" -i $($g.Index) -pl $w >nul" }
+    }
+    $lines += "cd /d $dir"
+    $kwargs = if ($Cfg['V100_MODEL_FILE'] -match '(?i)35B-A3B') { '"{\"preserve_thinking\":true}" ^' } else { '"{\"reasoning_effort\":\"high\"}" ^' }
+    $sampling = if ($Cfg['V100_MODEL_FILE'] -match '(?i)35B-A3B') { '  --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0' } else { '  --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0' }
+    $lines += @(
+        "$dir\llama-server.exe -m $models\$($Cfg['V100_MODEL_FILE']) --alias $($Cfg['V100_MODEL_ALIAS']) ^",
+        "  --host $($Cfg['DESKTOP_IP']) --port $($Cfg['V100_PORT']) --api-key-file $day\api-key.txt ^",
+        "  --device $devices --split-mode layer --jinja -ngl 99 -fa on -np 1 -c $($Cfg['V100_CTX']) -ctk q8_0 -ctv q8_0 ^",
+        "  --cache-ram 2048 --chat-template-kwargs $kwargs",
+        $sampling
+    )
+    return $lines
+}
+
+# Get-LlamaDevices TEXT  - the devices in `llama-server.exe --list-devices` output (stdout). Lines look like
+#   "  CUDA0: Tesla V100-SXM2-16GB (16384 MiB, 16000 MiB free)"   /   "  Vulkan0: AMD Radeon RX 6600 XT (8176 MiB, 8000 MiB free)"
+function Get-LlamaDevices {
+    param([AllowEmptyString()][string]$Text = '')
+    $found = @()
+    foreach ($line in ($Text -split "`r?`n")) {
+        if ($line -match '^\s*([A-Za-z]+[0-9]+):\s+(.+?)\s+\(([0-9]+) MiB,\s*([0-9]+) MiB free\)\s*$') {
+            $found += [pscustomobject]@{ Name = $Matches[1]; Description = $Matches[2]; TotalMiB = [int]$Matches[3]; FreeMiB = [int]$Matches[4] }
+        }
+    }
+    return , $found
+}
+
+# Get-LlamaDeviceList -Exe C:\llama-cuda\llama-server.exe [-Env @{ NAME = 'value' }]  - run --list-devices and return its stdout.
+# A release build loads its GPU backend silently, so a missing runtime DLL shows up only as an empty list.
+function Get-LlamaDeviceList {
+    param([Parameter(Mandatory)][string]$Exe, [hashtable]$Env = @{})
+    $saved = @{}
+    foreach ($k in $Env.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $Env[$k]) }
+    try { return (Invoke-NativeText { & cmd.exe /c "`"$Exe`" --list-devices 2>nul" }) }
+    finally { foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
+}
+
+# Get-NvidiaSmiPath  - nvidia-smi.exe from the PATH, else the copy the driver puts in System32; $null without a driver
+function Get-NvidiaSmiPath {
+    $cmd = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    if ($env:SystemRoot) {
+        $p = Join-Path $env:SystemRoot 'System32\nvidia-smi.exe'
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    return $null
+}
+
+# The newest driver that still supports the Tesla V100 on Windows: the Data Center driver of the R580 branch, NVIDIA's last
+# branch for Volta (R590 and later do not contain the V100). Pinned on purpose; check docs/V100.md before changing it.
+$script:V100Driver = @{
+    Version = '582.78'
+    Url     = 'https://us.download.nvidia.com/tesla/582.78/582.78-data-center-tesla-desktop-win10-win11-64bit-dch-international.exe'
+    Finder  = 'https://www.nvidia.com/Download/index.aspx'
+}
+$script:V100QueryFields = 'index,name,uuid,pci.bus_id,memory.total,power.limit,power.default_limit,power.min_limit,power.max_limit,driver_model.current,driver_version,pcie.link.gen.current,pcie.link.width.current'
