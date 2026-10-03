@@ -80,8 +80,7 @@ if ($DownloadDriver) {
     return
 }
 if (-not $smi) {
-    $pnp = @()
-    if (Get-Command Get-PnpDevice -ErrorAction SilentlyContinue) { $pnp = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'PCI\VEN_10DE&DEV_1D*' }) }
+    $pnp = Get-NvidiaPciDevices
     if ($script:HsDryRun) {
         Write-Warn 'no nvidia-smi here: a real run stops now unless the NVIDIA data-center driver is installed. Carrying on with the dry run.'
         $gpus = @(0..($count - 1) | ForEach-Object { [pscustomobject]@{ Index = $_; Name = 'Tesla V100 (dry run)'; Uuid = ''; BusId = ''; MemoryMiB = [double]([int]$cfg['V100_VRAM_GB'] * 1024); PowerLimitW = 300.0; PowerDefaultW = 300.0; PowerMinW = 100.0; PowerMaxW = 300.0; DriverModel = 'TCC'; DriverVersion = ''; PcieGen = 3.0; PcieWidth = 4.0 } })

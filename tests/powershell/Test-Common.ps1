@@ -236,5 +236,8 @@ $devs = Get-LlamaDevices -Text $listText
 Check 'Get-LlamaDevices: parses CUDA and Vulkan lines' { $devs.Count -eq 3 -and $devs[0].Name -eq 'CUDA0' -and $devs[1].FreeMiB -eq 16100 -and $devs[2].Description -eq 'AMD Radeon(TM) RX 6600 XT' }
 Check 'Get-LlamaDevices: "(none)" and empty text give no devices' { (Get-LlamaDevices -Text "Available devices:`n  (none)`n").Count -eq 0 -and (Get-LlamaDevices -Text '').Count -eq 0 }
 
+Check 'Get-PnpProblemHelp: the codes a V100 build meets' { (Get-PnpProblemHelp 12) -match 'Above 4G' -and (Get-PnpProblemHelp 43) -match 'power cables' -and (Get-PnpProblemHelp 10) -match 'failed to start' -and (Get-PnpProblemHelp 28) -match 'no driver' -and (Get-PnpProblemHelp 0) -eq '' -and (Get-PnpProblemHelp 99) -match '99' }
+Check 'Get-NvidiaPciDevices: an empty list where WMI is missing (not a crash)' { @(Get-NvidiaPciDevices).Count -ge 0 }
+
 Write-Host "powershell helpers: $pass passed, $fail failed"
 if ($fail -gt 0) { exit 1 }

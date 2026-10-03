@@ -1165,3 +1165,24 @@ $script:V100Driver = @{
     Finder  = 'https://www.nvidia.com/Download/index.aspx'
 }
 $script:V100QueryFields = 'index,name,uuid,pci.bus_id,memory.total,power.limit,power.default_limit,power.min_limit,power.max_limit,driver_model.current,driver_version,pcie.link.gen.current,pcie.link.width.current'
+
+# Get-NvidiaPciDevices  - the NVIDIA Volta-family devices Windows sees on the PCIe bus (vendor 10DE, device 1Dxx), driver or no driver.
+# WMI gives the numeric Device Manager error code (Get-PnpDevice only gives a CM_PROB name). Empty where WMI is not available.
+function Get-NvidiaPciDevices {
+    if (-not (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) { return , @() }
+    $all = @(Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { $_.PNPDeviceID -like 'PCI\VEN_10DE&DEV_1D*' })
+    return , @($all | ForEach-Object { [pscustomobject]@{ Name = $_.Name; InstanceId = $_.PNPDeviceID; ErrorCode = [int]$_.ConfigManagerErrorCode; Status = $_.Status } })
+}
+
+# Get-PnpProblemHelp -Code 12  - what a Device Manager error code on a V100 usually means ('' for 0 = fine)
+function Get-PnpProblemHelp {
+    param([Parameter(Mandatory)][int]$Code)
+    switch ($Code) {
+        0 { return '' }
+        12 { return 'not enough free resources: enable Above 4G Decoding (and Resizable BAR) in the BIOS, with CSM off' }
+        10 { return 'the device failed to start: a power or cooling fault, or the wrong driver' }
+        43 { return 'Windows stopped the device: check the 12 V power cables and the driver' }
+        28 { return 'no driver is installed for it' }
+        default { return "Device Manager error code $Code (see Microsoft's list of Device Manager error codes)" }
+    }
+}

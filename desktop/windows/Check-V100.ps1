@@ -30,14 +30,11 @@ function Show([string]$Tag, [string]$Text) {
 function Check([bool]$Ok, [string]$Text, [string]$Tag = 'FAIL') { if ($Ok) { Show 'PASS' $Text } else { Show $Tag $Text } }
 
 Write-Step 'Windows and the driver'
-$problemHelp = @{ 12 = 'not enough free resources: enable Above 4G Decoding (and Resizable BAR) in the BIOS, with CSM off'; 10 = 'the device failed to start: power or cooling fault, or a wrong driver'; 43 = 'Windows stopped the device: check the 12 V power cables and the driver'; 28 = 'no driver installed' }
-if (Get-Command Get-PnpDevice -ErrorAction SilentlyContinue) {
-    $pnp = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'PCI\VEN_10DE&DEV_1D*' })
+if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+    $pnp = Get-NvidiaPciDevices
     Check ($pnp.Count -ge $expect) "Windows sees $($pnp.Count) NVIDIA Volta card(s) on the PCIe bus (expected $expect)"
     foreach ($d in $pnp) {
-        $code = 0
-        if ($d.PSObject.Properties['Problem'] -and $d.Problem) { $code = [int]$d.Problem }
-        if ($code -ne 0) { Show 'FAIL' "$($d.FriendlyName): Device Manager problem $code - $($problemHelp[$code])" }
+        if ($d.ErrorCode -ne 0) { Show 'FAIL' "$($d.Name): Device Manager problem $($d.ErrorCode) - $(Get-PnpProblemHelp -Code $d.ErrorCode)" }
     }
 } else { Show 'INFO' 'device enumeration is not available in this shell (run it on Windows)' }
 $smi = Get-NvidiaSmiPath
