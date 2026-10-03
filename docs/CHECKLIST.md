@@ -49,3 +49,12 @@ If check 18 fails on the dashboard or gateway, linger is off or a unit is not en
 - [ ] Step 26: `/release 0.0.1` twice (merge in between) publishes `v0.0.1`
 - [ ] Step 27: `hermes cron runs nightly-tests` completed; `hermes cron doctor` exits 0
 - [ ] Step 31: manual run against the 27B completed; both desktop tasks ran overnight
+
+## Extras
+
+| Check | How | Pass |
+| --- | --- | --- |
+| Desktop away works | `.\Desktop-Mode.ps1 away` on the desktop; `hermes-desktop status` on the laptop; `hermes chat -q "Which model are you?"` | the laptop's 9B answers; the desktop's GPU and memory are free |
+| Desktop back works | `.\Desktop-Mode.ps1 back`; `hermes-mode status` | the desktop endpoint answers 200 and is back in the chain |
+| V100 cards visible (optional tier) | `.\Check-V100.ps1` | no FAIL; both cards listed, driver 582.x, TCC |
+| V100 server (optional tier) | `./setup.sh tool verify` | the V100 port answers and returns a tool call |

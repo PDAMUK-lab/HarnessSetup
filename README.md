@@ -75,6 +75,8 @@ The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps betwee
 | 30 tuning | `./setup.sh configure --only KEY`, then re-run the stage | manual |
 | 31 overnight 27B tier | `desktop/windows/Install-Overnight.ps1`, `tools/overnight-laptop.sh` | script |
 | 32 fine-tuning | not automated (optional in the guide) | - |
+| extra: take the desktop out of the loop while you use it | `desktop/windows/Desktop-Mode.ps1` (`away` / `back`), `hermes-desktop on\|off` on the laptop | script |
+| extra: two Tesla V100 cards in the desktop (optional, added later) | [docs/V100.md](docs/V100.md): `Check-V100.ps1`, `Install-V100.ps1`, `tools/v100-laptop.sh` | script + hardware |
 | 33 final checks | `tools/verify.sh`, [checklist](docs/CHECKLIST.md) | script + manual |
 
 ## How it behaves
@@ -103,12 +105,12 @@ setup.sh                 dispatcher: list | run <id> | next | tool <name> | chec
 config/settings.schema   every setting: what to ask, how to explain it, how to validate it, the default
 config/node.env.example  a reference copy of the settings file (the wizard writes the real one)
 laptop/NN-*.sh           stages, run as the admin user or (via machinectl) as the agent user
-tools/                   verify, github-smoke-test, fallback-test, overnight-laptop, adopt-repo
-desktop/windows/         PowerShell for the desktop (llama.cpp server, SSH, overnight swap, status)
+tools/                   verify, github-smoke-test, fallback-test, overnight-laptop, v100-laptop, desktop-loop, adopt-repo
+desktop/windows/         PowerShell for the desktop (llama.cpp server, SSH, overnight swap, V100 tier, desktop away, status)
 templates/               systemd units, Hermes config fragments, hermes-mode, release skill, AGENTS.md, workflows
-lib/                     common.sh (helpers), config.sh (settings wizard and validation), merge_yaml.py (merge into ~/.hermes/config.yaml)
+lib/                     common.sh (helpers), config.sh (settings wizard and validation), chain.sh (order of the local endpoints), merge_yaml.py (merge into ~/.hermes/config.yaml)
 tests/                   run-tests.sh and the suites it runs
-docs/                    GUIDE.md (the source guide), RUNBOOK.md, CHECKLIST.md
+docs/                    GUIDE.md (the source guide), RUNBOOK.md, CHECKLIST.md, V100.md (the optional V100 tier)
 ```
 
 ## Tests
@@ -135,6 +137,8 @@ this hardware" list also still applies.
 - `llama-server --api-key-file` (used instead of putting the key on the command line) exists in current llama.cpp
   builds; if your Vulkan build lacks it, put `--api-key <key>` in `start-llama.cmd`.
 - `machinectl -q shell hermes@ ...` runs commands in a real login session; `-q` only hides the banner.
+- The optional V100 tier ([docs/V100.md](docs/V100.md)) was written without a V100 in reach; its hardware advice comes from other
+  people's build logs and its software from NVIDIA's and llama.cpp's own sources (checked October 2026). Commission it one card at a time.
 - Windows: the `llama-server` task is created with no execution time limit. `schtasks /create` (the guide's
   command) defaults to 72 hours, which would stop the server every third day.
 

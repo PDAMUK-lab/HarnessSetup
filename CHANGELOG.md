@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+
+Two additions, both optional, and a fix.
+
+- **Desktop away.** `hermes-desktop on|off|status [--for 4h]` on the laptop and `Desktop-Mode.ps1 away|back|status [-For 4h]` on the
+  desktop take every desktop model out of Hermes's loop (fallback chain and `local` profile) and stop the desktop's servers so the
+  GPU and memory are free, then put everything back. `lib/chain.sh` now writes the order of the local endpoints in one place.
+- **Optional V100 tier** (two Tesla V100 SXM2 on PCIe adapters, added later): `V100_*` settings, `Check-V100.ps1` (read-only
+  readiness check), `Install-V100.ps1` (driver check, TCC mode, CUDA 12 llama.cpp in its own folder, memory-fit estimate before the
+  download, MTP, start script, firewall, task, smoke test), `tools/v100-laptop.sh`, a laptop firewall rule, `verify` checks and
+  [docs/V100.md](docs/V100.md). Dormant while `V100_ENABLED=0`.
+- **Fix:** `Install-Llama.ps1` looked for the Vulkan zip in GitHub's "latest" release, which is now a source-only tag, so it could
+  not find a build. It picks the newest release that has the zip. The overnight swap stops the server by folder, not by program name.
+
 ## 0.2.0
 
 Settings and options are asked for instead of edited or guessed.
