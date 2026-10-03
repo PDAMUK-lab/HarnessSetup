@@ -2,7 +2,7 @@
 # TITLE: Prove the fallback chain with the internet off
 # RUN-AS: admin
 # GUIDE: Step 29
-# NEEDS: GITHUB_REPOS DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS
+# NEEDS: GITHUB_REPOS DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS AGENT_USER
 # Cuts outbound 443 for a few minutes. A trap ALWAYS restores the firewall and resumes the schedules,
 # even if you press Ctrl-C or a step fails.
 # Options (asked when not given): --sleep | --skip-sleep (whether you will put the desktop to sleep for step 2)
@@ -20,6 +20,9 @@ for a in "$@"; do
 done
 load_config
 need_cmd ufw
+if agent_exec "test -e \"\$HOME/.hermes/desktop-away\"" >/dev/null 2>&1; then
+  die "the desktop is out of the loop, so there is no desktop step to prove. Bring it back first: hermes-desktop on (as $AGENT_USER)"
+fi
 ask_flag DO_SLEEP "Will you put the desktop to sleep for step 2? (this proves the laptop takes over when the desktop is off)" y
 skipped=()
 if [[ $DO_SLEEP == 1 ]] && ! is_interactive && [[ $DRY_RUN != 1 ]]; then

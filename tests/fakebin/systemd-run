@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Test stub for systemd-run: record the call (the timer that returns the desktop to the loop)
+echo "systemd-run $*" >>"${FAKE_LOG:-/dev/null}"
+exit 0

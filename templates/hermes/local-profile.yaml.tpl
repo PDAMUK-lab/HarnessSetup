@@ -1,12 +1,4 @@
-# Step 22: the `local` profile never touches the cloud
-model:
-  provider: custom:desktop
-  default: @@DESKTOP_MODEL_ALIAS@@
-
-fallback_providers:
-  - provider: custom:laptop
-    model: @@LAPTOP_MODEL_ALIAS@@
-
+# Step 22: the `local` profile never touches the cloud (its model and fallbacks are written by lib/chain.sh)
 delegation:
   base_url: http://127.0.0.1:@@LLM_PORT@@/v1   # subagents on the laptop's 9B
   model: @@LAPTOP_MODEL_ALIAS@@

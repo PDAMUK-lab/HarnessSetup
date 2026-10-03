@@ -139,7 +139,7 @@ sed 's|^V100_ENABLED=.*|V100_ENABLED=1|' "$NODE_ENV" >"$T/v100.env"
 OUT=$(NODE_ENV="$T/v100.env" DESKTOP_LLM_KEY=abc123def bash "$ROOT"/laptop/11-*.sh 2>&1); RC=$?
 check "11: with the tier on, the stage still succeeds" test $RC -eq 0
 check "11: ...keeps the V100 probe" test -e "$HOME/.hermes/hermes-mode.d/desktop-v100"
-check "11: ...and suggests the V100 tool" out_has 'tool v100-laptop'
+check "11: ...and puts the V100 endpoint first in the chain" test "$(python3 -c "import yaml;print(','.join(e['provider'] for e in yaml.safe_load(open('$cfg'))['fallback_providers']))")" = openrouter,custom:desktop-v100,custom:desktop,custom:laptop
 rm -f "$HOME/.hermes/hermes-mode.d/desktop-v100"
 hm=$HOME/.local/bin/hermes-mode
 : >"$FAKE_LOG"

@@ -10,6 +10,9 @@ case "${1:-status}" in
   status) ;;
   *) echo "usage: hermes-mode [cloud|local|status]"; exit 2 ;;
 esac
+if [[ -e $HOME/.hermes/desktop-away ]]; then
+  echo "*** the desktop is OUT of the loop since $(cat "$HOME/.hermes/desktop-away" 2>/dev/null) - 'hermes-desktop on' brings it back ***"
+fi
 echo "laptop  @@LAPTOP_MODEL_ALIAS@@      : $(probe http://127.0.0.1:@@LLM_PORT@@/health)"
 echo "desktop @@DESKTOP_MODEL_ALIAS@@ : $(probe -H "Authorization: Bearer $KEY" http://@@DESKTOP_IP@@:@@LLM_PORT@@/health)"
 # extra local endpoints (for example the V100 tier) register a "label|health url" file here

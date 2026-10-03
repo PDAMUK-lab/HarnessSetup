@@ -21,9 +21,6 @@ NODE_ENV="$T/node.env"
 load_config
 export INSTALL_CMD='npm ci' TEST_CMD='npm test' LINT_CMD='npm run lint' PACKAGE_CMD='npm pack' VERSION_FILE=package.json
 
-# tools/v100-laptop.sh decides the order of the two desktop endpoints and passes it to its templates
-export CHAIN1_PROVIDER=custom:desktop-v100 CHAIN1_MODEL=qwen3.8-27b CHAIN2_PROVIDER=custom:desktop CHAIN2_MODEL=qwen3.6-35b-a3b
-
 out_of() { render_template "$ROOT/templates/$1"; printf '%s' "$RENDERED" >"$T/$2"; }
 while IFS= read -r tpl; do
   rel=${tpl#"$ROOT/templates/"}; name=$(echo "$rel" | tr / _)
@@ -33,13 +30,12 @@ done < <(find "$ROOT/templates" -name '*.tpl' | sort)
 
 yaml_ok() { python3 -c "import sys,yaml; d=yaml.safe_load(open(sys.argv[1])); assert isinstance(d,dict) and d" "$1"; }
 for f in hermes_cloud.yaml.tpl hermes_providers.yaml.tpl hermes_local-profile.yaml.tpl hermes_night-provider.yaml.tpl \
-         hermes_v100-provider.yaml.tpl hermes_v100-chain.yaml.tpl hermes_v100-local-profile.yaml.tpl \
+         hermes_v100-provider.yaml.tpl \
          repo_workflows_test.yml.tpl repo_workflows_release.yml.tpl; do
   check "$f is valid YAML" yaml_ok "$T/$f"
 done
 check "cloud.yaml: keeps worker model as a string" grep -q 'model: "vendor-a/worker"' "$T/hermes_cloud.yaml.tpl"
-check "providers.yaml: three-entry fallback chain in order" bash -c "grep -A12 '^fallback_providers' '$T/hermes_providers.yaml.tpl' | grep -E 'provider:' | tr -d ' -' | paste -sd, | grep -qx 'provider:openrouter,provider:custom:desktop,provider:custom:laptop'"
-check "v100-chain.yaml: four-entry chain with the V100 second" bash -c "grep -E 'provider:' '$T/hermes_v100-chain.yaml.tpl' | sed -E 's/^[ -]*provider: *//' | paste -sd, | grep -qx 'openrouter,custom:desktop-v100,custom:desktop,custom:laptop'"
+check "providers.yaml: both endpoints, and no chain (lib/chain.sh writes it)" bash -c "grep -q 'desktop:' '$T/hermes_providers.yaml.tpl' && grep -q 'laptop:' '$T/hermes_providers.yaml.tpl' && ! grep -q fallback_providers '$T/hermes_providers.yaml.tpl'"
 check "v100-provider.yaml: its own port and the shared key" bash -c "grep -q 'api: http://192.168.1.100:8081/v1' '$T/hermes_v100-provider.yaml.tpl' && grep -q 'key_env: DESKTOP_LLM_KEY' '$T/hermes_v100-provider.yaml.tpl'"
 # shellcheck disable=SC2016  # the ${{ }} is literal GitHub Actions syntax
 check "release.yml keeps the \${{ }} expression" grep -qF '${{ github.token }}' "$T/repo_workflows_release.yml.tpl"

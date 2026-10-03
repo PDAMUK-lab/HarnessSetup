@@ -73,6 +73,14 @@ sed -i "s|^V100_PORT=.*|V100_PORT=$((port + 20))|" "$T/v100v.env"
 OUT=$(NODE_ENV="$T/v100v.env" FAKE_CURL_REAL=1 FAKE_MODEL_ID=x bash "$ROOT/tools/verify.sh" --no-models 2>&1)
 check "verify: an unreachable V100 server is a WARN (the desktop may be off)" bash -c "grep -E 'WARN.*V100 model port reachable' <<<\"\$0\"" "$OUT"
 
+# the desktop taken out of the loop on purpose: verify accepts the shorter chain (as a WARN), fallback-test refuses
+mkdir -p "$HOME/.hermes"; echo "since test" >"$HOME/.hermes/desktop-away"
+OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
+check "verify: desktop away is a WARN about the chain, not a FAIL" bash -c "[[ $RC -eq 0 ]] && grep -E 'WARN.*the desktop is OUT of the loop' <<<\"\$0\"" "$OUT"
+OUT=$(bash "$ROOT/tools/fallback-test.sh" --yes 2>&1); RC=$?
+check "fallback-test: refuses while the desktop is away" bash -c "[[ $RC -ne 0 ]] && grep -q 'hermes-desktop on' <<<\"\$0\"" "$OUT"
+rm -f "$HOME/.hermes/desktop-away"
+
 # ================= fallback-test.sh
 : >"$FAKE_LOG"; printf 'I am qwen3.6-35b-a3b\nI am qwen3.5-9b\nfile1 file2\n' >"$T/answers"
 printf 'y\n\n' >"$T/ftans"   # Continue? y, then Enter when the desktop is asleep

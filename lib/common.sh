@@ -312,3 +312,6 @@ publish_shared() {
 
 # shellcheck source=lib/config.sh
 source "$HS_ROOT/lib/config.sh"
+
+# shellcheck source=lib/chain.sh
+source "$HS_ROOT/lib/chain.sh"

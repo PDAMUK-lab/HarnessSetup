@@ -87,7 +87,14 @@ if [[ ${V100_ENABLED:-0} == 1 ]]; then
 fi
 fb=$(agent_exec 'hermes fallback list' 2>&1 || true)
 o=$(grep -n openrouter <<<"$fb" | head -1 | cut -d: -f1); d=$(grep -n desktop <<<"$fb" | head -1 | cut -d: -f1); l=$(grep -n laptop <<<"$fb" | head -1 | cut -d: -f1)
-if [[ -n $o && -n $d && -n $l && $o -lt $d && $d -lt $l ]]; then res pass 10 "fallback chain: OpenRouter, then desktop, then laptop"; else res fail 10 "fallback chain: OpenRouter, then desktop, then laptop"; fi
+away=0
+if agent_exec "test -e \"\$HOME/.hermes/desktop-away\"" >/dev/null 2>&1; then away=1; fi
+if ((away)); then
+  # the desktop was taken out of the loop on purpose (hermes-desktop off): the chain must then be OpenRouter, laptop
+  if [[ -n $o && -n $l && -z $d && $o -lt $l ]]; then res warn 10 "fallback chain: the desktop is OUT of the loop (OpenRouter, then laptop)" "hermes-desktop on puts it back"
+  else res fail 10 "fallback chain while the desktop is away: OpenRouter, then laptop only"; fi
+elif [[ -n $o && -n $d && -n $l && $o -lt $d && $d -lt $l ]]; then res pass 10 "fallback chain: OpenRouter, then desktop, then laptop"
+else res fail 10 "fallback chain: OpenRouter, then desktop, then laptop"; fi
 
 ms=$(agent_exec 'hermes-mode status' 2>&1 || true)
 code_of() { grep -E "^$1 " <<<"$ms" | sed 's/.*: *//' | tr -d '[:space:]'; }

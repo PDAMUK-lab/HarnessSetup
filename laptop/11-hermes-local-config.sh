@@ -2,7 +2,7 @@
 # TITLE: Local endpoints, fallback chain, the `local` profile, hermes-mode
 # RUN-AS: hermes
 # GUIDE: Steps 21-23
-# NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT DESKTOP_MODEL_ALIAS DESKTOP_CTX LAPTOP_CTX LAPTOP_MODEL_ALIAS V100_ENABLED
+# NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT DESKTOP_MODEL_ALIAS DESKTOP_CTX LAPTOP_CTX LAPTOP_MODEL_ALIAS V100_ENABLED V100_PRIMARY V100_MODEL_ALIAS V100_CTX V100_PORT
 # Needs the desktop API key printed by Install-Llama.ps1 (prompted, or set DESKTOP_LLM_KEY in the environment).
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -39,7 +39,7 @@ set_env_var "$HOME/.hermes/.env" DESKTOP_LLM_KEY "$key"
 
 render_template "$HS_ROOT/templates/hermes/providers.yaml.tpl"
 frag=$(mktemp); printf '%s' "$RENDERED" >"$frag"
-if [[ $DRY_RUN == 1 ]]; then log "[dry-run] would merge providers + fallback chain into $cfg"; sed 's/^/    | /' "$frag" >&2; else merge "$cfg" "$frag"; fi
+if [[ $DRY_RUN == 1 ]]; then log "[dry-run] would merge the local endpoints into $cfg"; sed 's/^/    | /' "$frag" >&2; else merge "$cfg" "$frag"; fi
 
 # ---- Step 22: the local profile (cloned from the default one, then stripped of the cloud)
 if hermes profile list 2>/dev/null | grep -qw local; then
@@ -64,24 +64,27 @@ else
 fi
 rm -f "$frag"
 
+# ---- the fallback chain and the local profile's model (V100 tier and "desktop away" included): lib/chain.sh
+chain_apply "$cfg" "$pcfg"
+if desktop_away; then warn "the desktop is OUT of the loop (hermes-desktop on puts it back); the chain written above leaves it out"; fi
+
 # ---- Step 23: one command to switch modes
 install_template "$HS_ROOT/templates/bin/hermes-mode.tpl" "$HOME/.local/bin/hermes-mode" 755 self
-# this stage rewrites the chain without the V100 tier; the tool puts it back (and registers its probe)
-if [[ ${V100_ENABLED:-0} != 1 ]]; then run rm -f "$HOME/.hermes/hermes-mode.d/desktop-v100"; fi
+install_template "$HS_ROOT/templates/bin/hermes-desktop.tpl" "$HOME/.local/bin/hermes-desktop" 755 self
+chain_probes
 
 if [[ $DRY_RUN != 1 ]]; then
   hermes fallback list || warn "'hermes fallback list' failed - check the fallback_providers block in $cfg"
 fi
 stage_end
+IFS='|' read -r _ first_model < <(chain_entries)
 cat <<MSG
 Manual steps left in this phase:
   * Trim the local profile's tools (each toolset slows every prompt on these GPUs):
       hermes -p local tools      -> turn OFF browser, image generation, voice and web search
     (Use 'hermes -p local ...': a bare 'local' command is shadowed by the shell builtin of the same name.)
-  * Try it:  hermes-mode local ; hermes chat -q "Which model are you?"   (expect $DESKTOP_MODEL_ALIAS)
+  * Try it:  hermes-mode local ; hermes chat -q "Which model are you?"   (expect $first_model)
     Turn the desktop off and ask again: expect $LAPTOP_MODEL_ALIAS after a short retry. Then: hermes-mode cloud
+Taking the desktop out of the loop while you use it for something else:  hermes-desktop off   (hermes-desktop on to bring it back)
+Next: ./setup.sh run 12
 MSG
-if [[ ${V100_ENABLED:-0} == 1 ]]; then
-  echo "The V100 tier is on: run  ./setup.sh tool v100-laptop  to add the V100 endpoint to the chain again."
-fi
-echo "Next: ./setup.sh run 12"
