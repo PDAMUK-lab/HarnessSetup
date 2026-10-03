@@ -13,19 +13,38 @@ as short, explicit prompts in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 ```bash
 # On the laptop (fresh Debian 13, user ai-node), after the manual steps in the runbook's section 0:
 git clone https://github.com/PDAMUK/HarnessSetup.git ~/HarnessSetup && cd ~/HarnessSetup
-cp config/node.env.example config/node.env && nano config/node.env    # your addresses, repo, model IDs
+./setup.sh next                      # asks for your settings first, then runs the first stage
 ./setup.sh list                      # every stage, and whether it has completed
 ./setup.sh run 01 --dry-run          # see exactly what a stage would do
-./setup.sh run 01                    # do it   (then 02, 03, ... or: ./setup.sh next)
+./setup.sh run 02                    # do a specific one (or keep using: ./setup.sh next)
 ```
 
 ```powershell
-# On the Windows desktop (administrator PowerShell, repo copied or cloned there, same config\node.env):
-.\desktop\windows\Setup-LaptopAccess.ps1     # SSH key + tunnel shortcut
+# On the Windows desktop (administrator PowerShell, repo copied or cloned there):
+.\desktop\windows\Setup-LaptopAccess.ps1     # SSH key + tunnel shortcut (asks for what it needs)
 .\desktop\windows\Install-Llama.ps1          # the desktop model server
 ```
 
 The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps between stages.
+
+## Everything is asked, nothing needs editing
+
+- **Settings** (IP addresses, accounts, GitHub org and repos, OpenRouter model IDs, quantizations, overnight times ...)
+  are asked one question at a time, each with a short explanation and a default in `[brackets]`. Addresses are
+  detected where possible (the laptop's own address and gateway; the desktop's address from your SSH session). Every
+  answer is validated before anything is written: an IP must look like an IP, a model ID like `vendor/model`, a
+  GitHub name like a GitHub name. The first stage you run starts the wizard by itself when there are no settings yet;
+  `./setup.sh configure` runs it on demand (`--advanced` for ports, context sizes, model files and folders;
+  `--only KEY` to change one setting; `--set KEY=VALUE --defaults` for scripted installs).
+- **Just in time.** A stage asks only for the settings it needs and that are still missing: stage 05 asks for your
+  GitHub account, stage 07 for the OpenRouter models, and so on. Nothing is asked twice.
+- **Options** (install Docker? NVIDIA driver? CUDA or Vulkan? benchmark first? start the release watcher? never sleep
+  on mains power?) are asked when you did not give the flag. Flags still work and skip the question; `--yes` (or
+  running without a terminal) takes the safe default and never reboots on its own.
+- **Windows** asks the same way (`Configure.ps1`, or any installer on its first run), and can copy the laptop's
+  settings over SSH so the shared answers are typed once.
+- The settings file is plain text (`config/node.env`, git-ignored, no secrets). Editing it by hand still works;
+  `config/node.env.example` shows every setting.
 
 ## What is automated
 
@@ -51,7 +70,7 @@ The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps betwee
 | 25, 27 `/release` skill, cron jobs | `laptop/12-skills-and-cron.sh` | script |
 | 28 firewall | `laptop/13-firewall.sh` | script |
 | 29 fallback with the internet off | `tools/fallback-test.sh` | script |
-| 30 tuning | `config/node.env`, then re-run the stage | manual |
+| 30 tuning | `./setup.sh configure --only KEY`, then re-run the stage | manual |
 | 31 overnight 27B tier | `desktop/windows/Install-Overnight.ps1`, `tools/overnight-laptop.sh` | script |
 | 32 fine-tuning | not automated (optional in the guide) | - |
 | 33 final checks | `tools/verify.sh`, [checklist](docs/CHECKLIST.md) | script + manual |
@@ -78,12 +97,13 @@ The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps betwee
 
 ```
 setup.sh                 dispatcher: list | run <id> | next | tool <name> | check
-config/node.env.example  every address, name and model the guide asks you to substitute
+config/settings.schema   every setting: what to ask, how to explain it, how to validate it, the default
+config/node.env.example  a reference copy of the settings file (the wizard writes the real one)
 laptop/NN-*.sh           stages, run as the admin user or (via machinectl) as the agent user
 tools/                   verify, github-smoke-test, fallback-test, overnight-laptop, adopt-repo
 desktop/windows/         PowerShell for the desktop (llama.cpp server, SSH, overnight swap, status)
 templates/               systemd units, Hermes config fragments, hermes-mode, release skill, AGENTS.md, workflows
-lib/                     common.sh (helpers), merge_yaml.py (merge fragments into ~/.hermes/config.yaml)
+lib/                     common.sh (helpers), config.sh (settings wizard and validation), merge_yaml.py (merge into ~/.hermes/config.yaml)
 tests/                   run-tests.sh and the suites it runs
 docs/                    GUIDE.md (the source guide), RUNBOOK.md, CHECKLIST.md
 ```
@@ -117,6 +137,6 @@ this hardware" list also still applies.
 
 ## Changing the guide's choices
 
-Model files, quant, context size, expert split, overnight times and the OpenRouter model IDs are all in
-`config/node.env`; edit it and re-run the stage (for example `./setup.sh run 10` after switching to
-`UD-Q4_K_XL`). Version: see [VERSION](VERSION) and [CHANGELOG.md](CHANGELOG.md).
+Model files, quant, context size, expert split, overnight times and the OpenRouter model IDs are all settings:
+change one with `./setup.sh configure --only LAPTOP_QUANT` (or `.\Configure.ps1 -Only DESKTOP_QUANT` on the desktop)
+and re-run the stage (for example `./setup.sh run 10` after switching to `UD-Q4_K_XL`). Version: see [VERSION](VERSION) and [CHANGELOG.md](CHANGELOG.md).

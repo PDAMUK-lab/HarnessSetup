@@ -1,8 +1,11 @@
 # Runbook
 
 The order of everything, with the steps that need you marked **MANUAL**. Step numbers match
-[GUIDE.md](GUIDE.md). Every `./setup.sh run NN` accepts `--dry-run` (show, change nothing) and `--yes` (no prompts),
-and is safe to run again. `./setup.sh list` shows what has completed.
+[GUIDE.md](GUIDE.md). Every `./setup.sh run NN` accepts `--dry-run` (show, change nothing) and `--yes` (take the
+default for every question), and is safe to run again. `./setup.sh list` shows what has completed.
+
+Anything a stage needs to know, it asks: settings it cannot guess (accounts, model IDs) and options you can decide
+(Docker? CUDA or Vulkan? start the service now?). Pass the flag the stage's header documents to skip a question.
 
 Two machines: the **laptop** (`ai-node`, Debian 13, GTX 1070) and the **desktop** (Windows, RX 6600 XT).
 Commands are for the laptop unless the heading says **desktop**.
@@ -27,11 +30,15 @@ Commands are for the laptop unless the heading says **desktop**.
 
    (Or copy the folder with `scp -r HarnessSetup ai-node@192.168.1.150:`.) On the desktop, clone or unzip it too and
    open PowerShell with `Set-ExecutionPolicy -Scope Process Bypass` for the session.
-6. **Settings.** Copy `config/node.env.example` to `config/node.env` **on both machines** and edit it. Keep the
-   two copies identical. Leave the `OR_*` model IDs empty for now; you fill them in at section 4.
+6. **Settings.** You do not edit a file: the first `./setup.sh` stage you run (or `./setup.sh configure`) asks for
+   them, with explanations, detected defaults and validation. Have these ready: the laptop's and desktop's IP
+   addresses and the router's, the admin account name from the Debian install, and (later, when asked) your GitHub
+   organisation and repos and the OpenRouter model IDs. The desktop scripts ask the shared questions too; on its
+   first run `Setup-LaptopAccess.ps1` offers to copy the laptop's settings over SSH so you type them once.
 
 ```bash
-./setup.sh check          # parses config/node.env
+./setup.sh configure      # optional now: asks for the settings (--advanced adds ports, context sizes, model files)
+./setup.sh check          # validates what was saved
 ```
 
 **Verify:** `ssh ai-node@192.168.1.150` works from the desktop, and `sudo -v` on the laptop accepts your password.
@@ -92,9 +99,8 @@ From here on, enter the agent's account with `sudo machinectl shell hermes@`, ne
    | Metadata | Read |
 
    **Do not grant** Workflows, Administration, Secrets or Environments.
-5. Note the machine account's noreply address (Settings > Emails) and put org, repos, account and address in
-   `config/node.env`, then re-copy the kit to the agent: `./setup.sh run 03 --yes` refreshes `/opt/harness-setup`
-   (or it happens automatically on every agent stage).
+5. Note the machine account's noreply address (Settings > Emails). Stage 05 asks for the organisation, repos,
+   account name and that address, and refreshes the agent's copy of the kit in `/opt/harness-setup` by itself.
 
 ```bash
 ./setup.sh run 05                  # asks for the token (hidden), sets git identity, clones your repos
@@ -120,12 +126,11 @@ cd ~/repos/yourrepo && hermes --tui     # "Summarise this repo in five bullets a
 exit
 ```
 
-Fill in `OR_WORKER_MODEL`, `OR_REVIEW_MODEL`, `OR_COMPRESSION_MODEL` and `OR_FALLBACK_MODEL` in `config/node.env`
-(workers: strong mid-tier coder; reviewer: frontier model from a **different family** than the planner; fallback:
-a different upstream company), then:
+Stage 07 asks for the worker, reviewer and summariser model IDs (workers: strong mid-tier coder; reviewer: frontier
+model from a **different family** than the planner; copy the exact IDs from the list in `hermes model`):
 
 ```bash
-./setup.sh run 07      # merges the roles into ~/.hermes/config.yaml (a timestamped backup is kept)
+./setup.sh run 07      # asks for those three, then merges the roles into ~/.hermes/config.yaml (a timestamped backup is kept)
 ```
 
 **MANUAL (Step 12).** In a test repo ask Hermes to use two subagents in parallel (add a `--version` flag; add a
@@ -153,8 +158,8 @@ to `http://localhost:9119`. **MANUAL:** on the dashboard's **Config** page set t
 ./setup.sh run 10 --bench      # optional first: context cache in VRAM vs RAM
 ```
 
-If the service reports CUDA out of memory, switch `LAPTOP_MODEL_FILE` / `LAPTOP_MODEL_URL` to the `UD-Q4_K_XL`
-file in `config/node.env` and re-run stage 10.
+If the service reports CUDA out of memory, choose the smaller file with `./setup.sh configure --only LAPTOP_QUANT`
+(the file name and download URL follow it) and re-run stage 10.
 
 **Desktop (administrator PowerShell):**
 
@@ -164,9 +169,10 @@ file in `config/node.env` and re-run stage 10.
 ```
 
 It prints the API key once (`-ShowKey` shows it again). **Tune the expert split** as in guide Step 19: lower
-`DESKTOP_N_CPU_MOE` in `config\node.env` and re-run until Task Manager shows about 7.3GB dedicated GPU memory;
-keep Windows memory under ~90% (otherwise use `UD-Q4_K_XL`). Set Windows sleep to Never on mains power, or use
-`-NeverSleepOnAC`.
+`DESKTOP_N_CPU_MOE` (`.\Configure.ps1 -Only DESKTOP_N_CPU_MOE`) and re-run `Install-Llama.ps1` until Task Manager
+shows about 7.3GB dedicated GPU memory; keep Windows memory under ~90% (otherwise choose `UD-Q4_K_XL` with
+`.\Configure.ps1 -Only DESKTOP_QUANT`). The installer asks whether Windows should never sleep on mains power
+(`-NeverSleepOnAC` / `-Yes` answer it without asking).
 
 From the laptop: `curl -s -H "Authorization: Bearer <key>" http://192.168.1.100:8080/v1/models` should list the model.
 
@@ -219,7 +225,7 @@ the firewall: for a boundary it cannot remove, put the laptop on a guest network
 
 ## 9. Optional: overnight quality tier (Step 31)
 
-Set `NIGHT_ENABLED=1` in `config/node.env` on both machines, then:
+`Install-Overnight.ps1` asks whether to turn the tier on and for the start and end times (the laptop side asks too):
 
 ```powershell
 .\desktop\windows\Install-Overnight.ps1      # 27B model, start-llama-27b.cmd, llama-night / llama-day tasks, wake timers
@@ -235,9 +241,9 @@ restore the day server, resume the job. Jobs run between 01:15 and about 05:00, 
 ## 10. Tuning (Step 30)
 
 Build a test set first: 10 to 20 real tasks, each judged by passing tests, run as one-shot cron jobs in the `local`
-profile; every change below must improve the pass rate or you undo it. Config-driven changes live in `config/node.env`
-(then re-run stage 10 or `Install-Llama.ps1`): quant files, `DESKTOP_N_CPU_MOE`, `REASONING_EFFORT`,
-`MAX_CONCURRENT_CHILDREN`. For the A/B of the MiMo distill (`-m` and `--alias`), MTP speculative decoding
+profile; every change below must improve the pass rate or you undo it. Setting-driven changes
+(`./setup.sh configure --only KEY`, then re-run stage 10 or `Install-Llama.ps1`): quantizations, `DESKTOP_N_CPU_MOE`,
+`REASONING_EFFORT` and `MAX_CONCURRENT_CHILDREN` (the last two under `--advanced`). For the A/B of the MiMo distill (`-m` and `--alias`), MTP speculative decoding
 (`--spec-type draft-mtp --spec-draft-n-max 2` with the `-MTP-GGUF` repo) and `-ctk bf16 -ctv bf16`, edit the unit or
 `start-llama.cmd` by hand as the guide's table says. Server logs show tokens per second:
 `journalctl -u llama-server -f` on the laptop, the console window on the desktop.
@@ -253,7 +259,7 @@ checks 5, 11 and 16.
 - **Renew the GitHub token** before its 90 days are up; every push fails after that.
 - **Update llama.cpp:** `./setup.sh run 09`, then `sudo systemctl restart llama-server`; on Windows
   `.\Install-Llama.ps1 -UpdateLlama`.
-- **Change a model:** edit `config/node.env`, re-run stage 10 (laptop) or `Install-Llama.ps1` (desktop).
+- **Change a model:** `./setup.sh configure --only LAPTOP_QUANT` (or `.\Configure.ps1 -Only DESKTOP_QUANT`), then re-run stage 10 (laptop) or `Install-Llama.ps1` (desktop).
 
 ## If something goes wrong
 
