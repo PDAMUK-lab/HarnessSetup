@@ -117,7 +117,7 @@ check "Configure -Advanced asks the advanced desktop questions" bash -c "grep -q
 
 # ---- no settings yet: the installers ask by themselves (scripted answers stand in for the user)
 rm -f "$T/fresh.env"
-printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 james 2 n n '' y n >"$T/psans1"   # skip the import offer, wizard (ip x3, admin, quant=Q4, overnight n, advanced n, save), then: never-sleep y, start now n
+printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 james 2 n n n '' y n >"$T/psans1"   # skip the import offer, wizard (ip x3, admin, quant=Q4, overnight n, V100 n, advanced n, save), then: never-sleep y, start now n
 export HS_INPUT="$T/psans1"
 OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Install-Llama.ps1" -ConfigFile "$T/fresh.env" -DryRun 2>&1); RC=$?
 unset HS_INPUT
@@ -128,7 +128,7 @@ check "no settings: ...the firewall rule uses the laptop address that was typed"
 check "no settings: ...the sleep question was answered yes" has "never sleep on mains power"
 check "no settings: ...the start question was answered no" bash -c "! grep -q 'start the .llama-server. task' <<<\"\$0\"" "$OUT"
 rm -f "$T/fresh2.env"
-printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 james '' n n '' n >"$T/psans2"   # skip import, wizard, then: tunnel shortcut n
+printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 james '' n n n '' n >"$T/psans2"   # skip import, wizard, then: tunnel shortcut n
 export HS_INPUT="$T/psans2"
 OUT=$(USERPROFILE="$T/profile" ps -File "$ROOT/desktop/windows/Setup-LaptopAccess.ps1" -ConfigFile "$T/fresh2.env" -DryRun 2>&1); RC=$?
 unset HS_INPUT

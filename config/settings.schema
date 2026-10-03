@@ -68,3 +68,19 @@ NIGHT_MODEL_ALIAS|both|advanced|alias|qwen3.8-27b|NIGHT_ENABLED=1|Overnight mode
 NIGHT_MODEL_FILE|desktop|advanced|gguf|Qwen3.8-27B-UD-Q4_K_XL.gguf|NIGHT_ENABLED=1|Overnight model file|File name in the desktop models folder.
 NIGHT_MODEL_URL|desktop|advanced|url|https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_XL.gguf|NIGHT_ENABLED=1|Overnight model download URL|Check the exact file name on the Hugging Face repo's Files tab if it 404s.
 NIGHT_NGL|desktop|advanced|int:0-99|24|NIGHT_ENABLED=1|GPU layers for the 27B (-ngl)|Raise until dedicated GPU memory sits near 7.3GB, or use llama-fit-params.
+
+#> V100 GPU tier: Tesla V100 SXM2 cards in the desktop (optional, see docs/V100.md)
+V100_ENABLED|both|basic|bool01|0||Set up the optional V100 GPU tier|Optional. Tesla V100 cards on SXM2-to-PCIe adapters in the desktop run their own CUDA llama-server on a separate port, with a larger model fully in VRAM, beside the RX 6600 XT server. Read docs/V100.md first: the cards need the right driver, a strong power supply and real cooling.
+V100_COUNT|desktop|basic|int:1-4|2|V100_ENABLED=1|Number of V100 cards|How many V100 cards are installed in the desktop. The model is split across them.
+V100_VRAM_GB|desktop|basic|choice:16,32|16|V100_ENABLED=1|Memory per V100 card (GB)|16 or 32. nvidia-smi names the card Tesla V100-SXM2-16GB or Tesla V100-SXM2-32GB.
+V100_QUANT|desktop|basic|choice:UD-Q4_K_XL,UD-Q5_K_XL,UD-Q6_K_XL,UD-Q8_K_XL|UD-Q5_K_XL|V100_ENABLED=1|V100 model quantization|Larger is better quality but needs more VRAM. The installer checks the file plus the context cache against your cards before it starts the server.
+V100_MODEL_ALIAS|both|advanced|alias|qwen3.8-27b|V100_ENABLED=1|V100 model name|The name the V100 server reports and Hermes uses.
+V100_MODEL_FILE|desktop|advanced|gguf|Qwen3.8-27B-{V100_QUANT}.gguf|V100_ENABLED=1|V100 model file|File name in the desktop models folder. Derived from the quantization unless you override it.
+V100_MODEL_URL|desktop|advanced|url|https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-{V100_QUANT}.gguf|V100_ENABLED=1|V100 model download URL|Check the exact file name on the Hugging Face repo's Files tab if it 404s.
+V100_CTX|both|advanced|int:65536-1048576|131072|V100_ENABLED=1|V100 context size (tokens)|Hermes needs at least 65536. A longer context needs more VRAM; the installer checks the fit.
+V100_PORT|both|advanced|port|8081|V100_ENABLED=1|V100 model server port|Port of the V100 llama-server on the desktop. Must differ from the model server port; only the laptop may reach it.
+V100_PRIMARY|laptop|advanced|bool01|1|V100_ENABLED=1|Prefer the V100 model on the laptop|Yes puts the V100 model first among the local endpoints (the local profile and the fallback chain). No puts it after the desktop's other model.
+V100_DRIVER_MODE|desktop|advanced|choice:TCC,WDDM|TCC|V100_ENABLED=1|V100 driver mode|TCC is the compute-only mode of the NVIDIA data-center driver (no display, no Vulkan, no Windows VRAM tax). WDDM keeps the cards visible to Windows graphics.
+V100_POWER_LIMIT_W|desktop|advanced|int:100-300|250|V100_ENABLED=1|Power limit per V100 (W)|A V100 SXM2 draws up to 300 W. Capping it to 200-250 W costs little speed and eases the power supply and the cooling.
+V100_CUDA_DIR|desktop|advanced|winpath|C:\llama-cuda|V100_ENABLED=1|Desktop CUDA llama.cpp folder|Where the CUDA build of llama.cpp and its start script live (separate from the Vulkan build in C:\llama).
+DESKTOP_VK_DEVICE|desktop|advanced|text|auto|V100_ENABLED=1|Vulkan device for the RX 6600 XT server|auto finds the RX 6600 XT in 'llama-cli --list-devices' so the Vulkan server keeps to it once the V100s are installed. Give a device name such as Vulkan0 to force one.

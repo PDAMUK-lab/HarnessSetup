@@ -73,7 +73,7 @@ Clear-Answers
 
 # ---- the wizard, fed like a user typing (desktop scope: shared and desktop-only questions)
 $f1 = Join-Path $Tmp 'wiz.env'
-Use-Answers '300.1.1.1', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '2', 'y', '2:00', '', 'n', ''
+Use-Answers '300.1.1.1', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '2', 'y', '2:00', '', 'n', 'n', ''
 Quiet { Invoke-ConfigWizard -Path $f1 -Scope desktop }
 Clear-Answers
 $w = Read-NodeEnv $f1
@@ -87,7 +87,7 @@ Check 'wizard: the laptop-only questions were not asked and their detected defau
 Check 'wizard: unset required settings are commented, not empty' { (Get-Content $f1 -Raw) -match '# OR_WORKER_MODEL=   \(not set yet' }
 
 # edit session: Enter keeps values, a new quant re-derives
-Use-Answers '', '', '', '', '1', '', '', '', 'n', ''
+Use-Answers '', '', '', '', '1', '', '', '', '', 'n', ''
 Quiet { Invoke-ConfigWizard -Path $f1 -Scope desktop }
 Clear-Answers
 Check 'edit: Enter keeps the laptop ip' { (Read-NodeEnv $f1)['LAPTOP_IP'] -eq '10.0.0.20' }
@@ -114,7 +114,7 @@ Check 'unknown lines survive a rewrite' { (Read-NodeEnv $f2)['MY_EXTRA'] -eq 'ke
 $f3 = Join-Path $Tmp 'init.env'
 Check 'no settings and no terminal: refuses and points at Configure.ps1' {
     try { Initialize-NodeConfig -Path $f3 *> $null; $false } catch { $_.Exception.Message -match 'Configure\.ps1' } }
-Use-Answers '', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '', 'n', 'n', ''
+Use-Answers '', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '', 'n', 'n', 'n', ''
 $c = Initialize-NodeConfig -Path $f3 -Need 'LAPTOP_IP', 'DESKTOP_IP' 6>$null
 Clear-Answers
 Check 'first run starts the wizard by itself and returns the config' { $c['LAPTOP_IP'] -eq '10.0.0.20' -and (Test-Path $f3) }
@@ -145,12 +145,12 @@ Check 'import: copies the laptop file instead of asking questions' { (Test-Path 
 $f5 = Join-Path $Tmp 'imported-bad.env'
 Copy-Item "$Root/config/node.env.example" (Join-Path $Tmp 'example-copy.env')
 $env:FAKE_SCP_SRC = Join-Path $Tmp 'example-copy.env'
-Use-Answers 'ai-node@10.0.0.20', '', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '', 'n', 'n', ''
+Use-Answers 'ai-node@10.0.0.20', '', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '', 'n', 'n', 'n', ''
 $c5 = Initialize-NodeConfig -Path $f5 6>$null 3>$null
 Clear-Answers
 Check 'import: an invalid file is refused and the questions are asked' { $c5['LAPTOP_IP'] -eq '10.0.0.20' -and -not (Get-Content $f5 -Raw).Contains('yourorg') }
 # a login or path that could be read as an option never reaches scp
-Use-Answers '-oProxyCommand=evil@host', '', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '', 'n', 'n', ''
+Use-Answers '-oProxyCommand=evil@host', '', '10.0.0.20', '10.0.0.30', '10.0.0.1', 'james', '', 'n', 'n', 'n', ''
 $f6 = Join-Path $Tmp 'imported-opt.env'
 $null = Initialize-NodeConfig -Path $f6 6>$null 3>$null
 Clear-Answers

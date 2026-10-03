@@ -17,7 +17,7 @@ export NODE_ENV=$f
 # answers for a complete first run (see tests/test-config.sh for the question order), then Enters for any option prompts
 first_run() {
   printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 '' james acme 'api web' '' 42+acme-hermes@users.noreply.github.com \
-    vendor-a/worker vendor-b/reviewer vendor-a/mid vendor-c/fallback '' '' n n ''
+    vendor-a/worker vendor-b/reviewer vendor-a/mid vendor-c/fallback '' '' n n n ''
   yes '' | head -40
 }
 
@@ -91,7 +91,7 @@ check "DRY_RUN=1 in the environment keeps a hermes stage from running for real" 
 rm -f "$f"
 { first_run; } >"$T/a-share"
 printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 '' james acme 'api web' '' 42+acme-hermes@users.noreply.github.com \
-  vendor-a/worker vendor-b/reviewer vendor-a/mid vendor-c/fallback '' '' n n '' y >"$T/a-share"   # ...wizard answers, then Docker? y
+  vendor-a/worker vendor-b/reviewer vendor-a/mid vendor-c/fallback '' '' n n n '' y >"$T/a-share"   # ...wizard answers, then Docker? y
 OUT=$(HS_INPUT="$T/a-share" "$ROOT/setup.sh" run 04 --dry-run 2>&1 </dev/null); RC=$?
 check "the wizard and the stage read ONE answer stream (stage 04's Docker question got the 'y')" bash -c "[[ $RC -eq 0 ]] && grep -q 'usermod -aG docker' <<<\"\$0\"" "$OUT"
 
@@ -144,7 +144,7 @@ check "check: ...and lists what will be asked later" has "not set yet: GITHUB_OR
 
 # ---- first-run: settings that cannot be known yet may be left for later (f32)
 rm -f "$f"
-printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 '' james '' '' '' '' '' '' '' '' '' '' n n '' >"$T/a-later"
+printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 '' james '' '' '' '' '' '' '' '' '' '' n n n '' >"$T/a-later"
 OUT=$(NODE_ENV="$f" "$ROOT/setup.sh" configure --answers "$T/a-later" 2>&1); RC=$?
 check "wizard: Enter leaves GitHub and model settings for later" test $RC -eq 0
 check "wizard: ...it says so" has "left for later"

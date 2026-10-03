@@ -38,7 +38,7 @@ check "derived defaults refer only to earlier settings" order_ok
 
 # the shipped example agrees with the schema
 cfg_reset_values; cfg_parse_env "$ROOT/config/node.env.example"
-exk=$(grep -oE '^[A-Z_]+=' "$ROOT/config/node.env.example" | tr -d = | sort)
+exk=$(grep -oE '^[A-Z0-9_]+=' "$ROOT/config/node.env.example" | tr -d = | sort)
 check "example has exactly the schema's keys (plus none extra)" test "$exk" = "$(printf '%s\n' "${CFG_KEYS[@]}" | sort)"
 ex_ok() {
   local k d nbad=0
@@ -93,6 +93,7 @@ printf '%s\n' \
   '' \
   y 2:00 '' \
   n \
+  n \
   '' >"$T/ans1"
 OUT=$(NODE_ENV="$T/node.env" "$ROOT/setup.sh" configure --answers "$T/ans1" 2>&1); RC=$?
 check "wizard: exits 0" test $RC -eq 0
@@ -123,8 +124,8 @@ check "load_config: default ports apply" test "$(loaded DASHBOARD_PORT)/$(loaded
 check "load_config: desktop model derived from its quant" test "$(loaded DESKTOP_MODEL_FILE)" = Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf
 
 # edit session: Enter keeps everything; changing the quant re-derives
-# 13 Enters (ip x3, lan, admin, org, repos, machine, noreply, 4 models), then quant=1, Enters for desktop quant/overnight/start/end, n, save
-printf '%s\n' '' '' '' '' '' '' '' '' '' '' '' '' '' 1 '' '' '' '' n '' >"$T/ans2"
+# 13 Enters (ip x3, lan, admin, org, repos, machine, noreply, 4 models), then quant=1, Enters for desktop quant/overnight/start/end/V100, n, save
+printf '%s\n' '' '' '' '' '' '' '' '' '' '' '' '' '' 1 '' '' '' '' '' n '' >"$T/ans2"
 cp "$f" "$T/before.env"
 OUT=$(NODE_ENV="$f" "$ROOT/setup.sh" configure --answers "$T/ans2" 2>&1); RC=$?
 check "edit: exits 0" test $RC -eq 0
@@ -251,7 +252,7 @@ OUT=$(NODE_ENV="$T/same.env" "$ROOT/setup.sh" configure --defaults 2>&1)
 check "wizard: warns when the admin and agent accounts are the same" has "the agent should have its own account"
 
 # --scope desktop asks the desktop's questions only (the PowerShell wizard's scope)
-printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 james 2 n n '' >"$T/ans-scope"
+printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 james 2 n n n '' >"$T/ans-scope"
 OUT=$(NODE_ENV="$T/scope.env" "$ROOT/setup.sh" configure --scope desktop --answers "$T/ans-scope" 2>&1); RC=$?
 check "scope desktop: exits 0" test $RC -eq 0
 check "scope desktop: asks the shared and desktop questions" has "Desktop model quantization"
