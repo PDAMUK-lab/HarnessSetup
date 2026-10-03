@@ -94,7 +94,8 @@ check "08: reports loopback-only binding" grep -q 'listens on 127.0.0.1:9119 onl
 check "08: records completion" done_marker 08
 OUT=$(FAKE_SS_ADDR=0.0.0.0:9119 bash "$ROOT"/laptop/08-*.sh 2>&1); RC=$?
 check "08: FAILS if the dashboard listens beyond loopback" rc_nz_and_has "non-loopback"
-OUT=$(XDG_RUNTIME_DIR='' bash "$ROOT"/laptop/08-*.sh 2>&1); RC=$?
+# no session bus and no lingering user manager either (CI runners have /run/user/<uid>, so point the lookup elsewhere)
+OUT=$(XDG_RUNTIME_DIR='' HS_RUN_USER_DIR="$T/no-run-user" bash "$ROOT"/laptop/08-*.sh 2>&1); RC=$?
 check "08: refuses without a user session" rc_nz_and_has machinectl
 
 # ---- 11 local endpoints, fallback chain, local profile, hermes-mode

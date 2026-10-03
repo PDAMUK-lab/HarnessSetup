@@ -10,10 +10,15 @@ if [[ -z $PWSH ]]; then echo "pwsh not installed - skipped"; [[ ${STRICT:-0} == 
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 POWERSHELL_TELEMETRY_OPTOUT=1
 T=$(mktemp -d); trap 'kill ${s1:-} ${s2:-} ${s3:-} 2>/dev/null; rm -rf "$T"' EXIT
 pass=0 failn=0
-check() { local n=$1; shift; if "$@"; then pass=$((pass+1)); else failn=$((failn+1)); echo "FAIL: $n"; fi; }
+check() { # on a failure, show the end of the last script output (CI logs are all we get there)
+  local n=$1; shift
+  if "$@"; then pass=$((pass+1)); else failn=$((failn+1)); echo "FAIL: $n"; tail -n 6 <<<"${OUT:-}" | sed 's/^/    | /'; fi
+}
 ps() { "$PWSH" -NoProfile -NonInteractive "$@"; }
 has() { grep -qF -- "$1" <<<"$OUT"; }
 lacks() { ! grep -qF -- "$1" <<<"$OUT"; }
+# flat TEXT  - PowerShell wraps an error message to the console width ("     | " continuation lines): join it back into one line
+flat() { sed -E 's/\x1b\[[0-9;]*m//g; s/^ *\| ?//' <<<"$1" | tr '\n' ' ' | tr -s ' '; }
 
 # ---- parse every script
 parse_all() { ps -File "$ROOT/tests/powershell/Parse-All.ps1" "$ROOT/desktop,$ROOT/tests/powershell"; }
@@ -152,7 +157,7 @@ FAKE_V100=2 run_ps Install-V100.ps1 -DryRun -Yes
 check "Install-V100: the same port as the day server is refused" bash -c "[[ $RC -ne 0 ]] && grep -q 'both 8080' <<<\"\$0\"" "$OUT"
 cfg_with -e 's|^V100_ENABLED=.*|V100_ENABLED=0|'
 FAKE_V100=2 run_ps Install-V100.ps1 -DryRun -Yes
-check "Install-V100: refuses while the tier is off, and says how to turn it on" bash -c "[[ $RC -ne 0 ]] && grep -q 'V100_ENABLED=0' <<<\"\$0\" && grep -q 'Configure.ps1 -Only V100_ENABLED' <<<\"\$0\"" "$OUT"
+check "Install-V100: refuses while the tier is off, and says how to turn it on" bash -c "[[ $RC -ne 0 ]] && grep -q 'V100_ENABLED=0' <<<\"\$0\" && grep -q 'Configure.ps1 -Only V100_ENABLED' <<<\"\$0\"" "$(flat "$OUT")"
 check "Install-V100: ...and did not switch it on by itself" grep -q '^V100_ENABLED=0' "$T/node.env"
 
 FAKE_V100=2 run_ps Check-V100.ps1
