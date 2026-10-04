@@ -663,7 +663,13 @@ function Invoke-ConfigWizard {
     $byKey = @{}
     foreach ($row in $schema) { $byKey[$row.Key] = $row }
     $keyAlt = ($schema | ForEach-Object { [regex]::Escape($_.Key) }) -join '|'
-    $Set = @($Set | ForEach-Object { $_ -split ",(?=(?:$keyAlt)=)" } | Where-Object { $_ })
+    # A value may itself hold commas (DESKTOP_CHAT_KWARGS=a=1,b=2), and PowerShell splits an unquoted -Set A=a=1,b=2 into
+    # ('A=a=1','b=2'): a piece that does not start with a known KEY= belongs to the value before it.
+    $merged = [System.Collections.Generic.List[string]]::new()
+    foreach ($p in @($Set | ForEach-Object { $_ -split ",(?=(?:$keyAlt)=)" } | Where-Object { $_ })) {
+        if ($merged.Count -gt 0 -and $p -cnotmatch "^(?:$keyAlt)=") { $merged[$merged.Count - 1] += ",$p" } else { $merged.Add($p) }
+    }
+    $Set = @($merged)
     $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
     $state = Read-SettingsFile -Path $Path -Schema $schema
     $values = $state.Values

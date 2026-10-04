@@ -99,6 +99,11 @@ Quiet { Invoke-ConfigWizard -Path $f2 -Scope desktop -Defaults -Set 'LAPTOP_IP=1
 Check '-Defaults -Set (comma-separated, as from powershell -File)' { $d = Read-NodeEnv $f2; $d['LAPTOP_IP'] -eq '10.9.8.7' -and $d['DESKTOP_IP'] -eq '10.9.8.8' }
 Check '-Set refuses an invalid value' { Throws { Invoke-ConfigWizard -Path $f2 -Scope desktop -Defaults -Set 'LAPTOP_IP=nope' } }
 Check '-Set refuses an unknown setting' { Throws { Invoke-ConfigWizard -Path $f2 -Scope desktop -Defaults -Set 'NOPE=1' } }
+Quiet { Invoke-ConfigWizard -Path $f2 -Scope desktop -Defaults -Set 'DESKTOP_CHAT_KWARGS=enable_thinking=true,preserve_thinking=true', 'DESKTOP_SAMPLING=--temp 1.0 --top-k 64' }
+Check '-Set keeps commas inside a value (a quoted list)' { (Get-Content $f2 -Raw) -match '(?m)^DESKTOP_CHAT_KWARGS=enable_thinking=true,preserve_thinking=true\s*$' }
+Quiet { Invoke-ConfigWizard -Path $f2 -Scope desktop -Defaults -Set 'DESKTOP_CHAT_KWARGS=enable_thinking=false', 'preserve_thinking=false', 'DESKTOP_N_CPU_MOE=36' }
+Check '-Set rejoins a value PowerShell split at its comma (unquoted -Set K=a=1,b=2)' { (Get-Content $f2 -Raw) -match '(?m)^DESKTOP_CHAT_KWARGS=enable_thinking=false,preserve_thinking=false\s*$' -and (Get-Content $f2 -Raw) -match '(?m)^DESKTOP_N_CPU_MOE=36' }
+Check '-Set: sampling with spaces is saved quoted' { (Get-Content $f2 -Raw) -match "(?m)^DESKTOP_SAMPLING='--temp 1.0 --top-k 64'" }
 Check 'no terminal and no -Defaults: refuses instead of guessing' { Throws { Invoke-ConfigWizard -Path (Join-Path $Tmp 'never.env') -Scope desktop } }
 Use-Answers '9090'
 Quiet { Invoke-ConfigWizard -Path $f2 -Scope desktop -Only 'LLM_PORT' }
