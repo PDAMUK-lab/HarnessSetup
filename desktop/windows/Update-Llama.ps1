@@ -28,7 +28,10 @@ Assert-Config $cfg $need
 $llama = $cfg['DESKTOP_LLAMA_DIR']
 $prev = "$llama\prev"
 $base = "http://$($cfg['DESKTOP_IP']):$($cfg['LLM_PORT'])"
-if (-not $Backend) { $Backend = Get-LlamaBackend -Dir $llama }
+$current = Get-LlamaBackend -Dir $llama
+if (-not $Backend) { $Backend = $current }
+$Backend = $Backend.ToLowerInvariant()   # ValidateSet lets 'ROCm' through as typed
+$taskPath = Get-TaskPath                 # what the server task will see, not this window's PATH
 $vkEnv = @{}
 if ($cfg.Contains('V100_ENABLED') -and $cfg['V100_ENABLED'] -eq '1') { $vkEnv['VK_LOADER_DRIVERS_DISABLE'] = '*nv*' }
 
@@ -47,9 +50,11 @@ function Test-BuildDevice {
     $prefix = if ($Backend -eq 'rocm') { 'ROCm' } else { 'Vulkan' }
     if ($script:HsDryRun) { Write-Host "[dry-run] $llama\llama-server.exe --list-devices must list $($prefix)0" -ForegroundColor DarkGray; return $true }
     Push-Location -LiteralPath $llama
-    try { $listed = Get-LlamaDevices -Text (Get-LlamaDeviceList -Exe "$llama\llama-server.exe" -Env $(if ($Backend -eq 'vulkan') { $vkEnv } else { @{} })) }
+    $runEnv = @{ PATH = $taskPath }
+    if ($Backend -eq 'vulkan') { $runEnv += $vkEnv }
+    try { $listed = Get-LlamaDevices -Text (Get-LlamaDeviceList -Exe "$llama\llama-server.exe" -Env $runEnv) }
     finally { Pop-Location }
-    $dev = @($listed | Where-Object { $_.Name -cmatch "^$prefix[0-9]+$" })[0]
+    $dev = $listed | Where-Object { $_.Name -cmatch "^$prefix[0-9]+$" } | Select-Object -First 1
     if ($dev) { Write-Ok "the new build sees $($dev.Name): $($dev.Description)"; return $true }
     return $false
 }
@@ -58,6 +63,7 @@ function Restore-Previous {
     Invoke-Action "stop the server and put the build in $prev back" {
         Stop-LlamaServer -Dir $llama
         Get-Binaries | Remove-Item -Force   # a failed build's backend DLLs must not stay beside the old ones
+        Remove-Item -LiteralPath "$llama\llama-backend.txt" -Force -ErrorAction SilentlyContinue
         Copy-Item -Path "$prev\*" -Destination $llama -Force
     }
     Start-DayServer
@@ -72,7 +78,7 @@ if ($Rollback) {
 
 if (-not $script:HsDryRun -and -not (Test-Path -LiteralPath "$llama\llama-server.exe")) { throw "no llama-server.exe in $llama yet: run Install-Llama.ps1 first" }
 if ($Backend -eq 'rocm') {
-    $libs = Find-RocmLibraries
+    $libs = Find-RocmLibraries -PathList $taskPath
     if (-not ($libs.HipBlas -and $libs.RocBlas)) {
         Write-Warn $script:RocmLibraryHelp
         if (-not (Read-YesNo -Question 'Install the ROCm build anyway? (it is put back if it does not see the card)' -Default $false)) { throw 'Stopped before changing anything.' }
@@ -83,10 +89,16 @@ Invoke-Action "copy the current .exe and .dll files to $prev" {
     if (Test-Path -LiteralPath $prev) { Remove-Item -LiteralPath $prev -Recurse -Force }
     New-Item -ItemType Directory -Path $prev | Out-Null
     Get-Binaries | Copy-Item -Destination $prev
-    if (Test-Path -LiteralPath "$llama\llama-backend.txt") { Copy-Item -LiteralPath "$llama\llama-backend.txt" -Destination $prev }
+    Set-Content -LiteralPath "$prev\llama-backend.txt" -Value $current -Encoding ascii   # a rollback restores the backend too
 }
 Write-Step 'the newest build'
-Invoke-Action "download and extract the latest llama-*-bin-win-$Backend zip" { $null = Install-LlamaVulkanBuild -Dir $llama -Backend $Backend -ZipUrl $ZipUrl }
+try {
+    Invoke-Action "download and extract the latest llama-*-bin-win-$Backend zip" { $null = Install-LlamaVulkanBuild -Dir $llama -Backend $Backend -ZipUrl $ZipUrl }
+} catch {
+    Write-Warn "the new build could not be installed ($($_.Exception.Message)): putting the previous one back"
+    Restore-Previous
+    throw
+}
 if (-not (Test-BuildDevice)) {
     Write-Warn "the new build does not list the card as a $Backend device: putting the previous one back"
     Restore-Previous

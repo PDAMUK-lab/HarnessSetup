@@ -355,7 +355,7 @@ ROCm 10 libraries once (the source llama.cpp's own build uses), in a Python virt
 
 ```powershell
 pip install --index-url https://stable.repo.amd.com/rocm/whl-next/ "rocm[libraries]==10.0.0"
-rocm-sdk path --bin      # add the folder it prints to the SYSTEM PATH, then open a new PowerShell
+rocm-sdk path --bin      # add the folder it prints to the SYSTEM PATH, then restart Windows (the server task must see it)
 ```
 
 Then `.\desktop\windows\Compare-LlamaBackends.ps1` downloads the ROCm build into `C:\llama-rocm`, checks both builds list

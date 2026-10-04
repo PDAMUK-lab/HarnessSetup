@@ -69,7 +69,9 @@ Write-Step 'Step 19.2: llama.cpp (Vulkan build, needs no CUDA or ROCm)'
 if ((Test-Path "$llama\llama-server.exe") -and -not $UpdateLlama) {
     Write-Ok "llama-server.exe already in $llama (use -UpdateLlama to replace it)"
 } else {
-    Invoke-Action 'download and extract the latest llama-*-bin-win-vulkan-x64.zip' { Install-LlamaVulkanBuild -Dir $llama }
+    # keep the backend in use (Update-Llama.ps1 -Backend rocm switches it; vulkan unless switched)
+    $backend = Get-LlamaBackend -Dir $llama
+    Invoke-Action "download and extract the latest llama-*-bin-win-$(if ($backend -eq 'rocm') { 'rocm-*' } else { 'vulkan' })-x64.zip" { Install-LlamaVulkanBuild -Dir $llama -Backend $backend }
 }
 Invoke-Action 'llama-cli.exe --list-devices (the RX 6600 XT must be listed)' {
     $devices = Invoke-NativeText { & "$llama\llama-cli.exe" --list-devices }

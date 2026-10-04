@@ -212,6 +212,7 @@ $script:LlamaAssetPatterns = @{
 # Update-Llama.ps1 and Compare-LlamaBackends.ps1. -ZipUrl takes a zip by hand (e.g. when a release renames its assets).
 function Install-LlamaVulkanBuild {
     param([Parameter(Mandatory)][string]$Dir, [ValidateSet('vulkan', 'rocm')][string]$Backend = 'vulkan', [string]$ZipUrl = '')
+    $Backend = $Backend.ToLowerInvariant()   # ValidateSet lets 'ROCm' through as typed
     if ($ZipUrl) {
         $name = ($ZipUrl -split '/')[-1]; $url = $ZipUrl; $tag = 'given by hand'
     } else {
@@ -219,23 +220,31 @@ function Install-LlamaVulkanBuild {
         $pattern = $script:LlamaAssetPatterns[$Backend]
         $rel = Select-LlamaRelease -Releases (Get-LlamaReleases) -Patterns $pattern
         if (-not $rel) { throw "None of the ten newest llama.cpp releases has a Windows $Backend zip. Download it from https://github.com/ggml-org/llama.cpp/releases and pass -ZipUrl." }
-        $asset = if ($Backend -eq 'vulkan') { Select-VulkanAsset $rel.assets } else { @($rel.assets | Where-Object { $_.name -cmatch $pattern })[0] }
+        $asset = if ($Backend -eq 'vulkan') { Select-VulkanAsset $rel.assets } else { $rel.assets | Where-Object { $_.name -match $pattern } | Select-Object -First 1 }
         $name = $asset.name; $url = $asset.browser_download_url; $tag = $rel.tag_name
     }
+    if ($name -notlike '*.zip') { $name += '.zip' }   # Expand-Archive (5.1) insists on the extension
     $zip = Join-Path ([IO.Path]::GetTempPath()) $name
+    $stage = Join-Path ([IO.Path]::GetTempPath()) "llama-unpack-$PID"
     Write-Host "    ${tag}: $name"
     & curl.exe -L --fail -o $zip $url
     if ($LASTEXITCODE -ne 0) { throw 'download of the llama.cpp zip failed' }
-    Stop-LlamaServer -Dir $Dir
-    # the old programs and backend DLLs go first: llama.cpp loads every ggml-<backend>.dll beside the program, so a leftover
-    # ggml-hip.dll next to a Vulkan build (or the other way round) would list the card twice (ROCm0 and Vulkan0) and, with
-    # ROCm loaded first, take over a "Vulkan" server. Start scripts, the key and prev\ stay.
-    Get-ChildItem -LiteralPath $Dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll' } | Remove-Item -Force
-    Expand-Archive -Path $zip -DestinationPath $Dir -Force
-    Remove-Item $zip
-    # some zips unpack into a subfolder: move the binaries up to Dir
-    $exe = Get-ChildItem -Path $Dir -Recurse -Filter llama-server.exe | Where-Object { $_.DirectoryName -notlike "$Dir\prev*" } | Select-Object -First 1
-    if ($exe -and $exe.DirectoryName -ne $Dir) { Move-Item -Path "$($exe.DirectoryName)\*" -Destination $Dir -Force }
+    # unpack and check it BEFORE touching Dir: a bad download leaves the working build in place
+    if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+    try {
+        Expand-Archive -Path $zip -DestinationPath $stage -Force
+        $exe = Get-ChildItem -LiteralPath $stage -Recurse -Filter llama-server.exe | Select-Object -First 1   # some zips use a subfolder
+        if (-not $exe) { throw "$name holds no llama-server.exe - nothing was changed in $Dir" }
+        Stop-LlamaServer -Dir $Dir
+        # the old programs and backend DLLs go first: llama.cpp loads every ggml-<backend>.dll beside the program, so a leftover
+        # ggml-hip.dll next to a Vulkan build (or the other way round) would list the card twice (ROCm0 and Vulkan0) and, with
+        # ROCm loaded first, take over a "Vulkan" server. Start scripts, the key and prev\ stay.
+        Get-ChildItem -LiteralPath $Dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll' } | Remove-Item -Force
+        Copy-Item -Path "$($exe.DirectoryName)\*" -Destination $Dir -Recurse -Force
+    } finally {
+        Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    }
     Set-Content -LiteralPath "$Dir\llama-backend.txt" -Value $Backend -Encoding ascii
     return $tag
 }
@@ -258,13 +267,13 @@ function Find-RocmLibraries {
 # How to get them: AMD's ROCm 10 libraries for Windows, the version llama.cpp's release is built against
 $script:RocmLibraryHelp = 'hipBLAS/rocBLAS (ROCm 10) are not on PATH; the ROCm build needs them. In a Python venv: ' +
     'pip install --index-url https://stable.repo.amd.com/rocm/whl-next/ "rocm[libraries]==10.0.0", then add the folder ' +
-    'that "rocm-sdk path --bin" prints to the SYSTEM PATH (the server task reads it) and open a new PowerShell.'
+    'that "rocm-sdk path --bin" prints to the SYSTEM PATH (the server task reads it) and restart Windows so the server task sees it.'
 
 # Get-LlamaBackend -Dir C:\llama  - vulkan or rocm: the build Install-LlamaVulkanBuild last put there (vulkan when unknown)
 function Get-LlamaBackend {
     param([Parameter(Mandatory)][string]$Dir)
     $f = "$Dir\llama-backend.txt"
-    if ((Test-Path -LiteralPath $f) -and ((Get-Content -LiteralPath $f -Raw).Trim() -ceq 'rocm')) { return 'rocm' }
+    if ((Test-Path -LiteralPath $f) -and ((Get-Content -LiteralPath $f -Raw).Trim() -eq 'rocm')) { return 'rocm' }
     return 'vulkan'
 }
 
@@ -274,7 +283,7 @@ function ConvertFrom-LlamaBenchCsv {
     param([AllowEmptyString()][string]$Text = '')
     $all = @($Text -split "`r?`n")
     $start = @(for ($i = 0; $i -lt $all.Count; $i++) { if ($all[$i] -match '(^|,)"?avg_ts"?(,|$)') { $i } })
-    if (-not $start) { return @() }
+    if ($start.Count -eq 0) { return @() }   # not -not $start: @(0) (header on the first line) is falsy
     $lines = @($all[$start[0]]) + @($all | Select-Object -Skip ($start[0] + 1) | Where-Object { $_ -match '^"' })
     if ($lines.Count -lt 2) { return @() }
     $rows = $lines | ConvertFrom-Csv
@@ -1013,7 +1022,18 @@ function Get-LlamaServerProcess {
 # Stop-LlamaServer -Dir C:\llama  - stop those processes (stopping by program name would take the other server down too)
 function Stop-LlamaServer {
     param([Parameter(Mandatory)][string]$Dir)
-    foreach ($p in (Get-LlamaServerProcess -Dir $Dir)) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+    $ids = @(foreach ($p in (Get-LlamaServerProcess -Dir $Dir)) { $p.ProcessId })
+    foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+    # wait until they are gone: their .exe and .dll files stay locked until then
+    if ($ids.Count) { Wait-Process -Id $ids -Timeout 30 -ErrorAction SilentlyContinue }
+}
+
+# Get-TaskPath  - the PATH a scheduled task such as 'llama-server' starts with (machine + user, from the registry), not this
+# shell's: a folder added only in this window is invisible to the server task
+function Get-TaskPath {
+    $parts = @([Environment]::GetEnvironmentVariable('PATH', 'Machine'), [Environment]::GetEnvironmentVariable('PATH', 'User')) | Where-Object { $_ }
+    if (-not $parts) { return $env:PATH }   # no registry (not Windows): this process's PATH
+    return ($parts -join [IO.Path]::PathSeparator)
 }
 
 # ============================ desktop away (Desktop-Mode.ps1) ============================

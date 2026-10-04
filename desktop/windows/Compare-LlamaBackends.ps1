@@ -44,9 +44,18 @@ $model = "$($cfg['DESKTOP_MODELS_DIR'])\$($cfg['DESKTOP_MODEL_FILE'])"
 # as the day server does: with the V100 tier on, NVIDIA's Vulkan driver is hidden from the Vulkan build
 $vkEnv = @{}
 if ($cfg.Contains('V100_ENABLED') -and $cfg['V100_ENABLED'] -eq '1') { $vkEnv['VK_LOADER_DRIVERS_DISABLE'] = '*nv*' }
+# the ROCm build runs with the PATH the server task would see, plus -RocmLibDir for this run only
+$rocmPath = Get-TaskPath
 if ($RocmLibDir) {
-    if (-not $script:HsDryRun -and -not (Test-Path -LiteralPath $RocmLibDir)) { throw "-RocmLibDir: no such folder: $RocmLibDir" }
-    $env:PATH = "$RocmLibDir;$env:PATH"
+    if (-not $script:HsDryRun) {
+        if (-not (Test-Path -LiteralPath $RocmLibDir)) { throw "-RocmLibDir: no such folder: $RocmLibDir" }
+        $RocmLibDir = (Resolve-Path -LiteralPath $RocmLibDir).ProviderPath
+    }
+    $rocmPath = "$RocmLibDir$([IO.Path]::PathSeparator)$rocmPath"
+}
+$rocmEnv = @{ PATH = $rocmPath }
+if ((Get-LlamaBackend -Dir $llama) -eq 'rocm') {
+    throw "$llama already runs the ROCm build. To compare again: .\Update-Llama.ps1 -Backend vulkan, then run this."
 }
 
 if (-not $script:HsDryRun) {
@@ -59,7 +68,7 @@ if (-not $script:HsDryRun) {
 function Get-BuildDevice([string]$Dir, [string]$Prefix, [hashtable]$Env) {
     Push-Location -LiteralPath $Dir
     try { $listed = Get-LlamaDevices -Text (Get-LlamaDeviceList -Exe "$Dir\llama-server.exe" -Env $Env) } finally { Pop-Location }
-    return @($listed | Where-Object { $_.Name -cmatch "^$Prefix[0-9]+$" })[0]
+    return ($listed | Where-Object { $_.Name -cmatch "^$Prefix[0-9]+$" } | Select-Object -First 1)
 }
 
 function Invoke-Bench([string]$Dir, [string]$Device, [hashtable]$Env) {
@@ -88,7 +97,7 @@ function Remove-RocmFolder {
 }
 
 Write-Step "the ROCm build in $rocm ($llama is not touched)"
-$libs = Find-RocmLibraries -Dir $RocmLibDir
+$libs = Find-RocmLibraries -PathList $rocmPath
 if ($libs.HipBlas -and $libs.RocBlas) { Write-Ok "hipBLAS in $($libs.HipBlas), rocBLAS in $($libs.RocBlas)" }
 else { Write-Warn "$($script:RocmLibraryHelp) To try them before that: -RocmLibDir <that folder>." }
 Invoke-Action "download and extract the latest llama-*-bin-win-rocm zip into $rocm" {
@@ -97,7 +106,7 @@ Invoke-Action "download and extract the latest llama-*-bin-win-rocm zip into $ro
 }
 $rocmDev = 'ROCm0'; $vkDev = 'Vulkan0'
 Invoke-Action "llama-server.exe --list-devices in $rocm and in $llama (the card must be ROCm0 and Vulkan0)" {
-    $r = Get-BuildDevice -Dir $rocm -Prefix 'ROCm' -Env @{}
+    $r = Get-BuildDevice -Dir $rocm -Prefix 'ROCm' -Env $rocmEnv
     $v = Get-BuildDevice -Dir $llama -Prefix 'Vulkan' -Env $vkEnv
     $script:rocmDev = if ($r) { $r.Name } else { '' }
     $script:vkDev = if ($v) { $v.Name } else { '' }
@@ -115,22 +124,30 @@ if (-not $rocmDev) {
 
 Write-Step 'measure both builds (the day server is stopped meanwhile; the laptop model takes over)'
 $results = @{}
+# put back afterwards only what was on: a desktop that is away stays away; Auto-Away must not mistake the bench for you
+$haveTasks = [bool](Get-Command Get-ScheduledTask -ErrorAction SilentlyContinue)
+$dayTask = if ($haveTasks) { Get-ScheduledTask -TaskName 'llama-server' -ErrorAction SilentlyContinue }
+$dayOn = $script:HsDryRun -or ($dayTask -and $dayTask.State -ne 'Disabled')
+$autoTask = if ($haveTasks) { Get-ScheduledTask -TaskName 'hermes-auto-away' -ErrorAction SilentlyContinue }
+$autoOn = [bool]($autoTask -and $autoTask.State -eq 'Running')
 try {
-    Invoke-Action "stop the day server (task 'llama-server')" {
+    Invoke-Action "stop the day server (task 'llama-server') and pause Auto-Away while it measures" {
+        if ($autoOn) { Stop-ScheduledTask -TaskName 'hermes-auto-away' -ErrorAction SilentlyContinue }
         Stop-ScheduledTask -TaskName 'llama-server' -ErrorAction SilentlyContinue
         Stop-LlamaServer -Dir $llama
     }
-    $results['vulkan'] = Invoke-Bench $llama $vkDev $vkEnv
-    $results['rocm'] = Invoke-Bench $rocm $rocmDev @{}
+    $results['vulkan'] = @(Invoke-Bench $llama $vkDev $vkEnv)
+    $results['rocm'] = @(Invoke-Bench $rocm $rocmDev $rocmEnv)
 } finally {
-    Invoke-Action "start the day server again (task 'llama-server')" { Start-ScheduledTask -TaskName 'llama-server' }
+    if ($dayOn) { Invoke-Action "start the day server again (task 'llama-server')" { Start-ScheduledTask -TaskName 'llama-server' } }
+    if ($autoOn) { Start-ScheduledTask -TaskName 'hermes-auto-away' -ErrorAction SilentlyContinue }
 }
 Remove-RocmFolder
 if ($script:HsDryRun) { return }
 
 Write-Step 'result (tokens per second, higher is better)'
 $rows = foreach ($v in $results['vulkan']) {
-    $r = @($results['rocm'] | Where-Object { $_.Test -eq $v.Test -and $_.Depth -eq $v.Depth })[0]
+    $r = $results['rocm'] | Where-Object { $_.Test -eq $v.Test -and $_.Depth -eq $v.Depth } | Select-Object -First 1
     [pscustomobject]@{
         Test = $v.Test; Depth = $v.Depth; Vulkan = $v.TokensPerSecond
         ROCm = $(if ($r) { $r.TokensPerSecond } else { $null })
@@ -144,7 +161,7 @@ if (-not $tg) { Write-Warn 'no comparable generation results: stay on the Vulkan
 $worst = ($tg | ForEach-Object { $_.ROCm / $_.Vulkan } | Measure-Object -Minimum).Minimum
 if ($worst -ge 1.10) {
     Write-Ok ('ROCm generates at least {0:0}% faster at every depth. Switch with:  .\Update-Llama.ps1 -Backend rocm' -f (100 * ($worst - 1)))
-    if ($RocmLibDir) { Write-Warn "first put $RocmLibDir on the SYSTEM PATH: the server task does not see -RocmLibDir" }
+    if ($RocmLibDir) { Write-Warn "first put $RocmLibDir on the SYSTEM PATH and restart Windows: the server task does not see -RocmLibDir" }
 } else {
     Write-Ok 'ROCm is not clearly faster (less than 10% at some depth): stay on the Vulkan build'
 }

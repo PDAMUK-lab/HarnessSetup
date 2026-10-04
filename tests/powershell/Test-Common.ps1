@@ -169,9 +169,11 @@ Check 'ConvertFrom-LlamaBenchCsv: test name, depth and speed of each row, log li
 Check 'Get-LlamaBackend: vulkan unless the folder says rocm' {
     $d = Join-Path ([IO.Path]::GetTempPath()) "hs-backend-$PID"; New-Item -ItemType Directory -Force -Path $d | Out-Null
     $a = Get-LlamaBackend -Dir $d
-    Set-Content -LiteralPath "$d\llama-backend.txt" -Value 'rocm'; $b = Get-LlamaBackend -Dir $d
+    Set-Content -LiteralPath "$d\llama-backend.txt" -Value 'ROCm'; $b = Get-LlamaBackend -Dir $d
     Remove-Item -LiteralPath $d -Recurse -Force
     $a -eq 'vulkan' -and $b -eq 'rocm' }
+Check 'ConvertFrom-LlamaBenchCsv: a table whose header is the first line' {
+    @(ConvertFrom-LlamaBenchCsv ("build_commit,n_prompt,n_gen,n_depth,avg_ts`n" + '"abc","0","128","0","24.75"')).Count -eq 1 }
 Check 'ConvertFrom-LlamaBenchCsv: nothing from output without a CSV table' { @(ConvertFrom-LlamaBenchCsv 'error: failed to load model').Count -eq 0 -and @(ConvertFrom-LlamaBenchCsv '').Count -eq 0 }
 
 Check 'Measure-OtherGpuUse: 3D and compute use of other programs only, the model servers left out' {
