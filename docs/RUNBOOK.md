@@ -75,11 +75,18 @@ Then on the laptop (keep your session open):
 ## 2. Agent user, tools, GitHub (Steps 6-8)
 
 ```bash
-./setup.sh run 03        # user 'hermes' with passwordless sudo (asks first), linger, copies the kit to /opt/harness-setup
+./setup.sh run 03        # user 'hermes' with passwordless sudo (asks first; AGENT_SUDO=limited|none for less), linger, copies the kit to /opt/harness-setup
 ./setup.sh run 04        # build tools, Node 22, gh.   Add --docker if your projects build in containers.
 ```
 
 Install the toolchains your projects need (language runtimes, compilers, test databases) now.
+
+How much the agent may do is three advanced settings (`./setup.sh configure --only KEY`): `AGENT_SUDO` (`full`, the
+guide's design; `limited` = passwordless `apt`, `apt-get`, `systemctl`, `journalctl` only, which stops accidents but is
+no security boundary; `none`), `APPROVAL_MODE` (default `off`) and `APPROVAL_DENY` (default on: Hermes refuses a few
+destructive command patterns in every mode, sub-agents and cron included: `gh repo delete`/`archive`, `mkfs`, `wipefs`,
+`dd` onto a disk, `rm -rf` of `~/.hermes` or `~/repos`, `ufw disable` or `ufw --force reset`). Re-run stage 03, or 07 and
+11, after changing them.
 From here on, enter the agent's account with `sudo machinectl shell hermes@`, never `sudo -iu hermes`.
 
 ### GitHub on the web (MANUAL, Step 8)
@@ -142,6 +149,9 @@ model from a **different family** than the planner; copy the exact IDs from the 
 ```bash
 ./setup.sh run 07      # asks for those three, then merges the roles into ~/.hermes/config.yaml (a timestamped backup is kept)
 ```
+
+Check the credit any time with `./setup.sh tool spend` (as `hermes`): it warns at `SPEND_WARN_PCT` (80%) of the key's
+limit, and when the key has no limit or a limit that never resets. `verify` shows the same line.
 
 **MANUAL (Step 12).** In a test repo ask Hermes to use two subagents in parallel (add a `--version` flag; add a
 config-loader test), merge them into `hermes/demo` and push; press Ctrl+T to watch; then `/review`. Expect two
@@ -211,9 +221,18 @@ it out of the loop and put it back afterwards. From the desktop, in an administr
 .\desktop\windows\Desktop-Mode.ps1 status
 ```
 
-"Tells the laptop" runs `hermes-desktop` there over SSH (one sudo password prompt). It rewrites Hermes's fallback chain and the
+"Tells the laptop" runs `hermes-desktop` there over SSH, as the agent user (stage 03 allows the admin user exactly that
+without a password; a laptop set up before kit 0.5.0 asks for the sudo password until stage 03 is re-run). It rewrites Hermes's fallback chain and the
 `local` profile without any desktop endpoint (OpenRouter, then the laptop's 9B), and `hermes-desktop on` writes it back.
 You can run it on the laptop yourself, as the agent user:
+
+**Automatically:** `.\desktop\windows\Auto-Away.ps1 -Register` (administrator PowerShell) starts a hidden task at every
+logon that watches the GPU. When other programs keep it at least `AUTO_AWAY_GPU_PCT` (25%) busy for `AUTO_AWAY_AFTER_MIN`
+(2) minutes it runs `Desktop-Mode.ps1 away`; after `AUTO_BACK_AFTER_MIN` (15) quiet minutes it runs `back`. A manual `away`
+is left alone. It needs the laptop's stage 03 from kit 0.5.0 (re-run it on an older laptop): without that it cannot
+tell the laptop and does nothing. `-Once` prints the current reading and what it would do; `-Unregister` turns it off; the log is
+`C:\llama\auto-away.log`. Browsing and video playback stay well under the threshold; raise it if something you leave
+running keeps the GPU busy.
 
 ```bash
 hermes-desktop status        # in or out of the loop, and the order of the endpoints
@@ -260,6 +279,24 @@ release appears with the artifacts from `dist/`.
 Run stage 13 from the desktop (the only address SSH is allowed from afterwards). The agent has root and can change
 the firewall: for a boundary it cannot remove, put the laptop on a guest network or VLAN at the router.
 
+## 8b. Backups of the agent's state
+
+The agent has root and can damage its own setup. Back up its state (Hermes's config, memory, sessions, cron jobs,
+API keys, the GitHub login and the kit's settings) every day, and keep a copy off the laptop:
+
+```bash
+./setup.sh tool backup --install   # every day at BACKUP_TIME (07:15) into /var/backups/hermes-node, the newest BACKUP_KEEP (14) kept
+./setup.sh tool backup --list
+```
+
+**Desktop (PowerShell):** `.\desktop\windows\Backup-Laptop.ps1 -Register` copies the newest backup into
+`DESKTOP_BACKUP_DIR` (`C:\hermes-backups`) half an hour later every day. The backups hold API keys and the GitHub
+token, so both folders are readable by you and administrators only.
+
+To restore, on the laptop: `./setup.sh tool restore /var/backups/hermes-node/hermes-node-<date>.tar.gz` (copy a desktop
+copy back with `scp` first). It stops Hermes's services, keeps the current state as `~/.hermes.before-restore-<date>`,
+unpacks the backup and starts the services; your current settings stay, the backed-up ones are saved beside them.
+
 ## 9. Optional: overnight quality tier (Step 31)
 
 `Install-Overnight.ps1` asks whether to turn the tier on and for the start and end times (the laptop side asks too):
@@ -301,6 +338,48 @@ Another model (the MiMo distill, Ornith, Gemma 4, an uncensored drop-in) is a se
 `*_CHAT_KWARGS` and `*_SAMPLING`; [MODELS.md](MODELS.md) gives the values per model. For `-ctk bf16 -ctv bf16` edit the unit or
 `start-llama.cmd` by hand as the guide's table says. Server logs show tokens per second:
 `journalctl -u llama-server -f` on the laptop, the console window on the desktop.
+
+### Updating llama.cpp (with an undo)
+
+```bash
+./setup.sh tool update-llama              # laptop: keeps the current build in /opt/llama.cpp/bin.prev, rebuilds (stage 09),
+                                          # restarts and runs the tool-call test; a failing build is replaced by the old one
+./setup.sh tool update-llama --rollback   # back to the previous build by hand (add --vulkan to the update for a Vulkan build)
+```
+
+**Desktop (administrator PowerShell, during the day):** `.\desktop\windows\Update-Llama.ps1` does the same for the
+Vulkan build (`-Rollback` to go back); the start scripts, the key and the models are kept.
+
+**Vulkan or ROCm on the desktop?** llama.cpp publishes a Windows ROCm build (`llama-bNNNN-bin-win-rocm-10.0-x64.zip`)
+compiled for the RX 6600 XT's gfx1032. It ships the HIP runtime but not hipBLAS/rocBLAS, which it needs: install AMD's
+ROCm 10 libraries once (the source llama.cpp's own build uses), in a Python virtual environment:
+
+```powershell
+pip install --index-url https://stable.repo.amd.com/rocm/whl-next/ "rocm[libraries]==10.0.0"
+rocm-sdk path --bin      # add the folder it prints to the SYSTEM PATH, then restart Windows (the server task must see it)
+```
+
+Then `.\desktop\windows\Compare-LlamaBackends.ps1` downloads the ROCm build into `C:\llama-rocm`, checks both builds list
+the card (ROCm0, Vulkan0), runs the same `llama-bench` line on each (the day model, its expert split, empty and 32K deep,
+pinned to the card) and says which is faster. The day server is stopped for the ~15 minutes it takes; `C:\llama` is not
+changed (`-RocmLibDir <folder>` tries the libraries before they are on the system PATH). Switch only when ROCm generates
+more than 10% faster at every depth: `.\desktop\windows\Update-Llama.ps1 -Backend rocm`. It refuses without the libraries,
+and puts the Vulkan build back when the new one does not list the card or fails the tool-call test (without hipBLAS/rocBLAS
+a ROCm build would quietly run on the CPU). `-Backend vulkan` goes back. Untested on this card so far: the comparison is
+the test.
+
+
+**Measure with the test set runner** (as `hermes`): copy `config/model-tests.example` to `~/model-tests.txt` and write
+10 to 20 real tasks (`NAME | REPO | CHECK COMMAND | PROMPT`). Then:
+
+```bash
+./setup.sh tool model-test                                   # the local profile's models
+./setup.sh tool model-test --provider custom:laptop --model qwen3.5-9b --label 9b-base
+./setup.sh tool model-test --provider custom:desktop --model ornith-35b --label ornith    # after switching a slot
+```
+
+Each task runs in a throw-away worktree; the pass rate and times go to `~/model-tests/results.csv`. Keep a model or a
+setting only if it passes more tasks.
 
 ## 11. Final checks and upkeep (Step 33)
 

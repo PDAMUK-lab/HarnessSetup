@@ -1,0 +1,6 @@
+# Model test set for tools/model-test.sh: one task per line,  NAME | REPO | CHECK COMMAND | PROMPT
+# REPO is a repository the agent has cloned in ~/repos. The agent works in a fresh, throw-away copy of it; afterwards
+# CHECK COMMAND runs in that copy and exit status 0 means the task passed. Keep prompts self-contained, never ask the
+# agent to push or open a PR here, and keep checks quick. 10-20 real tasks from your own repos make a useful set.
+version-flag | app | npm test | Add a --version flag to the CLI that prints the version from package.json. Add a test for it and make sure all tests pass.
+parser-coverage | app | npm test -- --coverage | Raise the test coverage of src/parser to at least 90 percent without changing its behaviour. All tests must pass.

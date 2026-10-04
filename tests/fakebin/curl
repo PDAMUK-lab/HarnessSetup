@@ -5,6 +5,12 @@ case "$*" in
   *api/status*) echo '{"auth_required": false}' ;;
   *hermes-agent*install.sh*) printf 'printf "%%s\\n" "$*" >"$HOME/.hermes-install-args"\nmkdir -p "$HOME/.local/bin"\ncp "%s" "$HOME/.local/bin/hermes"\n' "${FAKE_HERMES_SRC:-$(dirname "$0")/hermes}" ;;
   *http_code*) printf '%s' "${FAKE_HTTP_CODE:-200}" ;;
+  *openrouter.ai/api/v1/key*)
+    def='{"data":{"label":"t","limit":50,"limit_remaining":40,"limit_reset":"monthly","usage":10,"usage_monthly":10}}'
+    printf '%s\n' "${FAKE_OR_KEY:-$def}" ;;
+  *chat/completions*)   # FAKE_TOOLCALL=no: the server answers in prose instead of a tool call
+    if [[ ${FAKE_TOOLCALL:-yes} == yes ]]; then echo '{"choices":[{"message":{"tool_calls":[{"function":{"name":"get_weather","arguments":"{}"}}]}}]}'
+    else echo '{"choices":[{"message":{"content":"It is sunny."}}]}'; fi ;;
   */v1/models*) echo '{"data":[{"id":"'"${FAKE_MODEL_ID:-qwen3.5-9b}"'"}]}' ;;
 esac
 exit 0

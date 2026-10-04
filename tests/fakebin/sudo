@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Test stub for sudo: drop the flags and run the command as the current user
+# Test stub for sudo: drop the flags and run the command as the current user.
+# FAKE_SUDO_MODE=limited|none emulates the agent's AGENT_SUDO (limited: only apt, apt-get, systemctl, journalctl).
 echo "sudo $*" >>"${FAKE_LOG:-/dev/null}"
-while [[ ${1:-} == -* ]]; do case $1 in -u) shift 2 ;; *) shift ;; esac; done
+list=0
+while [[ ${1:-} == -* ]]; do case $1 in -u) shift 2 ;; -l) list=1; shift ;; *) shift ;; esac; done
+case ${FAKE_SUDO_MODE:-full} in
+  none) exit 1 ;;
+  limited) case ${1:-} in /usr/bin/apt | /usr/bin/apt-get | /usr/bin/systemctl | /usr/bin/journalctl) ;; *) exit 1 ;; esac ;;
+esac
+if ((list)); then echo "$*"; exit 0; fi
 exec "$@"

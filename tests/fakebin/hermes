@@ -15,6 +15,8 @@ case "${1:-} ${2:-}" in
       echo "$line"
     fi ;;
   "gateway status") echo "gateway: running" ;;
+  "chat --query-file")   # the model-test runner: "do the task" by creating the file the prompt names (FAKE_CHAT=lazy does nothing)
+    [[ ${FAKE_CHAT:-} == lazy ]] || { f=$(grep -oE 'create [A-Za-z0-9._-]+' "$3" | head -1 | cut -d' ' -f2); [[ -n $f ]] && echo ok >"$f"; } ;;
   "config get")
     # like Hermes: booleans in lower case; a missing file or key is an error
     python3 - "$home/config.yaml" "${3:-}" <<'PY' 2>/dev/null || exit 1

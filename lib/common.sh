@@ -109,10 +109,49 @@ load_config() {
   LAPTOP_SAMPLING_FLAGS=${LAPTOP_SAMPLING:-auto}
   [[ $LAPTOP_SAMPLING_FLAGS == auto ]] && LAPTOP_SAMPLING_FLAGS='--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0'
   [[ $LAPTOP_SAMPLING_FLAGS == none ]] && LAPTOP_SAMPLING_FLAGS=''
+  # Hermes approvals.deny: fnmatch patterns refused in every approval mode (sub-agents and cron included)
+  APPROVAL_DENY_YAML='[]'
+  if [[ ${APPROVAL_DENY:-1} == 1 ]]; then
+    # shellcheck disable=SC2089  # YAML text for the templates, never word-split by this shell
+    APPROVAL_DENY_YAML='["*gh repo delete*", "*gh repo archive*", "*mkfs*", "*wipefs*", "*dd *of=/dev/sd*", "*dd *of=/dev/nvme*", "*rm -rf ~/.hermes*", "*rm -rf /home/*/.hermes*", "*rm -rf ~/repos*", "*rm -rf /home/*/repos*", "*ufw disable*", "*ufw --force reset*"]'
+  fi
+  WORKER_EFFORT_VALUE=${WORKER_EFFORT:-inherit}
+  [[ $WORKER_EFFORT_VALUE == inherit ]] && WORKER_EFFORT_VALUE=''   # Hermes: empty = the planner's effort
   CRON_REPO=${GITHUB_REPOS:-}
   CRON_REPO=${CRON_REPO%% *}
   # shellcheck disable=SC2090  # see above
-  export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG LAPTOP_KWARGS_FLAG LAPTOP_SAMPLING_FLAGS CRON_REPO
+  export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG LAPTOP_KWARGS_FLAG LAPTOP_SAMPLING_FLAGS APPROVAL_DENY_YAML WORKER_EFFORT_VALUE CRON_REPO
+}
+
+# or_spend JSON  - "LEVEL|message" about an OpenRouter key from its /api/v1/key answer (LEVEL ok, warn, fail or unknown);
+# SPEND_WARN_PCT is the warning threshold. Used by tools/spend.sh and tools/verify.sh.
+or_spend() {
+  python3 - "$1" "${SPEND_WARN_PCT:-80}" <<'PY'
+import json, sys
+try:
+    d = json.loads(sys.argv[1])["data"]
+except Exception:
+    print("unknown|OpenRouter did not return the key's details (wrong key, or no internet)")
+    sys.exit()
+warn = float(sys.argv[2])
+limit, left, reset = d.get("limit"), d.get("limit_remaining"), d.get("limit_reset")
+used = d.get("usage_monthly") if reset == "monthly" and d.get("usage_monthly") is not None else d.get("usage")
+if not limit:
+    print(f"warn|the key has no credit limit (spent ${used or 0:.2f}): set one on openrouter.ai, it is the hard stop for a runaway loop")
+    sys.exit()
+spent = limit - left if left is not None else (used or 0)
+pct = 100 * spent / limit
+period = "this month" if reset == "monthly" else "in total"
+msg = f"spent ${spent:.2f} of ${limit:.2f} {period} ({pct:.0f}%)"
+if "limit_reset" in d and reset != "monthly":
+    print(f"warn|{msg}; the limit never resets, so the key stops for good when it is used up: set Reset limit to Monthly on openrouter.ai")
+elif pct >= 100:
+    print(f"fail|{msg}: the key has stopped working until the limit resets or is raised")
+elif pct >= warn:
+    print(f"warn|{msg}: above the {warn:.0f}% warning (SPEND_WARN_PCT)")
+else:
+    print(f"ok|{msg}")
+PY
 }
 
 # ---- templates --------------------------------------------------------------

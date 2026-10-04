@@ -137,6 +137,76 @@ Check 'Select-LlamaRelease: a CUDA zip without its runtime bundle does not quali
 Check 'Select-LlamaRelease takes the newest complete one' { (Select-LlamaRelease -Releases (@(New-Rel 'b4' @('llama-b4-bin-win-vulkan-x64.zip')) + $rels) -Patterns $vk).tag_name -eq 'b4' }
 Check 'Select-LlamaRelease returns nothing when no release qualifies' { $null -eq (Select-LlamaRelease -Releases $rels -Patterns '^llama-.+-bin-win-hip-x64\.zip$') }
 Check 'Select-LlamaRelease copes with an empty list' { $null -eq (Select-LlamaRelease -Releases @() -Patterns $vk) }
+Check 'the ROCm asset pattern finds the HIP Radeon build and not the Vulkan one' {
+    $p = $script:LlamaAssetPatterns['rocm']
+    'llama-b6500-bin-win-rocm-10.0-x64.zip' -cmatch $p -and 'llama-b6500-bin-win-hip-radeon-x64.zip' -cmatch $p -and
+    -not ('llama-b6500-bin-win-vulkan-x64.zip' -cmatch $p) -and -not ('llama-b6500-bin-ubuntu-rocm-10.0-x64.tar.gz' -cmatch $p) -and
+    -not ('llama-b6500-bin-win-rocm-10.0-arm64.zip' -cmatch $p) -and -not ('cudart-llama-bin-win-cuda-12.4-x64.zip' -cmatch $p) }
+Check 'Find-RocmLibraries: the folders holding hipBLAS and rocBLAS, $null for a missing one' {
+    $sep = [IO.Path]::PathSeparator
+    $a = Join-Path ([IO.Path]::GetTempPath()) "hs-rocm-a-$PID"; $b = Join-Path ([IO.Path]::GetTempPath()) "hs-rocm-b-$PID"
+    New-Item -ItemType Directory -Force -Path $a, $b | Out-Null
+    Set-Content -LiteralPath (Join-Path $a 'hipblas.dll') -Value x; Set-Content -LiteralPath (Join-Path $b 'rocblas.dll') -Value x
+    $both = Find-RocmLibraries -PathList "$a$sep$b"
+    $half = Find-RocmLibraries -PathList "nowhere$sep$a"
+    $none = Find-RocmLibraries -PathList ''
+    $viaDir = Find-RocmLibraries -PathList $a -Dir $b
+    Remove-Item -LiteralPath $a, $b -Recurse -Force
+    $both.HipBlas -eq $a -and $both.RocBlas -eq $b -and $half.HipBlas -eq $a -and $null -eq $half.RocBlas -and
+    $null -eq $none.HipBlas -and $viaDir.RocBlas -eq $b }
+$benchCsv = @(
+    'load_backend: loaded ROCm backend from C:\llama-rocm\ggml-hip.dll, with commas',
+    'build_commit,build_number,model_type,n_prompt,n_gen,n_depth,avg_ts,stddev_ts',
+    '"abc","6500","qwen3moe 35B","2048","0","0","812.50","3.1"',
+    'llama_kv_cache: some log line, between rows',
+    '"abc","6500","qwen3moe 35B","0","128","0","24.75","0.2"',
+    '"abc","6500","qwen3moe 35B","0","128","32768","19.1","0.2"'
+) -join "`r`n"
+$bench = @(ConvertFrom-LlamaBenchCsv $benchCsv)
+Check 'ConvertFrom-LlamaBenchCsv: test name, depth and speed of each row, log lines ignored' {
+    $bench.Count -eq 3 -and $bench[0].Test -eq 'pp2048' -and $bench[0].TokensPerSecond -eq 812.5 -and
+    $bench[1].Test -eq 'tg128' -and $bench[1].Depth -eq 0 -and $bench[2].Depth -eq 32768 -and $bench[2].TokensPerSecond -eq 19.1 }
+Check 'Get-LlamaBackend: vulkan unless the folder says rocm' {
+    $d = Join-Path ([IO.Path]::GetTempPath()) "hs-backend-$PID"; New-Item -ItemType Directory -Force -Path $d | Out-Null
+    $a = Get-LlamaBackend -Dir $d
+    Set-Content -LiteralPath "$d\llama-backend.txt" -Value 'ROCm'; $b = Get-LlamaBackend -Dir $d
+    Remove-Item -LiteralPath $d -Recurse -Force
+    $a -eq 'vulkan' -and $b -eq 'rocm' }
+Check 'ConvertFrom-LlamaBenchCsv: a table whose header is the first line' {
+    @(ConvertFrom-LlamaBenchCsv ("build_commit,n_prompt,n_gen,n_depth,avg_ts`n" + '"abc","0","128","0","24.75"')).Count -eq 1 }
+Check 'ConvertFrom-LlamaBenchCsv: nothing from output without a CSV table' { @(ConvertFrom-LlamaBenchCsv 'error: failed to load model').Count -eq 0 -and @(ConvertFrom-LlamaBenchCsv '').Count -eq 0 }
+
+Check 'Measure-OtherGpuUse: 3D and compute use of other programs only, the model servers left out' {
+    $smp = @(
+        [pscustomobject]@{ Instance = 'pid_100_luid_0x0_0x1_phys_0_eng_0_engtype_3D'; Value = 30.5 },
+        [pscustomobject]@{ Instance = 'pid_100_luid_0x0_0x1_phys_0_eng_1_engtype_Compute_0'; Value = 4 },
+        [pscustomobject]@{ Instance = 'pid_200_luid_0x0_0x1_phys_0_eng_1_engtype_Compute_0'; Value = 95 },
+        [pscustomobject]@{ Instance = 'pid_300_luid_0x0_0x1_phys_0_eng_2_engtype_VideoDecode'; Value = 50 })
+    (Measure-OtherGpuUse -Samples $smp -ExcludePids 200) -eq 34.5 -and (Measure-OtherGpuUse -Samples $smp) -eq 100 -and (Measure-OtherGpuUse) -eq 0 }
+$t0 = [datetime]'2026-01-01T12:00:00'
+$aa = @{ Threshold = 25; AwayAfter = 2; BackAfter = 15 }
+Check 'Step-AutoAway: away only after AwayAfter minutes of other GPU use' {
+    $st = @{}
+    $a = Step-AutoAway -State $st -OtherPct 60 -Now $t0 -ServersOn $true @aa
+    $b = Step-AutoAway -State $st -OtherPct 60 -Now $t0.AddMinutes(1) -ServersOn $true @aa
+    $c = Step-AutoAway -State $st -OtherPct 60 -Now $t0.AddMinutes(2) -ServersOn $true @aa
+    $a -eq '' -and $b -eq '' -and $c -eq 'away' -and $st['Away'] }
+Check 'Step-AutoAway: a quiet sample restarts the count' {
+    $st = @{}
+    $null = Step-AutoAway -State $st -OtherPct 60 -Now $t0 -ServersOn $true @aa
+    $null = Step-AutoAway -State $st -OtherPct 5 -Now $t0.AddMinutes(1) -ServersOn $true @aa
+    (Step-AutoAway -State $st -OtherPct 60 -Now $t0.AddMinutes(2) -ServersOn $true @aa) -eq '' }
+Check 'Step-AutoAway: a manual away (servers off) is left alone' {
+    $st = @{}
+    $null = Step-AutoAway -State $st -OtherPct 60 -Now $t0 -ServersOn $false @aa
+    (Step-AutoAway -State $st -OtherPct 60 -Now $t0.AddMinutes(5) -ServersOn $false @aa) -eq '' -and -not $st['Away'] }
+Check 'Step-AutoAway: back after BackAfter quiet minutes, not while still busy' {
+    $st = @{ Away = $true; Since = $null }
+    $a = Step-AutoAway -State $st -OtherPct 5 -Now $t0 -ServersOn $false @aa
+    $b = Step-AutoAway -State $st -OtherPct 70 -Now $t0.AddMinutes(10) -ServersOn $false @aa
+    $c = Step-AutoAway -State $st -OtherPct 5 -Now $t0.AddMinutes(11) -ServersOn $false @aa
+    $d = Step-AutoAway -State $st -OtherPct 5 -Now $t0.AddMinutes(26) -ServersOn $false @aa
+    $a -eq '' -and $b -eq '' -and $c -eq '' -and $d -eq 'back' -and -not $st['Away'] }
 
 # ---- desktop away
 $cfgA = [ordered]@{ AGENT_USER = 'hermes'; DESKTOP_LLAMA_DIR = 'C:\llama'; V100_ENABLED = '0'; NIGHT_ENABLED = '0'; V100_CUDA_DIR = 'C:\llama-cuda' }

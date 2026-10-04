@@ -198,6 +198,102 @@ function New-LlamaStartScript {
     return @($guard + (Join-CmdLines -Segments @($head + $tail)))
 }
 
+# The release asset names of the two Windows builds for an AMD card
+$script:LlamaAssetPatterns = @{
+    vulkan = '^llama-.+-bin-win-vulkan-x64\.zip$'
+    # the ROCm build: llama-bNNNN-bin-win-rocm-10.0-x64.zip (llama.cpp's release.yml / release-publish.yml; older
+    # releases said win-hip-radeon). It is compiled for gfx1032 (RX 6600 XT) among others, and it holds the full program
+    # set plus ggml-hip.dll and its HIP runtime - but NOT hipBLAS/rocBLAS, which must be on PATH (Find-RocmLibraries).
+    rocm   = '^llama-.+-bin-win-(hip|rocm)[a-z0-9.-]*-x64\.zip$'
+}
+
+# Install-LlamaVulkanBuild -Dir C:\llama [-Backend vulkan|rocm] [-ZipUrl URL]  - download the newest llama.cpp Windows build
+# for the backend and unpack it into Dir (stops the server running from Dir first). Used by Install-Llama.ps1,
+# Update-Llama.ps1 and Compare-LlamaBackends.ps1. -ZipUrl takes a zip by hand (e.g. when a release renames its assets).
+function Install-LlamaVulkanBuild {
+    param([Parameter(Mandatory)][string]$Dir, [ValidateSet('vulkan', 'rocm')][string]$Backend = 'vulkan', [string]$ZipUrl = '')
+    $Backend = $Backend.ToLowerInvariant()   # ValidateSet lets 'ROCm' through as typed
+    if ($ZipUrl) {
+        $name = ($ZipUrl -split '/')[-1]; $url = $ZipUrl; $tag = 'given by hand'
+    } else {
+        # not /releases/latest: that is a source-only tag; the builds are pre-releases
+        $pattern = $script:LlamaAssetPatterns[$Backend]
+        $rel = Select-LlamaRelease -Releases (Get-LlamaReleases) -Patterns $pattern
+        if (-not $rel) { throw "None of the ten newest llama.cpp releases has a Windows $Backend zip. Download it from https://github.com/ggml-org/llama.cpp/releases and pass -ZipUrl." }
+        $asset = if ($Backend -eq 'vulkan') { Select-VulkanAsset $rel.assets } else { $rel.assets | Where-Object { $_.name -match $pattern } | Select-Object -First 1 }
+        $name = $asset.name; $url = $asset.browser_download_url; $tag = $rel.tag_name
+    }
+    if ($name -notlike '*.zip') { $name += '.zip' }   # Expand-Archive (5.1) insists on the extension
+    $zip = Join-Path ([IO.Path]::GetTempPath()) $name
+    $stage = Join-Path ([IO.Path]::GetTempPath()) "llama-unpack-$PID"
+    Write-Host "    ${tag}: $name"
+    & curl.exe -L --fail -o $zip $url
+    if ($LASTEXITCODE -ne 0) { throw 'download of the llama.cpp zip failed' }
+    # unpack and check it BEFORE touching Dir: a bad download leaves the working build in place
+    if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+    try {
+        Expand-Archive -Path $zip -DestinationPath $stage -Force
+        $exe = Get-ChildItem -LiteralPath $stage -Recurse -Filter llama-server.exe | Select-Object -First 1   # some zips use a subfolder
+        if (-not $exe) { throw "$name holds no llama-server.exe - nothing was changed in $Dir" }
+        Stop-LlamaServer -Dir $Dir
+        # the old programs and backend DLLs go first: llama.cpp loads every ggml-<backend>.dll beside the program, so a leftover
+        # ggml-hip.dll next to a Vulkan build (or the other way round) would list the card twice (ROCm0 and Vulkan0) and, with
+        # ROCm loaded first, take over a "Vulkan" server. Start scripts, the key and prev\ stay.
+        Get-ChildItem -LiteralPath $Dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll' } | Remove-Item -Force
+        Copy-Item -Path "$($exe.DirectoryName)\*" -Destination $Dir -Recurse -Force
+    } finally {
+        Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Set-Content -LiteralPath "$Dir\llama-backend.txt" -Value $Backend -Encoding ascii
+    return $tag
+}
+
+# Find-RocmLibraries [-PathList $env:PATH] [-Dir C:\llama-rocm]  - { HipBlas; RocBlas }: the first folder holding
+# *hipblas*.dll / *rocblas*.dll ($null when none). llama.cpp's ROCm zip leaves them out (its release.yml: they "resolve via
+# PATH"), yet ggml-hip.dll links both: without them it does not load, and the build runs on the CPU without saying so.
+function Find-RocmLibraries {
+    param([AllowEmptyString()][string]$PathList = $env:PATH, [string]$Dir = '')
+    $dirs = @(@($Dir) + @($PathList -split [regex]::Escape([IO.Path]::PathSeparator)) | Where-Object { $_ })
+    $found = [ordered]@{ HipBlas = $null; RocBlas = $null }
+    foreach ($d in $dirs) {
+        foreach ($k in 'HipBlas', 'RocBlas') {
+            if (-not $found[$k] -and (Get-ChildItem -LiteralPath $d -Filter "*$($k.ToLowerInvariant())*.dll" -File -ErrorAction SilentlyContinue)) { $found[$k] = $d }
+        }
+    }
+    return [pscustomobject]$found
+}
+
+# How to get them: AMD's ROCm 10 libraries for Windows, the version llama.cpp's release is built against
+$script:RocmLibraryHelp = 'hipBLAS/rocBLAS (ROCm 10) are not on PATH; the ROCm build needs them. In a Python venv: ' +
+    'pip install --index-url https://stable.repo.amd.com/rocm/whl-next/ "rocm[libraries]==10.0.0", then add the folder ' +
+    'that "rocm-sdk path --bin" prints to the SYSTEM PATH (the server task reads it) and restart Windows so the server task sees it.'
+
+# Get-LlamaBackend -Dir C:\llama  - vulkan or rocm: the build Install-LlamaVulkanBuild last put there (vulkan when unknown)
+function Get-LlamaBackend {
+    param([Parameter(Mandatory)][string]$Dir)
+    $f = "$Dir\llama-backend.txt"
+    if ((Test-Path -LiteralPath $f) -and ((Get-Content -LiteralPath $f -Raw).Trim() -eq 'rocm')) { return 'rocm' }
+    return 'vulkan'
+}
+
+# ConvertFrom-LlamaBenchCsv TEXT  - rows of `llama-bench -o csv`: { Test (pp2048 / tg128); Depth; TokensPerSecond }.
+# TEXT may hold llama-bench's log lines too (stderr is merged): only the header line and the quoted value lines count.
+function ConvertFrom-LlamaBenchCsv {
+    param([AllowEmptyString()][string]$Text = '')
+    $all = @($Text -split "`r?`n")
+    $start = @(for ($i = 0; $i -lt $all.Count; $i++) { if ($all[$i] -match '(^|,)"?avg_ts"?(,|$)') { $i } })
+    if ($start.Count -eq 0) { return @() }   # not -not $start: @(0) (header on the first line) is falsy
+    $lines = @($all[$start[0]]) + @($all | Select-Object -Skip ($start[0] + 1) | Where-Object { $_ -match '^"' })
+    if ($lines.Count -lt 2) { return @() }
+    $rows = $lines | ConvertFrom-Csv
+    return @($rows | Where-Object { $_.avg_ts } | ForEach-Object {
+            $test = if ([int]$_.n_prompt -gt 0) { "pp$($_.n_prompt)" } else { "tg$($_.n_gen)" }
+            $depth = if ($_.PSObject.Properties['n_depth']) { [int]$_.n_depth } else { 0 }
+            [pscustomobject]@{ Test = $test; Depth = $depth; TokensPerSecond = [math]::Round([double]::Parse($_.avg_ts, [Globalization.CultureInfo]::InvariantCulture), 2) }
+        })
+}
+
 # Write-CmdFile PATH LINES  - cmd.exe wants CRLF line endings, no BOM
 function Write-CmdFile {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string[]]$Lines)
@@ -926,10 +1022,65 @@ function Get-LlamaServerProcess {
 # Stop-LlamaServer -Dir C:\llama  - stop those processes (stopping by program name would take the other server down too)
 function Stop-LlamaServer {
     param([Parameter(Mandatory)][string]$Dir)
-    foreach ($p in (Get-LlamaServerProcess -Dir $Dir)) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+    $ids = @(foreach ($p in (Get-LlamaServerProcess -Dir $Dir)) { $p.ProcessId })
+    foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+    # wait until they are gone: their .exe and .dll files stay locked until then
+    if ($ids.Count) { Wait-Process -Id $ids -Timeout 30 -ErrorAction SilentlyContinue }
+}
+
+# Get-TaskPath  - the PATH a scheduled task such as 'llama-server' starts with (machine + user, from the registry), not this
+# shell's: a folder added only in this window is invisible to the server task
+function Get-TaskPath {
+    $parts = @([Environment]::GetEnvironmentVariable('PATH', 'Machine'), [Environment]::GetEnvironmentVariable('PATH', 'User')) | Where-Object { $_ }
+    if (-not $parts) { return $env:PATH }   # no registry (not Windows): this process's PATH
+    return ($parts -join [IO.Path]::PathSeparator)
 }
 
 # ============================ desktop away (Desktop-Mode.ps1) ============================
+
+# Measure-OtherGpuUse -Samples @({Instance; Value}) -ExcludePids 1,2  - percent of the GPU's 3D and compute engines used by
+# processes other than the excluded ones (the model servers), from '\GPU Engine(*)\Utilization Percentage' samples
+# (instances look like pid_1234_luid_0x0_0x1_phys_0_eng_0_engtype_3D). Capped at 100.
+function Measure-OtherGpuUse {
+    param([AllowEmptyCollection()][object[]]$Samples = @(), [int[]]$ExcludePids = @())
+    $sum = 0.0
+    foreach ($s in $Samples) {
+        if ([string]$s.Instance -notmatch '^pid_([0-9]+)_.*engtype_(3d|compute)') { continue }
+        if ([int]$Matches[1] -in $ExcludePids) { continue }
+        $sum += [double]$s.Value
+    }
+    return [math]::Min([double]100, [math]::Round($sum, 1))
+}
+
+# Get-OtherGpuUse -ExcludePids  - the same, sampled now (0 where the counters are missing)
+function Get-OtherGpuUse {
+    param([int[]]$ExcludePids = @())
+    $set = Get-Counter -Counter '\GPU Engine(*)\Utilization Percentage' -ErrorAction SilentlyContinue
+    if (-not $set) { return 0 }
+    $samples = @($set.CounterSamples | ForEach-Object { [pscustomobject]@{ Instance = $_.InstanceName; Value = $_.CookedValue } })
+    return Measure-OtherGpuUse -Samples $samples -ExcludePids $ExcludePids
+}
+
+# Step-AutoAway -State @{} -OtherPct 40 -Now (Get-Date) -ServersOn $true -Threshold 25 -AwayAfter 2 -BackAfter 15
+#   one sample of Auto-Away.ps1's loop: returns 'away', 'back' or ''. Away only when the model servers are on (a manual
+#   away is left alone), after AwayAfter minutes of other GPU use; back only after an automatic away, after BackAfter
+#   quiet minutes. State keeps Away (this loop took the desktop away) and Since (when the current streak began).
+function Step-AutoAway {
+    param([Parameter(Mandatory)][hashtable]$State, [double]$OtherPct, [datetime]$Now, [bool]$ServersOn,
+        [int]$Threshold, [int]$AwayAfter, [int]$BackAfter)
+    if (-not $State.Contains('Away')) { $State['Away'] = $false; $State['Since'] = $null }
+    $busy = $OtherPct -ge $Threshold
+    if (-not $State['Away']) {
+        if (-not $busy -or -not $ServersOn) { $State['Since'] = $null; return '' }
+        if (-not $State['Since']) { $State['Since'] = $Now }
+        if (($Now - $State['Since']).TotalMinutes -ge $AwayAfter) { $State['Away'] = $true; $State['Since'] = $null; return 'away' }
+        return ''
+    }
+    if ($busy) { $State['Since'] = $null; return '' }
+    if (-not $State['Since']) { $State['Since'] = $Now }
+    if (($Now - $State['Since']).TotalMinutes -ge $BackAfter) { $State['Away'] = $false; $State['Since'] = $null; return 'back' }
+    return ''
+}
 
 # Get-LlamaTaskNames -Cfg  - the scheduled tasks that keep the desktop's model servers running
 function Get-LlamaTaskNames {

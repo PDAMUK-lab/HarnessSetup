@@ -100,6 +100,46 @@ run_ps Setup-LaptopAccess.ps1 -DryRun -NoTunnelFile
 check "Setup-LaptopAccess: reuses an existing key" has "using the existing key"
 check "Setup-LaptopAccess: -NoTunnelFile skips the shortcut" bash -c "! grep -q 'hermes-tunnel.cmd' <<<\"\$0\"" "$OUT"
 
+# ---- Update-Llama.ps1: newest build, test, roll back
+run_ps Update-Llama.ps1 -DryRun
+check "Update-Llama -DryRun exits 0" test $RC -eq 0
+check "Update-Llama: keeps the current build first" has "copy the current .exe and .dll files to C:\\llama\\prev"
+check "Update-Llama: then the newest Vulkan build and a restart" bash -c "grep -q 'latest llama-\*-bin-win-vulkan zip' <<<\"\$0\" && grep -q \"start the day server (task 'llama-server')\" <<<\"\$0\"" "$OUT"
+run_ps Update-Llama.ps1 -DryRun -Rollback
+check "Update-Llama -Rollback: puts the kept build back" has "put the build in C:\\llama\\prev back"
+run_ps Update-Llama.ps1 -DryRun -Backend rocm
+check "Update-Llama -Backend rocm without hipBLAS/rocBLAS on PATH: stops before changing anything" bash -c "[ $RC -ne 0 ] && grep -q 'Stopped before changing anything' <<<\"\$0\" && ! grep -q 'copy the current' <<<\"\$0\"" "$OUT"
+mkdir -p "$T/rocmlib" && touch "$T/rocmlib/hipblas.dll" "$T/rocmlib/rocblas.dll"
+PATH="$T/rocmlib:$PATH" run_ps Update-Llama.ps1 -DryRun -Backend rocm
+check "Update-Llama -Backend rocm: switches the day server to the ROCm build" has "latest llama-*-bin-win-rocm zip"
+check "Update-Llama -Backend rocm: the new build must list the card as ROCm0 before it is started" bash -c "grep -q 'llama-server.exe --list-devices must list ROCm0' <<<\"\$0\" && [ \"\$(grep -n 'must list ROCm0' <<<\"\$0\" | cut -d: -f1)\" -lt \"\$(grep -n \"start the day server (task\" <<<\"\$0\" | head -1 | cut -d: -f1)\" ]" "$OUT"
+
+# ---- Compare-LlamaBackends.ps1: ROCm vs Vulkan, C:\llama untouched
+run_ps Compare-LlamaBackends.ps1 -DryRun
+check "Compare-LlamaBackends -DryRun exits 0" test $RC -eq 0
+check "Compare-LlamaBackends: the ROCm build goes into its own folder" has "bin-win-rocm zip into C:\\llama-rocm"
+check "Compare-LlamaBackends: says hipBLAS/rocBLAS must be on PATH when they are not" has "hipBLAS/rocBLAS (ROCm 10) are not on PATH"
+check "Compare-LlamaBackends: checks both builds see the card" has "--list-devices in C:\\llama-rocm and in C:\\llama (the card must be ROCm0 and Vulkan0)"
+check "Compare-LlamaBackends: the same bench line on both builds, each pinned to the card" bash -c "grep -q 'C:.llama.llama-bench.exe -m C:.models.Qwen3.6-35B-A3B-.* -dev Vulkan0 -ngl 99 -ncmoe 40 -fa 1 -ctk f16 -ctv q8_0 -p 2048 -n 128 -d 0,32768 -r 3 -o csv' <<<\"\$0\" && grep -q 'C:.llama-rocm.llama-bench.exe .* -dev ROCm0 ' <<<\"\$0\"" "$OUT"
+check "Compare-LlamaBackends: the day server is started again and the ROCm folder removed" bash -c "grep -q \"start the day server again\" <<<\"\$0\" && grep -q 'remove C:.llama-rocm' <<<\"\$0\"" "$OUT"
+
+# ---- Backup-Laptop.ps1: copy the laptop's newest backup here
+run_ps Backup-Laptop.ps1 -DryRun -Register
+check "Backup-Laptop -DryRun exits 0" test $RC -eq 0
+check "Backup-Laptop: restricts the backup folder to you and administrators" has "restrict C:\\hermes-backups to"
+check "Backup-Laptop: looks for the newest backup on the laptop" has "ssh ai-node@192.168.1.150 ls -1t /var/backups/hermes-node/hermes-node-*.tar.gz"
+check "Backup-Laptop -Register: a daily copy half an hour after the laptop's backup" has "task 'hermes-backup-copy' every day at 07:45"
+
+# ---- Auto-Away.ps1: away and back by GPU use
+run_ps Auto-Away.ps1 -DryRun
+check "Auto-Away -DryRun exits 0" test $RC -eq 0
+check "Auto-Away: samples the GPU without the model servers, with the settings' thresholds" has "away after 2 min with other programs using >= 25% of the GPU, back after 15 quiet min"
+check "Auto-Away: acts through Desktop-Mode.ps1" has "Desktop-Mode.ps1 away -Yes"
+run_ps Auto-Away.ps1 -DryRun -Register
+check "Auto-Away -Register: a hidden logon task" has "register the task 'hermes-auto-away'"
+run_ps Auto-Away.ps1 -DryRun -Unregister
+check "Auto-Away -Unregister: removes the task" has "remove the task 'hermes-auto-away'"
+
 # ---- Desktop-Mode.ps1: the desktop out of the loop and back (the ssh call is a stub that records its arguments)
 cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=1|' -e 's|^V100_ENABLED=.*|V100_ENABLED=1|'
 export FAKE_LOG="$T/ps-calls.log"; : >"$FAKE_LOG"

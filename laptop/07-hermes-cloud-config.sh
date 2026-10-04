@@ -2,7 +2,7 @@
 # TITLE: Roles on OpenRouter: workers, reviewer, compression, worktree isolation
 # RUN-AS: hermes
 # GUIDE: Step 11
-# NEEDS: OR_WORKER_MODEL OR_REVIEW_MODEL OR_COMPRESSION_MODEL REASONING_EFFORT MAX_CONCURRENT_CHILDREN MAX_ITERATIONS APPROVAL_MODE
+# NEEDS: OR_WORKER_MODEL OR_REVIEW_MODEL OR_COMPRESSION_MODEL REASONING_EFFORT MAX_CONCURRENT_CHILDREN MAX_ITERATIONS APPROVAL_MODE APPROVAL_DENY WORKER_EFFORT
 # Needs `hermes model` done (planner + OpenRouter key). The worker, reviewer and summariser model IDs are asked for.
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -33,7 +33,7 @@ fi
 # The local profile (stage 11) was cloned from this config once: give it the same approval mode, where the overnight jobs run
 pcfg=$HOME/.hermes/profiles/local/config.yaml
 if [[ -f $pcfg ]]; then
-  printf 'approvals:\n  mode: "%s"\n' "$APPROVAL_MODE" >"$frag"
+  printf 'approvals:\n  mode: "%s"\n  deny: %s\n' "$APPROVAL_MODE" "$APPROVAL_DENY_YAML" >"$frag"
   if [[ $DRY_RUN == 1 ]]; then log "[dry-run] would set approvals.mode to $APPROVAL_MODE in $pcfg"; else python3 "$HS_ROOT/lib/merge_yaml.py" "$pcfg" "$frag"; fi
 fi
 rm -f "$frag"

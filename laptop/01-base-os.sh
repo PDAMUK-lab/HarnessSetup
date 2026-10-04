@@ -2,7 +2,7 @@
 # TITLE: Base OS: no sleep, non-free sources, NVIDIA 550 driver, swap
 # RUN-AS: admin
 # GUIDE: Steps 1-4
-# NEEDS: -
+# NEEDS: JOURNAL_MAX_MB
 # Options (asked when not given): --nvidia | --skip-nvidia   --reboot | --no-reboot
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -93,6 +93,11 @@ sudo_run systemctl daemon-reload
 # the generator's unit only creates the device; starting /dev/zram0 starts the generated dev-zram0.swap that turns it on
 sudo_run systemctl start /dev/zram0
 sudo_run "${APT[@]}" install unattended-upgrades
+
+# An always-on node: cap the system log (every service logs here) so it never fills the disk
+printf '[Journal]\nSystemMaxUse=%sM\nSystemKeepFree=2G\nMaxRetentionSec=1month\n' "${JOURNAL_MAX_MB:-500}" |
+  put_file /etc/systemd/journald.conf.d/50-size.conf 644
+sudo_run systemctl restart systemd-journald
 
 if [[ $DRY_RUN != 1 ]]; then
   swaps=$(swapon --show || true)

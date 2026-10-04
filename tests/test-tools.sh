@@ -50,6 +50,14 @@ OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1)
 check "verify: a different approval mode in the local profile is a WARN naming both" has "approval mode is 'smart' in the local profile, the setting APPROVAL_MODE says 'off'"
 if [[ -f $T/cfg.keep ]]; then cp "$T/cfg.keep" "$HOME/.hermes/config.yaml"; else rm -f "$HOME/.hermes/config.yaml"; fi
 cp "$T/pc.keep" "$pc"
+sed 's/^AGENT_SUDO=.*/AGENT_SUDO=limited/' "$NODE_ENV" >"$T/lim.env"
+OUT=$(NODE_ENV="$T/lim.env" FAKE_SUDO_MODE=limited bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: AGENT_SUDO=limited passes when only the allowed commands work" bash -c "grep -qE 'PASS.*#2 +hermes has limited sudo' <<<\"\$0\"" "$OUT"
+OUT=$(NODE_ENV="$T/lim.env" bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: AGENT_SUDO=limited fails when the agent can still run everything" bash -c "grep -qE 'FAIL.*#2 +hermes has only limited sudo' <<<\"\$0\"" "$OUT"
+sed 's/^AGENT_SUDO=.*/AGENT_SUDO=none/' "$NODE_ENV" >"$T/none.env"
+OUT=$(NODE_ENV="$T/none.env" FAKE_SUDO_MODE=none bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: AGENT_SUDO=none passes without sudo" bash -c "grep -qE 'PASS.*#2 +hermes has no sudo' <<<\"\$0\"" "$OUT"
 OUT=$(FAKE_NVIDIA=missing bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: a missing GPU fails the run" test $RC -eq 1
 check "verify: ...and names check 1" has "#1"
@@ -235,6 +243,82 @@ adopt "$T/proj2" --install $'npm ci\r- run: evil' --test y --package z
 check "adopt: refuses a carriage return in a command (it could inject workflow steps)" test $RC -ne 0
 OUT=$("$ROOT/setup.sh" tool adopt-repo "$T/proj2" --install x --test y --package z 2>&1); RC=$?
 check "setup.sh tool adopt-repo works through the dispatcher" test $RC -eq 0
+
+# ---- OpenRouter credit (tools/spend.sh, verify check 4, lib/common.sh or_spend)
+spend_level() { ( source "$ROOT/lib/common.sh"; or_spend "$1" | cut -d'|' -f1 ); }
+check "spend: 20% of a monthly limit is fine" test "$(spend_level '{"data":{"limit":50,"limit_remaining":40,"limit_reset":"monthly"}}')" = ok
+check "spend: 85% warns (SPEND_WARN_PCT 80)" test "$(spend_level '{"data":{"limit":50,"limit_remaining":7.5,"limit_reset":"monthly"}}')" = warn
+check "spend: a used-up limit fails" test "$(spend_level '{"data":{"limit":50,"limit_remaining":0,"limit_reset":"monthly"}}')" = fail
+check "spend: no limit at all warns" test "$(spend_level '{"data":{"limit":null,"usage":3}}')" = warn
+check "spend: a limit that never resets warns" test "$(spend_level '{"data":{"limit":50,"limit_remaining":45,"limit_reset":null}}')" = warn
+check "spend: an unreadable answer is unknown" test "$(spend_level 'not json')" = unknown
+mkdir -p "$HOME/.hermes"; cp "$HOME/.hermes/.env" "$T/env.keep" 2>/dev/null || : >"$T/env.keep"
+echo 'OPENROUTER_API_KEY=sk-or-test' >>"$HOME/.hermes/.env"
+OUT=$(bash "$ROOT/tools/spend.sh" 2>&1); RC=$?
+check "spend tool: reports the month's spend and exits 0" bash -c "[[ $RC -eq 0 ]] && grep -qF 'spent \$10.00 of \$50.00 this month (20%)' <<<\"\$0\"" "$OUT"
+OUT=$(FAKE_OR_KEY='{"data":{"limit":50,"limit_remaining":5,"limit_reset":"monthly"}}' bash "$ROOT/tools/spend.sh" 2>&1); RC=$?
+check "spend tool: exits 1 near the limit" test $RC -eq 1
+OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: shows the OpenRouter credit (check 4)" bash -c "grep -qE 'PASS.*#4 +OpenRouter credit: spent' <<<\"\$0\"" "$OUT"
+cp "$T/env.keep" "$HOME/.hermes/.env"
+
+# ---- backup and restore of the agent's state (real run in the sandbox)
+ah="$T/agent-home"; mkdir -p "$ah/.hermes/hermes-agent" "$ah/.hermes/cache" "$ah/.config/gh"
+echo 'model: original' >"$ah/.hermes/config.yaml"; echo 'oauth_token: x' >"$ah/.config/gh/hosts.yml"; echo blob >"$ah/.hermes/hermes-agent/big"
+python3 -c "import sqlite3; c=sqlite3.connect('$ah/.hermes/state.db'); c.execute('pragma journal_mode=wal'); c.execute('create table t(x)'); c.execute('insert into t values (42)'); c.commit()"
+bk() { OUT=$(HS_AGENT_HOME="$ah" HS_BACKUP_DIR="$T/backups" bash "$ROOT/tools/backup.sh" 2>&1); RC=$?; }
+bk
+arc=$(find "$T/backups" -name "hermes-node-*.tar.gz" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d" " -f2-)
+check "backup: exits 0 and writes an archive" bash -c "[[ $RC -eq 0 && -s '$arc' ]]"
+check "backup: holds the config, the GitHub login and the kit's settings" bash -c "tar -tzf '$arc' | grep -q '/.hermes/config.yaml$' && tar -tzf '$arc' | grep -q '/.config/gh/hosts.yml$' && tar -tzf '$arc' | grep -q 'node.env$'"
+check "backup: only the backed-up paths, no parent folders (a restore would chmod / and chown the agent's home)" bash -c "! tar -tzf '$arc' | grep -qE '^\\./|^\\.\$|^${T#/}/\$|^${ah#/}/\$'"
+check "backup: leaves out Hermes's own checkout and caches" bash -c "! tar -tzf '$arc' | grep -qE '/.hermes/(hermes-agent|cache)/'"
+snap() { local d; d=$(mktemp -d); tar -C "$d" -xzf "$arc" && python3 -c "import os,sqlite3,sys; f=[os.path.join(r,'state.db') for r,_,fs in os.walk('$d') if 'state.db' in fs][0]; nowal=not os.path.exists(f+'-wal'); sys.exit(0 if nowal and sqlite3.connect(f).execute('select x from t').fetchone()[0]==42 else 1)"; }
+check "backup: the SQLite database is a consistent snapshot" snap
+check "backup: readable by owner and group only" test "$(stat -c %a "$arc")" = 640
+sed -i 's/^BACKUP_KEEP=.*/BACKUP_KEEP=2/' "$NODE_ENV"; bk; bk
+check "backup: keeps the newest BACKUP_KEEP" test "$(find "$T/backups" -name "hermes-node-*.tar.gz" | wc -l)" = 2
+sed -i 's/^BACKUP_KEEP=.*/BACKUP_KEEP=14/' "$NODE_ENV"
+arc=$(find "$T/backups" -name "hermes-node-*.tar.gz" -printf "%T@ %p\n" | sort -rn | head -1 | cut -d" " -f2-)
+echo 'model: changed' >"$ah/.hermes/config.yaml"
+OUT=$(HS_AGENT_HOME="$ah" bash "$ROOT/tools/restore.sh" "$arc" --yes 2>&1); RC=$?
+check "restore: exits 0 and brings the backed-up config back" bash -c "[[ $RC -eq 0 ]] && grep -qx 'model: original' '$ah/.hermes/config.yaml'"
+check "restore: keeps the state it replaced" bash -c "grep -qx 'model: changed' '$ah'/.hermes.before-restore-*/config.yaml"
+check "restore: keeps the current settings and saves the backed-up ones beside them" bash -c "ls '$NODE_ENV'.from-backup-* >/dev/null && test -s '$NODE_ENV'"
+check "restore: stops and starts the services" bash -c "grep -q 'systemctl --user stop hermes-dashboard hermes-gateway' '$FAKE_LOG' && grep -q 'systemctl --user start hermes-dashboard' '$FAKE_LOG'"
+OUT=$(bash "$ROOT/tools/restore.sh" "$T/nope.tar.gz" --yes 2>&1); RC=$?
+check "restore: a missing file is refused" test $RC -ne 0
+OUT=$(bash "$ROOT/tools/backup.sh" --install --dry-run 2>&1)
+check "backup --install: a daily timer at BACKUP_TIME" bash -c "grep -q 'hermes-backup.timer' <<<\"\$0\" && grep -q 'enable --now hermes-backup.timer' <<<\"\$0\"" "$OUT"
+
+# ---- update-llama.sh: rebuild, test, roll back on failure (the build is a stub that writes a new llama-server)
+lp="$T/llama"; mkdir -p "$lp/bin"
+printf '#!/bin/sh\necho "version: 100 (old)"\n' >"$lp/bin/llama-server"; chmod +x "$lp/bin/llama-server"
+newbuild="printf '#!/bin/sh\\necho \"version: 200 (new)\"\\n' >'$lp/bin/llama-server'"
+upd() { OUT=$(HS_LLAMA_PREFIX="$lp" HS_LLAMA_BUILD="$newbuild" bash "$ROOT/tools/update-llama.sh" "$@" 2>&1); RC=$?; }
+upd
+check "update-llama: a build that serves tool calls is kept" bash -c "[[ $RC -eq 0 ]] && grep -q '200 (new)' '$lp/bin/llama-server' && grep -q '100 (old)' '$lp/bin.prev/llama-server'"
+check "update-llama: restarts the service" grep -q 'systemctl restart llama-server' "$FAKE_LOG"
+printf '#!/bin/sh\necho "version: 100 (old)"\n' >"$lp/bin/llama-server"
+OUT=$(FAKE_TOOLCALL=no HS_LLAMA_PREFIX="$lp" HS_LLAMA_BUILD="$newbuild" bash "$ROOT/tools/update-llama.sh" 2>&1); RC=$?
+check "update-llama: a build without tool calls is rolled back" bash -c "[[ $RC -ne 0 ]] && grep -q '100 (old)' '$lp/bin/llama-server' && grep -q '200 (new)' '$lp/bin.failed/llama-server'"
+check "update-llama: says it rolled back" has "putting the previous one back"
+upd --rollback
+check "update-llama --rollback: puts the kept build back" bash -c "[[ $RC -eq 0 ]] && grep -q '100 (old)' '$lp/bin/llama-server'"
+
+# ---- model-test.sh: a task set against a model (the hermes stub "does" a task by creating the file it names)
+git init -q --bare "$T/mt-origin.git"; rm -rf "$HOME/repos/mt"; git clone -q "$T/mt-origin.git" "$HOME/repos/mt" 2>/dev/null
+( cd "$HOME/repos/mt" && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && git push -q origin HEAD:main && git remote set-head origin main )
+printf '# comment\nmakes-file | mt | test -f done.txt | Please create done.txt in the repo.\nnever-done | mt | test -f other.txt | Explain the code, change nothing.\n' >"$T/tasks.txt"
+OUT=$(bash "$ROOT/tools/model-test.sh" --file "$T/tasks.txt" --provider custom:laptop --model m9 2>&1); RC=$?
+check "model-test: runs every task and reports the pass rate" bash -c "grep -q 'm9: 1 of 2 passed' <<<\"\$0\" && [[ $RC -ne 0 ]]" "$OUT"
+check "model-test: records each task in results.csv" bash -c "grep -q ',m9,local,custom:laptop,m9,makes-file,pass,' '$HOME/model-tests/results.csv' && grep -q ',never-done,fail,' '$HOME/model-tests/results.csv'"
+check "model-test: passes the model and provider to hermes and reads the prompt from a file" grep -q 'hermes -p local chat --query-file .* --provider custom:laptop --model m9' "$FAKE_LOG"
+check "model-test: removes its worktrees and leaves the clone untouched" bash -c "[[ \$(git -C '$HOME/repos/mt' worktree list | wc -l) -eq 1 && ! -e '$HOME/repos/mt/done.txt' ]]"
+OUT=$(bash "$ROOT/tools/model-test.sh" --file "$T/tasks.txt" --only makes-file --label base 2>&1); RC=$?
+check "model-test: --only runs one task; all passing exits 0" bash -c "[[ $RC -eq 0 ]] && grep -q 'base: 1 of 1 passed' <<<\"\$0\"" "$OUT"
+OUT=$(bash "$ROOT/tools/model-test.sh" --file "$T/missing.txt" 2>&1); RC=$?
+check "model-test: a missing task file points at the example" bash -c "[[ $RC -ne 0 ]] && grep -q 'model-tests.example' <<<\"\$0\"" "$OUT"
 
 # ---- the kit's own release (.github/workflows/release.yml uses these)
 check "release notes: the VERSION file's section exists in CHANGELOG.md" bash -c "[[ -n \$(bash '$ROOT/.github/scripts/release-notes.sh') ]]"

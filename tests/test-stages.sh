@@ -43,6 +43,8 @@ check "01: masks sleep targets" has "mask sleep.target suspend.target hibernate.
 check "01: sets up zram" has "systemd-zram-generator"
 check "01: starts the zram swap unit (the setup service only creates the device)" has "start /dev/zram0"
 check "01: no zram setup-service start (it never turns the swap on)" lacks "start systemd-zram-setup@zram0.service"
+OUT=$(DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 01 --skip-nvidia --dry-run --yes 2>&1)
+check "01: caps the system log (JOURNAL_MAX_MB, a month of history)" bash -c "grep -qF 'SystemMaxUse=500M' <<<\"\$0\" && grep -qF 'MaxRetentionSec=1month' <<<\"\$0\" && grep -qF 'restart systemd-journald' <<<\"\$0\"" "$OUT"
 check "01: lid and sleep come before the package upgrade (a closed lid must not break Steps 2-3)" bash -c "[[ $(line_of lid.conf) -gt 0 && $(line_of lid.conf) -lt $(line_of full-upgrade) ]]"
 check "01: --skip-nvidia installs no NVIDIA package" bash -c "! grep -q nvidia-driver <<<'$OUT'"
 dry 01 --nvidia
@@ -66,6 +68,14 @@ check "03: exits 0" test "$RC" -eq 0
 check "03: creates the agent user" has "adduser --disabled-password --comment '' hermes"
 check "03: enables linger" has "enable-linger hermes"
 check "03: writes the sudoers file mode 440" has "90-hermes (mode 440"
+sed 's/^AGENT_SUDO=.*/AGENT_SUDO=limited/' "$NODE_ENV" >"$T/limited.env"; sed 's/^AGENT_SUDO=.*/AGENT_SUDO=none/' "$NODE_ENV" >"$T/none.env"
+OUT=$(DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 03 --dry-run --yes 2>&1)
+check "03: AGENT_SUDO=full (default) gives passwordless sudo for everything" has "hermes ALL=(ALL:ALL) NOPASSWD: ALL"
+check "03: the admin user may run hermes-desktop as the agent without a password (the desktop's away/back)" has "ai-node ALL=(hermes) NOPASSWD: /home/hermes/.local/bin/hermes-desktop"
+OUT=$(NODE_ENV="$T/limited.env" DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 03 --dry-run --yes 2>&1)
+check "03: AGENT_SUDO=limited allows only apt, apt-get, systemctl, journalctl" bash -c "grep -qF 'hermes ALL=(root) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/systemctl, /usr/bin/journalctl' <<<\"\$0\" && ! grep -qF 'NOPASSWD: ALL' <<<\"\$0\"" "$OUT"
+OUT=$(NODE_ENV="$T/none.env" DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 03 --dry-run --yes 2>&1)
+check "03: AGENT_SUDO=none removes the sudoers file" bash -c "grep -qF 'rm -f /etc/sudoers.d/90-hermes' <<<\"\$0\" && ! grep -qF 'hermes ALL=' <<<\"\$0\"" "$OUT"
 
 # ---- stage 04
 dry 04

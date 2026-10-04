@@ -96,9 +96,13 @@ Recommended but not blocking: prove sub-agents and `/review` (guide Step 12), tr
 | 30 tuning | `./setup.sh configure --only KEY`, then re-run the stage | manual |
 | 31 overnight 27B tier | `desktop/windows/Install-Overnight.ps1`, `tools/overnight-laptop.sh` | script |
 | 32 fine-tuning | not automated (optional in the guide) | - |
-| extra: take the desktop out of the loop while you use it | `desktop/windows/Desktop-Mode.ps1` (`away` / `back`), `hermes-desktop on\|off` on the laptop | script |
+| extra: take the desktop out of the loop while you use it | `desktop/windows/Desktop-Mode.ps1` (`away` / `back`), or automatically by GPU use: `Auto-Away.ps1 -Register`; `hermes-desktop on\|off` on the laptop | script |
 | extra: two Tesla V100 cards in the desktop (optional, added later) | [docs/V100.md](docs/V100.md): `Check-V100.ps1`, `Install-V100.ps1`, `tools/v100-laptop.sh` | script + hardware |
 | extra: other model families, uncensored drop-ins, RAM/SSD offload engines, sub-agents | [docs/MODELS.md](docs/MODELS.md): every model slot is settings (file, URL, alias, chat-template switches, sampling) | settings |
+| extra: daily backups of the agent's state, a copy on the desktop, restore | `./setup.sh tool backup --install`, `Backup-Laptop.ps1 -Register`, `./setup.sh tool restore FILE` ([RUNBOOK §8b](docs/RUNBOOK.md)) | script |
+| extra: OpenRouter credit check | `./setup.sh tool spend` (also in `verify`; warns at `SPEND_WARN_PCT`) | script |
+| extra: compare models on your own tasks | `./setup.sh tool model-test` with `config/model-tests.example` | script |
+| extra: update llama.cpp with an automatic undo; Vulkan or ROCm on the desktop | `./setup.sh tool update-llama`, `Update-Llama.ps1`, `Compare-LlamaBackends.ps1` | script |
 | 33 final checks | `tools/verify.sh`, [checklist](docs/CHECKLIST.md) | script + manual |
 
 ## How it behaves
@@ -117,8 +121,10 @@ Recommended but not blocking: prove sub-agents and `/review` (guide Step 12), tr
   before install; the fallback test always restores the firewall, even on Ctrl-C.
 - **The guide's rules stay rules.** The scripts refuse to install the NVIDIA packages that drop Pascal support,
   refuse to start a dashboard that is not loopback-only, and never grant the GitHub token Workflows access.
-- **The agent has root, by design.** `laptop/03-agent-user.sh` asks you to confirm that. The safeguards that remain
-  are outside the laptop: GitHub rulesets, the OpenRouter credit limit, your router (guide, Phase 8).
+- **The agent has root, by design** (the guide's default; `AGENT_SUDO=limited` or `none` narrows it).
+  `laptop/03-agent-user.sh` asks you to confirm that. The safeguards that remain are outside the laptop: GitHub rulesets,
+  the OpenRouter credit limit, your router (guide, Phase 8); Hermes's `approvals.deny` list (`APPROVAL_DENY`) blocks a few
+  irreversible commands (deleting a repo, wiping a disk, the agent's own state) even with approvals off.
 
 ## Layout
 
@@ -127,8 +133,10 @@ setup.sh                 dispatcher: list | run <id> | next | tool <name> | chec
 config/settings.schema   every setting: what to ask, how to explain it, how to validate it, the default
 config/node.env.example  a reference copy of the settings file (the wizard writes the real one)
 laptop/NN-*.sh           stages, run as the admin user or (via machinectl) as the agent user
-tools/                   verify, github-smoke-test, fallback-test, overnight-laptop, v100-laptop, desktop-loop, adopt-repo
-desktop/windows/         PowerShell for the desktop (llama.cpp server, SSH, overnight swap, V100 tier, desktop away, status)
+tools/                   verify, github-smoke-test, fallback-test, overnight-laptop, v100-laptop, desktop-loop, adopt-repo,
+                         backup/restore, spend, model-test, update-llama
+desktop/windows/         PowerShell for the desktop (llama.cpp server and its updates, SSH, overnight swap, V100 tier,
+                         desktop away by hand or automatically, backup copies, Vulkan/ROCm comparison, status)
 templates/               systemd units, Hermes config fragments, hermes-mode, release skill, AGENTS.md, workflows
 lib/                     common.sh (helpers), config.sh (settings wizard and validation), chain.sh (order of the local endpoints), merge_yaml.py (merge into ~/.hermes/config.yaml)
 tests/                   run-tests.sh and the suites it runs
