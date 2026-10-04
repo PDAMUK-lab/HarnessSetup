@@ -221,9 +221,17 @@ it out of the loop and put it back afterwards. From the desktop, in an administr
 .\desktop\windows\Desktop-Mode.ps1 status
 ```
 
-"Tells the laptop" runs `hermes-desktop` there over SSH (one sudo password prompt). It rewrites Hermes's fallback chain and the
+"Tells the laptop" runs `hermes-desktop` there over SSH, as the agent user (stage 03 allows the admin user exactly that
+without a password; a laptop set up before kit 0.5.0 asks for the sudo password until stage 03 is re-run). It rewrites Hermes's fallback chain and the
 `local` profile without any desktop endpoint (OpenRouter, then the laptop's 9B), and `hermes-desktop on` writes it back.
 You can run it on the laptop yourself, as the agent user:
+
+**Automatically:** `.\desktop\windows\Auto-Away.ps1 -Register` (administrator PowerShell) starts a hidden task at every
+logon that watches the GPU. When other programs keep it at least `AUTO_AWAY_GPU_PCT` (25%) busy for `AUTO_AWAY_AFTER_MIN`
+(2) minutes it runs `Desktop-Mode.ps1 away`; after `AUTO_BACK_AFTER_MIN` (15) quiet minutes it runs `back`. A manual `away`
+is left alone. `-Once` prints the current reading and what it would do; `-Unregister` turns it off; the log is
+`C:\llama\auto-away.log`. Browsing and video playback stay well under the threshold; raise it if something you leave
+running keeps the GPU busy.
 
 ```bash
 hermes-desktop status        # in or out of the loop, and the order of the endpoints

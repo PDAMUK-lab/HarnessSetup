@@ -96,7 +96,7 @@ Recommended but not blocking: prove sub-agents and `/review` (guide Step 12), tr
 | 30 tuning | `./setup.sh configure --only KEY`, then re-run the stage | manual |
 | 31 overnight 27B tier | `desktop/windows/Install-Overnight.ps1`, `tools/overnight-laptop.sh` | script |
 | 32 fine-tuning | not automated (optional in the guide) | - |
-| extra: take the desktop out of the loop while you use it | `desktop/windows/Desktop-Mode.ps1` (`away` / `back`), `hermes-desktop on\|off` on the laptop | script |
+| extra: take the desktop out of the loop while you use it | `desktop/windows/Desktop-Mode.ps1` (`away` / `back`), or automatically by GPU use: `Auto-Away.ps1 -Register`; `hermes-desktop on\|off` on the laptop | script |
 | extra: two Tesla V100 cards in the desktop (optional, added later) | [docs/V100.md](docs/V100.md): `Check-V100.ps1`, `Install-V100.ps1`, `tools/v100-laptop.sh` | script + hardware |
 | extra: other model families, uncensored drop-ins, RAM/SSD offload engines, sub-agents | [docs/MODELS.md](docs/MODELS.md): every model slot is settings (file, URL, alias, chat-template switches, sampling) | settings |
 | 33 final checks | `tools/verify.sh`, [checklist](docs/CHECKLIST.md) | script + manual |

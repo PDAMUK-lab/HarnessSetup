@@ -996,6 +996,50 @@ function Stop-LlamaServer {
 
 # ============================ desktop away (Desktop-Mode.ps1) ============================
 
+# Measure-OtherGpuUse -Samples @({Instance; Value}) -ExcludePids 1,2  - percent of the GPU's 3D and compute engines used by
+# processes other than the excluded ones (the model servers), from '\GPU Engine(*)\Utilization Percentage' samples
+# (instances look like pid_1234_luid_0x0_0x1_phys_0_eng_0_engtype_3D). Capped at 100.
+function Measure-OtherGpuUse {
+    param([AllowEmptyCollection()][object[]]$Samples = @(), [int[]]$ExcludePids = @())
+    $sum = 0.0
+    foreach ($s in $Samples) {
+        if ([string]$s.Instance -notmatch '^pid_([0-9]+)_.*engtype_(3d|compute)') { continue }
+        if ([int]$Matches[1] -in $ExcludePids) { continue }
+        $sum += [double]$s.Value
+    }
+    return [math]::Min([double]100, [math]::Round($sum, 1))
+}
+
+# Get-OtherGpuUse -ExcludePids  - the same, sampled now (0 where the counters are missing)
+function Get-OtherGpuUse {
+    param([int[]]$ExcludePids = @())
+    $set = Get-Counter -Counter '\GPU Engine(*)\Utilization Percentage' -ErrorAction SilentlyContinue
+    if (-not $set) { return 0 }
+    $samples = @($set.CounterSamples | ForEach-Object { [pscustomobject]@{ Instance = $_.InstanceName; Value = $_.CookedValue } })
+    return Measure-OtherGpuUse -Samples $samples -ExcludePids $ExcludePids
+}
+
+# Step-AutoAway -State @{} -OtherPct 40 -Now (Get-Date) -ServersOn $true -Threshold 25 -AwayAfter 2 -BackAfter 15
+#   one sample of Auto-Away.ps1's loop: returns 'away', 'back' or ''. Away only when the model servers are on (a manual
+#   away is left alone), after AwayAfter minutes of other GPU use; back only after an automatic away, after BackAfter
+#   quiet minutes. State keeps Away (this loop took the desktop away) and Since (when the current streak began).
+function Step-AutoAway {
+    param([Parameter(Mandatory)][hashtable]$State, [double]$OtherPct, [datetime]$Now, [bool]$ServersOn,
+        [int]$Threshold, [int]$AwayAfter, [int]$BackAfter)
+    if (-not $State.Contains('Away')) { $State['Away'] = $false; $State['Since'] = $null }
+    $busy = $OtherPct -ge $Threshold
+    if (-not $State['Away']) {
+        if (-not $busy -or -not $ServersOn) { $State['Since'] = $null; return '' }
+        if (-not $State['Since']) { $State['Since'] = $Now }
+        if (($Now - $State['Since']).TotalMinutes -ge $AwayAfter) { $State['Away'] = $true; $State['Since'] = $null; return 'away' }
+        return ''
+    }
+    if ($busy) { $State['Since'] = $null; return '' }
+    if (-not $State['Since']) { $State['Since'] = $Now }
+    if (($Now - $State['Since']).TotalMinutes -ge $BackAfter) { $State['Away'] = $false; $State['Since'] = $null; return 'back' }
+    return ''
+}
+
 # Get-LlamaTaskNames -Cfg  - the scheduled tasks that keep the desktop's model servers running
 function Get-LlamaTaskNames {
     param([Parameter(Mandatory)][System.Collections.IDictionary]$Cfg)

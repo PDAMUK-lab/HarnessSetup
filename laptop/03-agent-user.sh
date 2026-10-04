@@ -2,7 +2,7 @@
 # TITLE: Agent user (passwordless sudo: full, limited or none - setting AGENT_SUDO)
 # RUN-AS: admin
 # GUIDE: Step 6
-# NEEDS: AGENT_USER AGENT_SUDO
+# NEEDS: AGENT_USER AGENT_SUDO ADMIN_USER
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=lib/common.sh
@@ -13,6 +13,7 @@ stage_begin
 
 mode=${AGENT_SUDO:-full}
 sudoers=/etc/sudoers.d/90-$AGENT_USER
+desktop_rule=/etc/sudoers.d/91-hermes-desktop
 case $mode in
   full)
     cat <<MSG
@@ -53,6 +54,13 @@ else
   put_file "$sudoers" 440 <"$tmp"
   rm -f "$tmp"
 fi
+# The desktop's Desktop-Mode.ps1 / Auto-Away.ps1 log in as the admin user and run hermes-desktop as the agent: allow
+# exactly that without a password, so an automatic away needs nobody at the keyboard. (It runs as the agent, not root.)
+tmp=$(mktemp)
+echo "$ADMIN_USER ALL=($AGENT_USER) NOPASSWD: $AGENT_HOME/.local/bin/hermes-desktop" >"$tmp"
+if [[ $DRY_RUN != 1 ]] && ! "${SUDO[@]}" visudo -cf "$tmp" >/dev/null; then rm -f "$tmp"; die "generated sudoers line did not parse"; fi
+put_file "$desktop_rule" 440 <"$tmp"
+rm -f "$tmp"
 
 publish_shared
 

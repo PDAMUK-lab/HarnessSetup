@@ -125,6 +125,16 @@ check "Backup-Laptop: restricts the backup folder to you and administrators" has
 check "Backup-Laptop: looks for the newest backup on the laptop" has "ssh ai-node@192.168.1.150 ls -1t /var/backups/hermes-node/hermes-node-*.tar.gz"
 check "Backup-Laptop -Register: a daily copy half an hour after the laptop's backup" has "task 'hermes-backup-copy' every day at 07:45"
 
+# ---- Auto-Away.ps1: away and back by GPU use
+run_ps Auto-Away.ps1 -DryRun
+check "Auto-Away -DryRun exits 0" test $RC -eq 0
+check "Auto-Away: samples the GPU without the model servers, with the settings' thresholds" has "away after 2 min with other programs using >= 25% of the GPU, back after 15 quiet min"
+check "Auto-Away: acts through Desktop-Mode.ps1" has "Desktop-Mode.ps1 away -Yes"
+run_ps Auto-Away.ps1 -DryRun -Register
+check "Auto-Away -Register: a hidden logon task" has "register the task 'hermes-auto-away'"
+run_ps Auto-Away.ps1 -DryRun -Unregister
+check "Auto-Away -Unregister: removes the task" has "remove the task 'hermes-auto-away'"
+
 # ---- Desktop-Mode.ps1: the desktop out of the loop and back (the ssh call is a stub that records its arguments)
 cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=1|' -e 's|^V100_ENABLED=.*|V100_ENABLED=1|'
 export FAKE_LOG="$T/ps-calls.log"; : >"$FAKE_LOG"

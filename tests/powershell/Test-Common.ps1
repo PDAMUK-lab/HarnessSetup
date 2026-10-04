@@ -161,6 +161,38 @@ Check 'Get-LlamaBackend: vulkan unless the folder says rocm' {
     $a -eq 'vulkan' -and $b -eq 'rocm' }
 Check 'ConvertFrom-LlamaBenchCsv: nothing from output without a CSV table' { @(ConvertFrom-LlamaBenchCsv 'error: failed to load model').Count -eq 0 -and @(ConvertFrom-LlamaBenchCsv '').Count -eq 0 }
 
+Check 'Measure-OtherGpuUse: 3D and compute use of other programs only, the model servers left out' {
+    $smp = @(
+        [pscustomobject]@{ Instance = 'pid_100_luid_0x0_0x1_phys_0_eng_0_engtype_3D'; Value = 30.5 },
+        [pscustomobject]@{ Instance = 'pid_100_luid_0x0_0x1_phys_0_eng_1_engtype_Compute_0'; Value = 4 },
+        [pscustomobject]@{ Instance = 'pid_200_luid_0x0_0x1_phys_0_eng_1_engtype_Compute_0'; Value = 95 },
+        [pscustomobject]@{ Instance = 'pid_300_luid_0x0_0x1_phys_0_eng_2_engtype_VideoDecode'; Value = 50 })
+    (Measure-OtherGpuUse -Samples $smp -ExcludePids 200) -eq 34.5 -and (Measure-OtherGpuUse -Samples $smp) -eq 100 -and (Measure-OtherGpuUse) -eq 0 }
+$t0 = [datetime]'2026-01-01T12:00:00'
+$aa = @{ Threshold = 25; AwayAfter = 2; BackAfter = 15 }
+Check 'Step-AutoAway: away only after AwayAfter minutes of other GPU use' {
+    $st = @{}
+    $a = Step-AutoAway -State $st -OtherPct 60 -Now $t0 -ServersOn $true @aa
+    $b = Step-AutoAway -State $st -OtherPct 60 -Now $t0.AddMinutes(1) -ServersOn $true @aa
+    $c = Step-AutoAway -State $st -OtherPct 60 -Now $t0.AddMinutes(2) -ServersOn $true @aa
+    $a -eq '' -and $b -eq '' -and $c -eq 'away' -and $st['Away'] }
+Check 'Step-AutoAway: a quiet sample restarts the count' {
+    $st = @{}
+    $null = Step-AutoAway -State $st -OtherPct 60 -Now $t0 -ServersOn $true @aa
+    $null = Step-AutoAway -State $st -OtherPct 5 -Now $t0.AddMinutes(1) -ServersOn $true @aa
+    (Step-AutoAway -State $st -OtherPct 60 -Now $t0.AddMinutes(2) -ServersOn $true @aa) -eq '' }
+Check 'Step-AutoAway: a manual away (servers off) is left alone' {
+    $st = @{}
+    $null = Step-AutoAway -State $st -OtherPct 60 -Now $t0 -ServersOn $false @aa
+    (Step-AutoAway -State $st -OtherPct 60 -Now $t0.AddMinutes(5) -ServersOn $false @aa) -eq '' -and -not $st['Away'] }
+Check 'Step-AutoAway: back after BackAfter quiet minutes, not while still busy' {
+    $st = @{ Away = $true; Since = $null }
+    $a = Step-AutoAway -State $st -OtherPct 5 -Now $t0 -ServersOn $false @aa
+    $b = Step-AutoAway -State $st -OtherPct 70 -Now $t0.AddMinutes(10) -ServersOn $false @aa
+    $c = Step-AutoAway -State $st -OtherPct 5 -Now $t0.AddMinutes(11) -ServersOn $false @aa
+    $d = Step-AutoAway -State $st -OtherPct 5 -Now $t0.AddMinutes(26) -ServersOn $false @aa
+    $a -eq '' -and $b -eq '' -and $c -eq '' -and $d -eq 'back' -and -not $st['Away'] }
+
 # ---- desktop away
 $cfgA = [ordered]@{ AGENT_USER = 'hermes'; DESKTOP_LLAMA_DIR = 'C:\llama'; V100_ENABLED = '0'; NIGHT_ENABLED = '0'; V100_CUDA_DIR = 'C:\llama-cuda' }
 Check 'Get-LlamaTaskNames: only the day server by default' { (Get-LlamaTaskNames -Cfg $cfgA) -join ',' -eq 'llama-server' }
