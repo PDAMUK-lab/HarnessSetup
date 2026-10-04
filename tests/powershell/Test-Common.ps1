@@ -137,6 +137,29 @@ Check 'Select-LlamaRelease: a CUDA zip without its runtime bundle does not quali
 Check 'Select-LlamaRelease takes the newest complete one' { (Select-LlamaRelease -Releases (@(New-Rel 'b4' @('llama-b4-bin-win-vulkan-x64.zip')) + $rels) -Patterns $vk).tag_name -eq 'b4' }
 Check 'Select-LlamaRelease returns nothing when no release qualifies' { $null -eq (Select-LlamaRelease -Releases $rels -Patterns '^llama-.+-bin-win-hip-x64\.zip$') }
 Check 'Select-LlamaRelease copes with an empty list' { $null -eq (Select-LlamaRelease -Releases @() -Patterns $vk) }
+Check 'the ROCm asset pattern finds the HIP Radeon build and not the Vulkan one' {
+    $p = $script:LlamaAssetPatterns['rocm']
+    'llama-b6500-bin-win-hip-radeon-x64.zip' -cmatch $p -and 'llama-b6500-bin-win-hip-x64.zip' -cmatch $p -and
+    -not ('llama-b6500-bin-win-vulkan-x64.zip' -cmatch $p) -and -not ('llama-b6500-bin-ubuntu-rocm-x64.zip' -cmatch $p) }
+$benchCsv = @(
+    'load_backend: loaded ROCm backend from C:\llama-rocm\ggml-hip.dll, with commas',
+    'build_commit,build_number,model_type,n_prompt,n_gen,n_depth,avg_ts,stddev_ts',
+    '"abc","6500","qwen3moe 35B","2048","0","0","812.50","3.1"',
+    'llama_kv_cache: some log line, between rows',
+    '"abc","6500","qwen3moe 35B","0","128","0","24.75","0.2"',
+    '"abc","6500","qwen3moe 35B","0","128","32768","19.1","0.2"'
+) -join "`r`n"
+$bench = @(ConvertFrom-LlamaBenchCsv $benchCsv)
+Check 'ConvertFrom-LlamaBenchCsv: test name, depth and speed of each row, log lines ignored' {
+    $bench.Count -eq 3 -and $bench[0].Test -eq 'pp2048' -and $bench[0].TokensPerSecond -eq 812.5 -and
+    $bench[1].Test -eq 'tg128' -and $bench[1].Depth -eq 0 -and $bench[2].Depth -eq 32768 -and $bench[2].TokensPerSecond -eq 19.1 }
+Check 'Get-LlamaBackend: vulkan unless the folder says rocm' {
+    $d = Join-Path ([IO.Path]::GetTempPath()) "hs-backend-$PID"; New-Item -ItemType Directory -Force -Path $d | Out-Null
+    $a = Get-LlamaBackend -Dir $d
+    Set-Content -LiteralPath "$d\llama-backend.txt" -Value 'rocm'; $b = Get-LlamaBackend -Dir $d
+    Remove-Item -LiteralPath $d -Recurse -Force
+    $a -eq 'vulkan' -and $b -eq 'rocm' }
+Check 'ConvertFrom-LlamaBenchCsv: nothing from output without a CSV table' { @(ConvertFrom-LlamaBenchCsv 'error: failed to load model').Count -eq 0 -and @(ConvertFrom-LlamaBenchCsv '').Count -eq 0 }
 
 # ---- desktop away
 $cfgA = [ordered]@{ AGENT_USER = 'hermes'; DESKTOP_LLAMA_DIR = 'C:\llama'; V100_ENABLED = '0'; NIGHT_ENABLED = '0'; V100_CUDA_DIR = 'C:\llama-cuda' }

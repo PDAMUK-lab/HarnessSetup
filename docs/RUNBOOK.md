@@ -341,6 +341,14 @@ Another model (the MiMo distill, Ornith, Gemma 4, an uncensored drop-in) is a se
 **Desktop (administrator PowerShell, during the day):** `.\desktop\windows\Update-Llama.ps1` does the same for the
 Vulkan build (`-Rollback` to go back); the start scripts, the key and the models are kept.
 
+**Vulkan or ROCm on the desktop?** `.\desktop\windows\Compare-LlamaBackends.ps1` downloads llama.cpp's ROCm (HIP)
+build into `C:\llama-rocm`, checks it sees the card, runs the same `llama-bench` line (the day model, its expert split,
+empty and 32K deep) on both builds and says which is faster. The day server is stopped for the ~15 minutes it takes and
+`C:\llama` is not changed. Switch only when ROCm generates more than 10% faster at every depth:
+`.\desktop\windows\Update-Llama.ps1 -Backend rocm` (tool-call test and automatic undo as above; `-Backend vulkan` goes
+back). The RX 6600 XT (gfx1032) is not on AMD's Windows ROCm list, so "the ROCm build does not see the card" is a likely
+and harmless answer.
+
 
 **Measure with the test set runner** (as `hermes`): copy `config/model-tests.example` to `~/model-tests.txt` and write
 10 to 20 real tasks (`NAME | REPO | CHECK COMMAND | PROMPT`). Then:

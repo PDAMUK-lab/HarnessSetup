@@ -198,25 +198,69 @@ function New-LlamaStartScript {
     return @($guard + (Join-CmdLines -Segments @($head + $tail)))
 }
 
-# Install-LlamaVulkanBuild -Dir C:\llama  - download the newest llama.cpp Windows Vulkan build and unpack it into Dir
-# (stops the server running from Dir first). Used by Install-Llama.ps1 and Update-Llama.ps1.
+# The release asset names of the two Windows builds for an AMD card
+$script:LlamaAssetPatterns = @{
+    vulkan = '^llama-.+-bin-win-vulkan-x64\.zip$'
+    # the HIP (ROCm) build, e.g. llama-bNNNN-bin-win-hip-radeon-x64.zip. Whether it supports the RX 6600 XT (gfx1032) is
+    # checked by Compare-LlamaBackends.ps1 with --list-devices, not assumed.
+    rocm   = '^llama-.+-bin-win-(hip|rocm)[a-z0-9.-]*-x64\.zip$'
+}
+
+# Install-LlamaVulkanBuild -Dir C:\llama [-Backend vulkan|rocm] [-ZipUrl URL]  - download the newest llama.cpp Windows build
+# for the backend and unpack it into Dir (stops the server running from Dir first). Used by Install-Llama.ps1,
+# Update-Llama.ps1 and Compare-LlamaBackends.ps1. -ZipUrl takes a zip by hand (e.g. when a release renames its assets).
 function Install-LlamaVulkanBuild {
-    param([Parameter(Mandatory)][string]$Dir)
-    # not /releases/latest: that is a source-only tag; the builds are pre-releases
-    $rel = Select-LlamaRelease -Releases (Get-LlamaReleases) -Patterns '^llama-.+-bin-win-vulkan-x64\.zip$'
-    if (-not $rel) { throw 'None of the ten newest llama.cpp releases has a win-vulkan-x64 zip. Download it by hand from https://github.com/ggml-org/llama.cpp/releases' }
-    $asset = Select-VulkanAsset $rel.assets
-    $zip = Join-Path ([IO.Path]::GetTempPath()) $asset.name
-    Write-Host "    $($rel.tag_name): $($asset.name)"
-    & curl.exe -L --fail -o $zip $asset.browser_download_url
+    param([Parameter(Mandatory)][string]$Dir, [ValidateSet('vulkan', 'rocm')][string]$Backend = 'vulkan', [string]$ZipUrl = '')
+    if ($ZipUrl) {
+        $name = ($ZipUrl -split '/')[-1]; $url = $ZipUrl; $tag = 'given by hand'
+    } else {
+        # not /releases/latest: that is a source-only tag; the builds are pre-releases
+        $pattern = $script:LlamaAssetPatterns[$Backend]
+        $rel = Select-LlamaRelease -Releases (Get-LlamaReleases) -Patterns $pattern
+        if (-not $rel) { throw "None of the ten newest llama.cpp releases has a Windows $Backend zip. Download it from https://github.com/ggml-org/llama.cpp/releases and pass -ZipUrl." }
+        $asset = if ($Backend -eq 'vulkan') { Select-VulkanAsset $rel.assets } else { @($rel.assets | Where-Object { $_.name -cmatch $pattern })[0] }
+        $name = $asset.name; $url = $asset.browser_download_url; $tag = $rel.tag_name
+    }
+    $zip = Join-Path ([IO.Path]::GetTempPath()) $name
+    Write-Host "    ${tag}: $name"
+    & curl.exe -L --fail -o $zip $url
     if ($LASTEXITCODE -ne 0) { throw 'download of the llama.cpp zip failed' }
     Stop-LlamaServer -Dir $Dir
+    # the old programs and backend DLLs go first: a leftover ggml-vulkan.dll next to a ROCm build (or the other way round)
+    # would be loaded too, and the server would see the card twice. Start scripts, the key and prev\ stay.
+    Get-ChildItem -LiteralPath $Dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll' } | Remove-Item -Force
     Expand-Archive -Path $zip -DestinationPath $Dir -Force
     Remove-Item $zip
     # some zips unpack into a subfolder: move the binaries up to Dir
     $exe = Get-ChildItem -Path $Dir -Recurse -Filter llama-server.exe | Where-Object { $_.DirectoryName -notlike "$Dir\prev*" } | Select-Object -First 1
     if ($exe -and $exe.DirectoryName -ne $Dir) { Move-Item -Path "$($exe.DirectoryName)\*" -Destination $Dir -Force }
-    return $rel.tag_name
+    Set-Content -LiteralPath "$Dir\llama-backend.txt" -Value $Backend -Encoding ascii
+    return $tag
+}
+
+# Get-LlamaBackend -Dir C:\llama  - vulkan or rocm: the build Install-LlamaVulkanBuild last put there (vulkan when unknown)
+function Get-LlamaBackend {
+    param([Parameter(Mandatory)][string]$Dir)
+    $f = "$Dir\llama-backend.txt"
+    if ((Test-Path -LiteralPath $f) -and ((Get-Content -LiteralPath $f -Raw).Trim() -ceq 'rocm')) { return 'rocm' }
+    return 'vulkan'
+}
+
+# ConvertFrom-LlamaBenchCsv TEXT  - rows of `llama-bench -o csv`: { Test (pp2048 / tg128); Depth; TokensPerSecond }.
+# TEXT may hold llama-bench's log lines too (stderr is merged): only the header line and the quoted value lines count.
+function ConvertFrom-LlamaBenchCsv {
+    param([AllowEmptyString()][string]$Text = '')
+    $all = @($Text -split "`r?`n")
+    $start = @(for ($i = 0; $i -lt $all.Count; $i++) { if ($all[$i] -match '(^|,)"?avg_ts"?(,|$)') { $i } })
+    if (-not $start) { return @() }
+    $lines = @($all[$start[0]]) + @($all | Select-Object -Skip ($start[0] + 1) | Where-Object { $_ -match '^"' })
+    if ($lines.Count -lt 2) { return @() }
+    $rows = $lines | ConvertFrom-Csv
+    return @($rows | Where-Object { $_.avg_ts } | ForEach-Object {
+            $test = if ([int]$_.n_prompt -gt 0) { "pp$($_.n_prompt)" } else { "tg$($_.n_gen)" }
+            $depth = if ($_.PSObject.Properties['n_depth']) { [int]$_.n_depth } else { 0 }
+            [pscustomobject]@{ Test = $test; Depth = $depth; TokensPerSecond = [math]::Round([double]::Parse($_.avg_ts, [Globalization.CultureInfo]::InvariantCulture), 2) }
+        })
 }
 
 # Write-CmdFile PATH LINES  - cmd.exe wants CRLF line endings, no BOM

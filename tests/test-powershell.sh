@@ -104,9 +104,19 @@ check "Setup-LaptopAccess: -NoTunnelFile skips the shortcut" bash -c "! grep -q 
 run_ps Update-Llama.ps1 -DryRun
 check "Update-Llama -DryRun exits 0" test $RC -eq 0
 check "Update-Llama: keeps the current build first" has "copy the current .exe and .dll files to C:\\llama\\prev"
-check "Update-Llama: then the newest Vulkan build, restart and the tool-call test" bash -c "grep -q 'latest llama-\*-bin-win-vulkan-x64.zip' <<<\"\$0\" && grep -q \"start the day server (task 'llama-server')\" <<<\"\$0\"" "$OUT"
+check "Update-Llama: then the newest Vulkan build, restart and the tool-call test" bash -c "grep -q 'latest llama-\*-bin-win-vulkan zip' <<<\"\$0\" && grep -q \"start the day server (task 'llama-server')\" <<<\"\$0\"" "$OUT"
 run_ps Update-Llama.ps1 -DryRun -Rollback
 check "Update-Llama -Rollback: puts the kept build back" has "put the build in C:\\llama\\prev back"
+run_ps Update-Llama.ps1 -DryRun -Backend rocm
+check "Update-Llama -Backend rocm: switches the day server to the ROCm build" has "latest llama-*-bin-win-rocm zip"
+
+# ---- Compare-LlamaBackends.ps1: ROCm vs Vulkan, C:\llama untouched
+run_ps Compare-LlamaBackends.ps1 -DryRun
+check "Compare-LlamaBackends -DryRun exits 0" test $RC -eq 0
+check "Compare-LlamaBackends: the ROCm build goes into its own folder" has "bin-win-hip zip into C:\\llama-rocm"
+check "Compare-LlamaBackends: checks the ROCm build sees the card" has "llama-cli.exe --list-devices in C:\\llama-rocm"
+check "Compare-LlamaBackends: the same bench line on both builds, with the day model's expert split" bash -c "grep -q 'C:.llama.llama-bench.exe -m C:.models.Qwen3.6-35B-A3B-.*-ncmoe 40 -fa 1 -ctk f16 -ctv q8_0 -p 2048 -n 128 -d 0,32768 -r 3 -o csv' <<<\"\$0\" && grep -q 'C:.llama-rocm.llama-bench.exe' <<<\"\$0\"" "$OUT"
+check "Compare-LlamaBackends: the day server is started again and the ROCm folder removed" bash -c "grep -q \"start the day server again\" <<<\"\$0\" && grep -q 'remove C:.llama-rocm' <<<\"\$0\"" "$OUT"
 
 # ---- Backup-Laptop.ps1: copy the laptop's newest backup here
 run_ps Backup-Laptop.ps1 -DryRun -Register

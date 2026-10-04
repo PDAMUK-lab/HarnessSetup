@@ -1,16 +1,19 @@
 <#
 .SYNOPSIS
-  Update the desktop's llama.cpp (Vulkan build) to the newest release, and put the old one back if the new one fails.
+  Update the desktop's llama.cpp to the newest release, and put the old one back if the new one fails.
 .DESCRIPTION
   Run in an ADMINISTRATOR PowerShell, during the day (it restarts the day server).
     .\Update-Llama.ps1             keep the current binaries in <DESKTOP_LLAMA_DIR>\prev, unpack the newest build, start the
                                    day server and run the tool-call test; if it fails, the previous build is put back
     .\Update-Llama.ps1 -Rollback   put the previous build back by hand
+    .\Update-Llama.ps1 -Backend rocm   switch the day server to llama.cpp's ROCm build (after Compare-LlamaBackends.ps1
+                                   showed it is faster); -Backend vulkan switches back. Without -Backend the update keeps
+                                   the build in use (Vulkan unless switched). -ZipUrl takes a zip by hand.
   The start scripts, the API key and the models are not touched. The V100 tier's CUDA build is updated by
   re-running Install-V100.ps1.
 #>
 [CmdletBinding()]
-param([string]$ConfigFile, [switch]$Rollback, [switch]$DryRun, [switch]$Yes)
+param([string]$ConfigFile, [switch]$Rollback, [ValidateSet('', 'vulkan', 'rocm')][string]$Backend = '', [string]$ZipUrl = '', [switch]$DryRun, [switch]$Yes)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Common.ps1"
 $script:HsDryRun = [bool]$DryRun
@@ -23,6 +26,7 @@ Assert-Config $cfg $need
 $llama = $cfg['DESKTOP_LLAMA_DIR']
 $prev = "$llama\prev"
 $base = "http://$($cfg['DESKTOP_IP']):$($cfg['LLM_PORT'])"
+if (-not $Backend) { $Backend = Get-LlamaBackend -Dir $llama }
 
 function Get-Binaries { @(Get-ChildItem -LiteralPath $llama -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll' }) }
 function Start-DayServer {
@@ -38,6 +42,7 @@ function Restore-Previous {
     if (-not $script:HsDryRun -and -not (Test-Path -LiteralPath "$prev\llama-server.exe")) { throw "no previous build in $prev" }
     Invoke-Action "stop the server and put the build in $prev back" {
         Stop-LlamaServer -Dir $llama
+        Get-Binaries | Remove-Item -Force   # a failed build's backend DLLs must not stay beside the old ones
         Copy-Item -Path "$prev\*" -Destination $llama -Force
     }
     Start-DayServer
@@ -56,9 +61,10 @@ Invoke-Action "copy the current .exe and .dll files to $prev" {
     if (Test-Path -LiteralPath $prev) { Remove-Item -LiteralPath $prev -Recurse -Force }
     New-Item -ItemType Directory -Path $prev | Out-Null
     Get-Binaries | Copy-Item -Destination $prev
+    if (Test-Path -LiteralPath "$llama\llama-backend.txt") { Copy-Item -LiteralPath "$llama\llama-backend.txt" -Destination $prev }
 }
 Write-Step 'the newest build'
-Invoke-Action 'download and extract the latest llama-*-bin-win-vulkan-x64.zip' { $null = Install-LlamaVulkanBuild -Dir $llama }
+Invoke-Action "download and extract the latest llama-*-bin-win-$Backend zip" { $null = Install-LlamaVulkanBuild -Dir $llama -Backend $Backend -ZipUrl $ZipUrl }
 Start-DayServer
 Write-Step 'test it'
 if (Test-DayServer) {

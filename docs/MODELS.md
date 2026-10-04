@@ -118,7 +118,7 @@ Volta), serves reliable tool calls at 128K, and already has the offload features
 | Engine | Verdict | Why |
 | --- | --- | --- |
 | llama.cpp (current) | **keep** | `--n-cpu-moe` / `-ot` expert offload works on CUDA and Vulkan; see the tuning list below |
-| llama.cpp Windows ROCm build (gfx1032 is a build target) | **try** on the desktop | Same engine, flags and tool calls, so an A/B is cheap: unzip into a separate folder, run the same `llama-bench` line against the Vulkan build, keep it only if it wins by about 10% and passes the tool-call test. Unconfirmed on this card |
+| llama.cpp Windows ROCm build | **try** on the desktop | Same engine, flags and tool calls, so an A/B is cheap: `desktop\windows\Compare-LlamaBackends.ps1` runs the same `llama-bench` line on both builds (C:\llama untouched); switch with `Update-Llama.ps1 -Backend rocm` only if it wins by 10% at every depth (tool-call test and undo included). Support for the RX 6600 XT (gfx1032) is unconfirmed; the script checks |
 | ik_llama.cpp | watch | CPU + CUDA (Turing+) focus; no Vulkan/ROCm, so not for the AMD desktop. Only an option on the V100 tier if layer split disappoints |
 | pulsar (2026, SSD expert streaming) | watch | Linux + NVIDIA, builds for Pascal, parses Qwen tool calls; could let the laptop try the 35B-A3B from SSD. Three months old, unproven on 8 GB + 16 GB |
 | KVMem llama.cpp, Magnitude | watch | Tiered context cache (with a per-answer token cap) / self-tuning engine whose Vulkan offload is unproven; neither runs on Pascal |
