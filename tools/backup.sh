@@ -79,7 +79,9 @@ for root, _, files in os.walk(stage):
                     os.remove(copy + side)
 PY
 sudo_run install -d -m 750 "$dir"
-sudo_run tar -C "$stage" -czf "$out.part" .
+# only the backed-up paths, not '.' or their parent folders: a restore (tar -C / as root) would otherwise put the staging
+# folder's owner and mode on /, /home and the agent's home
+sudo_run tar -C "$stage" -czf "$out.part" "${items[@]}"
 sudo_run chmod 640 "$out.part"
 if [[ -z ${HS_BACKUP_DIR:-} ]]; then sudo_run chown root:"$ADMIN_USER" "$dir" "$out.part"; fi   # the desktop copies it as the admin user
 sudo_run mv "$out.part" "$out"

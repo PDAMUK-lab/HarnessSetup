@@ -31,8 +31,9 @@ confirm "Stop Hermes's services and restore it over the current state (kept as ~
 ts=$(date +%Y%m%d-%H%M%S)
 agent_exec "systemctl --user stop hermes-dashboard 'hermes-gateway*'" >/dev/null 2>&1 || true
 if sudo_run test -e "$home/.hermes"; then sudo_run mv "$home/.hermes" "$home/.hermes.before-restore-$ts"; fi
-settings=./${NODE_ENV_FILE#/}
-sudo_run tar -C / -xzpf "$FILE" --exclude="$settings"
+settings=${NODE_ENV_FILE#/}   # archive members are relative to /, without a leading ./
+# --no-overwrite-dir: folders that exist (/, /home, the agent's home) keep their owner and mode whatever the archive says
+sudo_run tar -C / --no-overwrite-dir -xzpf "$FILE" --exclude="$settings"
 if sudo_run tar -tzf "$FILE" "$settings" >/dev/null 2>&1; then
   # shellcheck disable=SC2016  # $1..$3 belong to the inner shell
   sudo_run bash -c 'tar -C / -xzOf "$1" "$2" >"$3"' _ "$FILE" "$settings" "$NODE_ENV_FILE.from-backup-$ts"

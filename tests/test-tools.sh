@@ -271,6 +271,7 @@ bk
 arc=$(find "$T/backups" -name "hermes-node-*.tar.gz" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d" " -f2-)
 check "backup: exits 0 and writes an archive" bash -c "[[ $RC -eq 0 && -s '$arc' ]]"
 check "backup: holds the config, the GitHub login and the kit's settings" bash -c "tar -tzf '$arc' | grep -q '/.hermes/config.yaml$' && tar -tzf '$arc' | grep -q '/.config/gh/hosts.yml$' && tar -tzf '$arc' | grep -q 'node.env$'"
+check "backup: only the backed-up paths, no parent folders (a restore would chmod / and chown the agent's home)" bash -c "! tar -tzf '$arc' | grep -qE '^\\./|^\\.\$|^${T#/}/\$|^${ah#/}/\$'"
 check "backup: leaves out Hermes's own checkout and caches" bash -c "! tar -tzf '$arc' | grep -qE '/.hermes/(hermes-agent|cache)/'"
 snap() { local d; d=$(mktemp -d); tar -C "$d" -xzf "$arc" && python3 -c "import os,sqlite3,sys; f=[os.path.join(r,'state.db') for r,_,fs in os.walk('$d') if 'state.db' in fs][0]; nowal=not os.path.exists(f+'-wal'); sys.exit(0 if nowal and sqlite3.connect(f).execute('select x from t').fetchone()[0]==42 else 1)"; }
 check "backup: the SQLite database is a consistent snapshot" snap
