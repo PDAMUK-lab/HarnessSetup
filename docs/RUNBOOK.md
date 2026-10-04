@@ -270,6 +270,24 @@ release appears with the artifacts from `dist/`.
 Run stage 13 from the desktop (the only address SSH is allowed from afterwards). The agent has root and can change
 the firewall: for a boundary it cannot remove, put the laptop on a guest network or VLAN at the router.
 
+## 8b. Backups of the agent's state
+
+The agent has root and can damage its own setup. Back up its state (Hermes's config, memory, sessions, cron jobs,
+API keys, the GitHub login and the kit's settings) every day, and keep a copy off the laptop:
+
+```bash
+./setup.sh tool backup --install   # every day at BACKUP_TIME (07:15) into /var/backups/hermes-node, the newest BACKUP_KEEP (14) kept
+./setup.sh tool backup --list
+```
+
+**Desktop (PowerShell):** `.\desktop\windows\Backup-Laptop.ps1 -Register` copies the newest backup into
+`DESKTOP_BACKUP_DIR` (`C:\hermes-backups`) half an hour later every day. The backups hold API keys and the GitHub
+token, so both folders are readable by you and administrators only.
+
+To restore, on the laptop: `./setup.sh tool restore /var/backups/hermes-node/hermes-node-<date>.tar.gz` (copy a desktop
+copy back with `scp` first). It stops Hermes's services, keeps the current state as `~/.hermes.before-restore-<date>`,
+unpacks the backup and starts the services; your current settings stay, the backed-up ones are saved beside them.
+
 ## 9. Optional: overnight quality tier (Step 31)
 
 `Install-Overnight.ps1` asks whether to turn the tier on and for the start and end times (the laptop side asks too):

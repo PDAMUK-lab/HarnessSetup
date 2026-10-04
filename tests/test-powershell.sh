@@ -100,6 +100,13 @@ run_ps Setup-LaptopAccess.ps1 -DryRun -NoTunnelFile
 check "Setup-LaptopAccess: reuses an existing key" has "using the existing key"
 check "Setup-LaptopAccess: -NoTunnelFile skips the shortcut" bash -c "! grep -q 'hermes-tunnel.cmd' <<<\"\$0\"" "$OUT"
 
+# ---- Backup-Laptop.ps1: copy the laptop's newest backup here
+run_ps Backup-Laptop.ps1 -DryRun -Register
+check "Backup-Laptop -DryRun exits 0" test $RC -eq 0
+check "Backup-Laptop: restricts the backup folder to you and administrators" has "restrict C:\\hermes-backups to"
+check "Backup-Laptop: looks for the newest backup on the laptop" has "ssh ai-node@192.168.1.150 ls -1t /var/backups/hermes-node/hermes-node-*.tar.gz"
+check "Backup-Laptop -Register: a daily copy half an hour after the laptop's backup" has "task 'hermes-backup-copy' every day at 07:45"
+
 # ---- Desktop-Mode.ps1: the desktop out of the loop and back (the ssh call is a stub that records its arguments)
 cfg_with -e 's|^NIGHT_ENABLED=.*|NIGHT_ENABLED=1|' -e 's|^V100_ENABLED=.*|V100_ENABLED=1|'
 export FAKE_LOG="$T/ps-calls.log"; : >"$FAKE_LOG"

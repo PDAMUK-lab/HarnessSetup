@@ -262,6 +262,34 @@ OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1)
 check "verify: shows the OpenRouter credit (check 4)" bash -c "grep -qE 'PASS.*#4 +OpenRouter credit: spent' <<<\"\$0\"" "$OUT"
 cp "$T/env.keep" "$HOME/.hermes/.env"
 
+# ---- backup and restore of the agent's state (real run in the sandbox)
+ah="$T/agent-home"; mkdir -p "$ah/.hermes/hermes-agent" "$ah/.hermes/cache" "$ah/.config/gh"
+echo 'model: original' >"$ah/.hermes/config.yaml"; echo 'oauth_token: x' >"$ah/.config/gh/hosts.yml"; echo blob >"$ah/.hermes/hermes-agent/big"
+python3 -c "import sqlite3; c=sqlite3.connect('$ah/.hermes/state.db'); c.execute('pragma journal_mode=wal'); c.execute('create table t(x)'); c.execute('insert into t values (42)'); c.commit()"
+bk() { OUT=$(HS_AGENT_HOME="$ah" HS_BACKUP_DIR="$T/backups" bash "$ROOT/tools/backup.sh" 2>&1); RC=$?; }
+bk
+arc=$(find "$T/backups" -name "hermes-node-*.tar.gz" -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d" " -f2-)
+check "backup: exits 0 and writes an archive" bash -c "[[ $RC -eq 0 && -s '$arc' ]]"
+check "backup: holds the config, the GitHub login and the kit's settings" bash -c "tar -tzf '$arc' | grep -q '/.hermes/config.yaml$' && tar -tzf '$arc' | grep -q '/.config/gh/hosts.yml$' && tar -tzf '$arc' | grep -q 'node.env$'"
+check "backup: leaves out Hermes's own checkout and caches" bash -c "! tar -tzf '$arc' | grep -qE '/.hermes/(hermes-agent|cache)/'"
+snap() { local d; d=$(mktemp -d); tar -C "$d" -xzf "$arc" && python3 -c "import os,sqlite3,sys; f=[os.path.join(r,'state.db') for r,_,fs in os.walk('$d') if 'state.db' in fs][0]; nowal=not os.path.exists(f+'-wal'); sys.exit(0 if nowal and sqlite3.connect(f).execute('select x from t').fetchone()[0]==42 else 1)"; }
+check "backup: the SQLite database is a consistent snapshot" snap
+check "backup: readable by owner and group only" test "$(stat -c %a "$arc")" = 640
+sed -i 's/^BACKUP_KEEP=.*/BACKUP_KEEP=2/' "$NODE_ENV"; bk; bk
+check "backup: keeps the newest BACKUP_KEEP" test "$(find "$T/backups" -name "hermes-node-*.tar.gz" | wc -l)" = 2
+sed -i 's/^BACKUP_KEEP=.*/BACKUP_KEEP=14/' "$NODE_ENV"
+arc=$(find "$T/backups" -name "hermes-node-*.tar.gz" -printf "%T@ %p\n" | sort -rn | head -1 | cut -d" " -f2-)
+echo 'model: changed' >"$ah/.hermes/config.yaml"
+OUT=$(HS_AGENT_HOME="$ah" bash "$ROOT/tools/restore.sh" "$arc" --yes 2>&1); RC=$?
+check "restore: exits 0 and brings the backed-up config back" bash -c "[[ $RC -eq 0 ]] && grep -qx 'model: original' '$ah/.hermes/config.yaml'"
+check "restore: keeps the state it replaced" bash -c "grep -qx 'model: changed' '$ah'/.hermes.before-restore-*/config.yaml"
+check "restore: keeps the current settings and saves the backed-up ones beside them" bash -c "ls '$NODE_ENV'.from-backup-* >/dev/null && test -s '$NODE_ENV'"
+check "restore: stops and starts the services" bash -c "grep -q 'systemctl --user stop hermes-dashboard hermes-gateway' '$FAKE_LOG' && grep -q 'systemctl --user start hermes-dashboard' '$FAKE_LOG'"
+OUT=$(bash "$ROOT/tools/restore.sh" "$T/nope.tar.gz" --yes 2>&1); RC=$?
+check "restore: a missing file is refused" test $RC -ne 0
+OUT=$(bash "$ROOT/tools/backup.sh" --install --dry-run 2>&1)
+check "backup --install: a daily timer at BACKUP_TIME" bash -c "grep -q 'hermes-backup.timer' <<<\"\$0\" && grep -q 'enable --now hermes-backup.timer' <<<\"\$0\"" "$OUT"
+
 # ---- the kit's own release (.github/workflows/release.yml uses these)
 check "release notes: the VERSION file's section exists in CHANGELOG.md" bash -c "[[ -n \$(bash '$ROOT/.github/scripts/release-notes.sh') ]]"
 check "release notes: a section stops at the next heading" bash -c "! bash '$ROOT/.github/scripts/release-notes.sh' 0.3.1 | grep -q '^## '"
