@@ -58,6 +58,13 @@ for f in bin_hermes-mode.tpl scripts_release-pending.sh.tpl; do
   if command -v "$SHELLCHECK" >/dev/null 2>&1; then check "$f: shellcheck" "$SHELLCHECK" -s bash "$T/$f"; fi
 done
 check "hermes-mode: probes use configured addresses" grep -q 'http://192.168.1.100:8080/health' "$T/bin_hermes-mode.tpl"
+check "release skill: never waits with 'gh run watch' (the fine-grained token cannot)" bash -c "! grep -q 'gh run watch' '$ROOT/templates/skills/release/SKILL.md' || grep -q 'Do not use gh run watch' '$ROOT/templates/skills/release/SKILL.md'"
+# shellcheck disable=SC2016  # $GITHUB_SHA is literal workflow text
+check "release.yml: refuses a tag that is not on main" grep -qF 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' "$T/repo_workflows_release.yml.tpl"
+check "release.yml: checks out full history (needed to compare the tag with main)" grep -q 'fetch-depth: 0' "$T/repo_workflows_release.yml.tpl"
+check "release skill: finds the tag's run by commit and polls gh run view" grep -q 'gh run list --workflow release.yml --commit' "$ROOT/templates/skills/release/SKILL.md"
+check "workflows: actions/checkout is the current major (v4 is a retired Node 20 action)" bash -c "! grep -q 'checkout@v[1-6]\\b' '$T/repo_workflows_release.yml.tpl' '$T/repo_workflows_test.yml.tpl'"
+check "guide: the release watcher script matches the template" bash -c "grep -qF \"gh pr list --state merged --search 'Release in:title' --limit 100\" '$ROOT/docs/GUIDE.md'"
 
 echo "templates: $pass passed, $failn failed"
 [[ $failn -eq 0 ]]

@@ -25,7 +25,7 @@ ask_flag CUDA "Build with CUDA 12.4? (recommended for the GTX 1070; say no to us
 VULKAN=$((1 - CUDA))
 
 if [[ $VULKAN == 1 ]]; then
-  sudo_run "${APT[@]}" install libvulkan-dev glslc nvidia-vulkan-icd
+  sudo_run "${APT[@]}" install libvulkan-dev glslc spirv-headers nvidia-vulkan-icd
   gpuflags=(-DGGML_VULKAN=ON)
 else
   # Debian 13's CUDA 12.4 pairs with the 550 driver and supports Pascal (6.1). CUDA 13 does not.
@@ -50,10 +50,14 @@ sudo_run install -d /opt/llama.cpp/bin
 sudo_run install -m 755 "$src/build/bin/llama-server" "$src/build/bin/llama-bench" "$src/build/bin/llama-cli" /opt/llama.cpp/bin/
 
 if [[ $DRY_RUN != 1 ]]; then
-  ver=$(/opt/llama.cpp/bin/llama-server --version 2>&1 || true)
-  echo "$ver" | head -8
-  if [[ $VULKAN == 0 ]] && ! grep -q 'compute capability 6.1' <<<"$ver"; then
-    warn "llama-server did not report 'GTX 1070, compute capability 6.1'. Check nvidia-smi and the build."
+  # --version only prints the build number; the devices are listed by --list-devices
+  devs=$(/opt/llama.cpp/bin/llama-server --list-devices 2>&1 || true)
+  echo "$devs" | head -8
+  if [[ $VULKAN == 0 ]] && ! grep -q 'compute capability 6.1' <<<"$devs"; then
+    warn "llama-server --list-devices did not show 'GTX 1070, compute capability 6.1'. Check nvidia-smi and the build."
+  fi
+  if [[ $VULKAN == 1 ]] && ! grep -q 'Vulkan0' <<<"$devs"; then
+    warn "llama-server --list-devices did not show a Vulkan0 device. Check vulkaninfo --summary and the build."
   fi
 fi
 stage_end

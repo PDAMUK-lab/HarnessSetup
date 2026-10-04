@@ -50,6 +50,7 @@ rm -rf "$HOME/.local"
 OUT=$(PATH="$T/bin2:/usr/bin:/bin" FAKE_HERMES_SRC="$ROOT/tests/fakebin/hermes" bash "$ROOT"/laptop/06-hermes-install.sh 2>&1); RC=$?
 check "06: fresh install exits 0" test $RC -eq 0
 check "06: hermes landed in ~/.local/bin" test -x "$HOME/.local/bin/hermes"
+check "06: the installer ran with --skip-setup (no wizard of its own)" grep -qx -- "--skip-setup" "$HOME/.hermes-install-args"
 check "06: runs hermes doctor" logged "hermes doctor"
 check "06: prints the manual 'hermes model' step" grep -q 'hermes model' <<<"$OUT"
 check "06: records completion" done_marker 06
@@ -186,6 +187,10 @@ OUT=$(FAKE_PR_TITLES=$'Release v1.1.0\n' bash "$rp")
 check "release-pending: stays asleep when everything is tagged" test "$OUT" = '{"wakeAgent": false}'
 OUT=$(FAKE_PR_TITLES='' bash "$rp")
 check "release-pending: stays asleep with no release PRs" test "$OUT" = '{"wakeAgent": false}'
+check "release-pending: searches the whole word Release (GitHub never matches a bare 'v' to 'v1.2.3')" grep -q -- "--search Release in:title" "$HOME/.gh-pr-list-args"
+check "release-pending: asks for more than the default 30 PRs" grep -q -- "--limit 100" "$HOME/.gh-pr-list-args"
+OUT=$(FAKE_PR_TITLES=$'Release prep for v1.9.0: notes\nNot a Release v1.8.0 PR\n' bash "$rp")
+check "release-pending: PRs that merely mention a version do not wake the agent" test "$OUT" = '{"wakeAgent": false}'
 
 # ---- tools/github-smoke-test.sh against a local bare repo that emulates the rulesets
 git config --global init.defaultBranch main

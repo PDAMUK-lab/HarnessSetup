@@ -18,7 +18,7 @@ First check: if a PR titled "Release v<version>" is already merged and the tag v
 ## Stage 2: tag and release
 1. Confirm the PR is merged: gh pr view <number> --json state,mergeCommit.
 2. git fetch origin, then tag the merge commit: git tag -a v<version> <merge sha> -m "v<version>", and git push origin v<version>.
-3. If .github/workflows/release.yml exists, find its run with gh run list --workflow release.yml -L 1, wait with gh run watch, and report the outcome.
+3. If .github/workflows/release.yml exists, find the tag's run with gh run list --workflow release.yml --commit <merge sha> --json databaseId,status,conclusion -L 1 (retry every 10 seconds for up to 2 minutes until a run appears), then poll gh run view <databaseId> --json status,conclusion every 20 seconds until status is completed, and report the conclusion. Do not use gh run watch: it needs a permission the fine-grained token does not have.
 4. If there is no release workflow, run gh release create v<version> --verify-tag --title "v<version>" --notes-file <the changelog section> with the artifacts from the package command.
 5. Finish by checking gh release view v<version> and report its URL and assets.
 6. Never delete or move a tag. If something is wrong, release the next patch version.

@@ -84,13 +84,20 @@ From here on, enter the agent's account with `sudo machinectl shell hermes@`, ne
 
 ### GitHub on the web (MANUAL, Step 8)
 
-1. **Machine account** (for example `yourorg-hermes`); add it with **Write** access to each repo.
-2. **Protect `main`:** Settings > Rules > Rulesets > New branch ruleset on the default branch: require a pull request,
-   require status checks (once CI exists), block force pushes, restrict deletions.
-3. **Protect release tags:** New tag ruleset targeting `v*`: restrict updates and deletions, leave creation allowed.
-   Add yourself (or repo admins) as a **bypass actor**, or the ruleset blocks you too.
-4. **Token**, created *as the machine account*: Settings > Developer settings > Fine-grained tokens, only the
-   selected repositories, 90-day expiry (**put the expiry in your calendar**).
+0. Rulesets are enforced on public repos (GitHub Free); private repos need a Pro or Team plan, otherwise steps 2 and 3 protect nothing.
+1. **Machine account** (for example `yourorg-hermes`, own email). Put the repos in a GitHub **organization** (free is enough), invite
+   the machine account as an org **member** (not an outside collaborator: fine-grained tokens do not work for those), give it
+   **Write** on each repo (via a team, org base permission None), sign in as it and accept the invitation.
+2. **Protect `main`:** Settings > Rules > Rulesets > New branch ruleset, **Enforcement status: Active** (new rulesets start as
+   Disabled), target the default branch: require a pull request with **Required approvals = 1**, dismiss stale approvals, require
+   approval of the most recent push (otherwise the agent can merge its own PR), block force pushes, restrict deletions. Do not
+   add the machine account as a bypass actor. Add "require status checks" after `test` has run once (stage 12 / `adopt-repo.sh`).
+3. **Protect release tags:** New tag ruleset, **Active**, target tags `v*`: restrict updates and deletions, leave creation
+   allowed. Add yourself (or repo admins) as a **bypass actor**, or the ruleset blocks you too.
+4. **Token**, created *as the machine account*: Settings > Developer settings > Fine-grained tokens, **resource owner = the
+   organization**, only the selected repositories, 90-day expiry (**put the expiry in your calendar**). If the organization
+   requires approval for tokens, approve it as an owner (Organization settings > Personal access tokens) or the token sees no
+   private repos.
 
    | Permission | Access |
    | --- | --- |
@@ -146,7 +153,7 @@ config-loader test), merge them into `hermes/demo` and push; press Ctrl+T to wat
 ./setup.sh run 08      # gateway + dashboard as user services, bound to 127.0.0.1:9119 only
 ```
 
-On the desktop run the `hermes-tunnel.cmd` that `Setup-LaptopAccess.ps1` put on your Desktop (pin it), then browse
+On the desktop run the `hermes-tunnel.cmd` that `Setup-LaptopAccess.ps1` put on your Desktop (to pin it: right-click > Create shortcut, Target `cmd.exe /c "<path>"`, pin the shortcut), then browse
 to `http://localhost:9119`. **MANUAL:** on the dashboard's **Config** page set the dangerous-command approval mode to
 **off** (the guide's design: unattended jobs never stall on a prompt). Use port 9119 on both ends of the tunnel.
 

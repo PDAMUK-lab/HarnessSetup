@@ -6,7 +6,7 @@
   2. Installs the public key on the laptop (you type the laptop password here; if you also let it copy the
      laptop's settings you are asked once more, because that happens before the key exists).
   3. Proves a key-only login works. Only then is it safe to run ./setup.sh run 02 on the laptop.
-  4. Offers to write hermes-tunnel.cmd to your Desktop (pin it to the taskbar).
+  4. Offers to write hermes-tunnel.cmd to your Desktop.
   Settings (laptop address, admin account ...) are asked for when config\node.env does not have them yet.
 .EXAMPLE
   .\Setup-LaptopAccess.ps1
@@ -71,8 +71,9 @@ if ($makeTunnel) {
     $tunnel = "$TunnelDir\hermes-tunnel.cmd"
     Write-Step 'Step 15: dashboard tunnel shortcut'
     Write-CmdFile -Path $tunnel -Lines (New-TunnelCmd -Cfg $cfg)
-    Write-Ok "wrote $tunnel - pin it to the taskbar. Run it, then browse to http://localhost:$($cfg['DASHBOARD_PORT'])"
-    Write-Host "Use port $($cfg['DASHBOARD_PORT']) on BOTH ends: the dashboard rejects other Host headers."
+    Write-Ok "wrote $tunnel. Run it, then browse to http://localhost:$($cfg['DASHBOARD_PORT'])"
+    Write-Host "Browse to localhost or 127.0.0.1 only: the dashboard rejects other hostnames (such as the laptop's IP) to block DNS rebinding."
+    Write-Host 'To pin it to the taskbar: right-click the file > Create shortcut, set the shortcut Target to  cmd.exe /c "<path to the .cmd>"  and pin the shortcut.' 
 }
 
 Write-Host ''

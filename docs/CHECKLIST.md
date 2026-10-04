@@ -42,7 +42,7 @@ If check 18 fails on the dashboard or gateway, linger is off or a unit is not en
 - [ ] Step 10: Hermes opens files with tools and `hermes -c` resumes the session
 - [ ] Step 12: subagent branches, `hermes/demo` pushed, `/review` refers to the real diff
 - [ ] Step 14: `curl -s http://127.0.0.1:9119/api/status | jq .auth_required` is `false`; `ss -tlnp | grep 9119` shows `127.0.0.1` only
-- [ ] Step 17: `llama-server --version` finds `GTX 1070, compute capability 6.1`
+- [ ] Step 17: `llama-server --list-devices` shows `GTX 1070, compute capability 6.1`
 - [ ] Step 18: `nvidia-smi` shows ~7GB used
 - [ ] Step 19: Task Manager GPU ~7.3GB and Memory < 90% while generating
 - [ ] Step 24: a new session answers "What are your rules for releasing this repo?" without opening the file

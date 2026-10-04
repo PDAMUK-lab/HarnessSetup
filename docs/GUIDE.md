@@ -142,11 +142,11 @@ sudo systemctl enable nvidia-persistenced
 sudo reboot
 ```
 
+**If you kept Secure Boot:** after the `apt install` and *before* `sudo reboot`, run `sudo mokutil --import /var/lib/dkms/mok.pub` and choose a one-time password. This branch needs a keyboard and screen on the laptop: at that reboot the blue MOK screen appears, so choose Enroll MOK and enter the password. `nvidia-smi` then works after that single reboot.
+
 **Verify:** `nvidia-smi` lists `GeForce GTX 1070` with about 8192MiB and a 550.x driver.
 
 **Never** install `nvidia-open-kernel-dkms`, NVIDIA's own apt repository or its CUDA driver packages (they pull a branch without Pascal support), or a kernel from trixie-backports (6.16 and newer: the 550 module in trixie does not build on it, so DKMS fails and the GPU is gone after the reboot). Stay on the stock trixie kernel (6.12). The trixie-backports NVIDIA packages are the same 550 series, so there is no reason to use them.
-
-**If you kept Secure Boot:** after the install, run `sudo mokutil --import /var/lib/dkms/mok.pub`, choose a one-time password, reboot, and enrol the key in the blue MOK screen.
 
 **If `nvidia-smi` fails:** run `dkms status`. It must show `nvidia-current/550.163.01, <uname -r>, x86_64: installed` for the running kernel (`uname -r`). If that line is missing or says `built` or `added`, check that `ls /usr/src/linux-headers-$(uname -r)` exists, then run `sudo apt install --reinstall linux-headers-amd64 nvidia-kernel-dkms`. On a build error, read `/var/lib/dkms/nvidia-current/550.163.01/build/make.log`.
 
@@ -191,7 +191,7 @@ sudo systemctl reload ssh
 
 ## Phase 2 — Agent user, tools and GitHub access
 
-The agent runs as its own user, `hermes`, with passwordless sudo. That gives it full control of the laptop: packages, services, files and the firewall. A separate user still keeps the agent's config, keys and sessions apart from your admin account, and sudo logs every root command it runs (`journalctl _COMM=sudo`). `ai-node` stays your admin account.
+The agent runs as its own user, `hermes`, with passwordless sudo. That gives it full control of the laptop: packages, services, files and the firewall. A separate user still keeps the agent's config, keys and sessions apart from your admin account, and sudo logs every root command it runs (`sudo journalctl _COMM=sudo`; to read the journal without `sudo`, run `sudo usermod -aG systemd-journal ai-node` and log in again). `ai-node` stays your admin account.
 
 ### Step 6 — Create the agent user
 
@@ -237,7 +237,15 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubc
 sudo apt update && sudo apt install -y gh
 ```
 
-Also install the toolchains your projects need to build, test and package: language runtimes, compilers, databases for integration tests. The agent can install anything else itself with `sudo apt`, and `AGENTS.md` (Step 24) asks it to list each package in the PR. If your projects build or test in containers, install Docker and add `hermes` to the `docker` group.
+Also install the toolchains your projects need to build, test and package: language runtimes, compilers, databases for integration tests. The agent can install anything else itself with `sudo apt`, and `AGENTS.md` (Step 24) asks it to list each package in the PR. If your projects build or test in containers, install Docker and add `hermes` to the `docker` group, before Steps 13 and 14 (the lingering `hermes` user manager from Step 6 keeps the groups it started with, so restart it):
+
+```bash
+sudo apt install -y docker.io
+sudo usermod -aG docker hermes
+sudo systemctl restart user@$(id -u hermes).service   # or reboot
+```
+
+Do not publish container ports (`-p`) on this machine: Docker bypasses the Step 28 ufw rules. Use `-p 127.0.0.1:PORT:PORT`.
 
 **Verify:** `node -v` shows v22 or later, and `gh --version` and `git --version` both print.
 
@@ -247,10 +255,11 @@ The agent pushes branches, opens pull requests, and creates tags and releases. Y
 
 **Do, on GitHub:**
 
-1. **Create a machine account** (for example `yourorg-hermes`) and add it to each repo with Write access. GitHub allows one machine account per person. GitHub will not let you approve a PR your own account opened, so a separate account keeps the agent's PRs reviewable.
-2. **Protect `main`:** Settings → Rules → Rulesets → New branch ruleset, targeting the default branch. Enable "Require a pull request before merging", "Require status checks to pass" (once CI exists), "Block force pushes" and "Restrict deletions".
-3. **Protect release tags:** New tag ruleset, targeting `v*`. Enable "Restrict updates" and "Restrict deletions". Leave creation allowed, so the agent can create a new tag but can never move or remove a published one.
-4. **As the machine account, create a fine-grained token:** Settings → Developer settings → Fine-grained tokens, "Only select repositories", 90-day expiry.
+0. **Prerequisite:** rulesets are enforced on public repos with GitHub Free; private repos need a Pro or Team plan (an organization on the Team plan, or your own Pro plan). Otherwise the rulesets below give no protection.
+1. **Create a machine account** (for example `yourorg-hermes`, with its own email address). Put the repos in a GitHub organization (a free one is enough). Invite the machine account as an organization **member** (Organization → People → Invite member, role Member), give it Write on each repo (preferably through a team, with the organization's base permission set to None), then sign in as the machine account and accept the invitation. GitHub allows one machine account per person, and it will not let you approve a PR your own account opened, so a separate account keeps the agent's PRs reviewable. A fine-grained token does not work if the account is only an outside collaborator or the repos are in a personal account; in that case use a classic token with only the `repo` scope (it still cannot push `.github/workflows/` without the `workflow` scope).
+2. **Protect `main`:** Settings → Rules → Rulesets → New branch ruleset. Set **Enforcement status to Active** (new rulesets start as Disabled). Under Target branches choose Add target → Include default branch. Enable "Require a pull request before merging" and set **Required approvals to 1**, tick "Dismiss stale pull request approvals when new commits are pushed" and "Require approval of the most recent reviewable push" (without an approval, "require a pull request" only requires that a PR exists, and the agent could merge its own). Also enable "Block force pushes" and "Restrict deletions". Do not put the machine account on the bypass list. It cannot approve its own PRs, so you must. Add "Require status checks to pass" later, after Step 26's `test` job has run once (the check name must exist first). If you also open PRs yourself, add yourself as a bypass actor, "For pull requests only".
+3. **Protect release tags:** New tag ruleset, Enforcement status **Active**, target tags: Add target → Include by pattern → `v*`. Enable "Restrict updates" and "Restrict deletions". Leave creation allowed, so the agent can create a new tag but can never move or remove a published one.
+4. **As the machine account, create a fine-grained token:** Settings → Developer settings → Fine-grained tokens, Resource owner = your organization (not the machine account), "Only select repositories", 90-day expiry. If the organization requires approval for tokens (the default), sign in as an owner and approve the request in Organization settings → Personal access tokens; until then the token cannot see private repos.
 
 | Permission | Access | Why |
 | --- | --- | --- |
@@ -261,7 +270,7 @@ The agent pushes branches, opens pull requests, and creates tags and releases. Y
 | Commit statuses | Read | See check results |
 | Metadata | Read | Required, added automatically |
 
-**Do not grant** Workflows, Administration, Secrets or Environments. Without Workflows, GitHub rejects any push that changes `.github/workflows/`. The agent cannot rewrite CI to skip tests or leak secrets.
+**Do not grant** Workflows, Administration, Secrets or Environments. Without Workflows, GitHub rejects any push that changes `.github/workflows/`, so the agent cannot edit the workflow files. CI still runs repo code the agent can change (the test and package commands), so review every diff. Keep secrets out of PR workflows, and put release or deploy secrets in an Environment restricted to protected refs, with a required reviewer.
 
 **Do, on the laptop:**
 
@@ -287,7 +296,10 @@ git push -u origin hermes/smoke                  # works
 git push origin HEAD:main                        # must be REJECTED
 git tag v0.0.0-smoke && git push origin v0.0.0-smoke   # works
 git push origin :refs/tags/v0.0.0-smoke          # must be REJECTED
+gh pr create --fill && gh pr merge --squash      # the merge must be REJECTED (needs your approval)
 ```
+
+Run this before any workflow triggered by `v*` tags exists; if one does, use a branch-only test and skip the tag lines.
 
 Then remove the test tag and branch in the GitHub web UI. On the tag ruleset, add yourself (or repository admins) as a bypass actor first, or the ruleset blocks you too.
 
@@ -302,16 +314,17 @@ Get one clean cloud-backed conversation working before adding anything else.
 **Do** (as `hermes`, via `sudo machinectl shell hermes@`):
 
 ```bash
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+# --skip-setup: the installer would otherwise open its own setup wizard and gateway install, which Steps 10, 11 and 13 do for you
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-setup
 source ~/.bashrc
 hermes doctor
 ```
 
-**Verify:** `command -v hermes` prints a path. Note it, because Phase 4 uses it. `hermes doctor` reports nothing worse than "no provider configured".
+**Verify:** `command -v hermes` prints a path. Note it, because Phase 4 uses it. `hermes doctor` still flags the missing provider and API key until Step 10 (expected, and it exits with status 1); anything about a missing git, curl or Python is a real fault. If you let the installer's wizard run instead: provider OpenRouter, terminal backend local, no messaging platforms, and note that Step 13 repeats the gateway install.
 
 ### Step 10 — Connect OpenRouter
 
-**Do, on openrouter.ai:** create a key just for this machine and give it a **credit limit**, sized to your budget. Strong models at high reasoning effort cost noticeably more, so start around $50 a month and adjust after a week of Analytics. An unattended agent running subagents can spend a lot in one bad loop, and the key limit is a hard stop. Under privacy settings, block providers that train on your prompts.
+**Do, on openrouter.ai:** create a key just for this machine and give it a **credit limit**, sized to your budget, and set the limit to **reset monthly** (Reset limit: Monthly); without a reset the limit is a one-time total and the key stops working for good once it is spent. Strong models at high reasoning effort cost noticeably more, so start around $50 a month and adjust after a week of Analytics. An unattended agent running subagents can spend a lot in one bad loop, and the key limit is a hard stop. Under privacy settings, block providers that train on your prompts.
 
 **Do, on the laptop:** run `hermes model`, choose OpenRouter, paste the key and pick the main (planner) model from the live list. Choose a strong agentic coding model. Model names on OpenRouter change often, so this guide does not hard-code them.
 
@@ -321,42 +334,33 @@ hermes doctor
 
 The planner splits work. Subagents (workers) carry out well-specified pieces and use most of the tokens. The reviewer checks finished work. **Quality first:** give workers a strong mid-tier agentic coder rather than the cheapest model, because they write most of the code. Give the reviewer a frontier model from a **different family** than the planner, so it does not share the planner's blind spots. Current open-weight candidates include Xiaomi's MiMo-V2.6 Pro (planner) and Flash (workers), and Z.ai's GLM-5.3 (reviewer). Confirm which are listed in `hermes model` before using them.
 
-**Do:** add to `~/.hermes/config.yaml`, replacing the `<...>` placeholders with model IDs from `hermes model`:
+**Do:** set these with `hermes config set`, which edits the sections the installer already created (pasting whole blocks into `~/.hermes/config.yaml` would add a second `terminal:`, `agent:` or `delegation:` key, and YAML keeps only the last). Replace the `<...>` placeholders with model IDs from `hermes model`:
 
-```yaml
-terminal:
-  backend: local                 # runs as the hermes user
-  cwd: /home/hermes/repos
-
-agent:
-  reasoning_effort: high         # planner thinks harder; costs more tokens
-
-delegation:
-  provider: openrouter
-  model: "<strong mid-tier agentic coder>"
-  max_concurrent_children: 3     # default 10; 3 keeps spend predictable
-  max_iterations: 200
-  worktree_isolation: true       # each subagent works on its own branch and worktree
-
-auxiliary:
-  review:
-    provider: openrouter
-    model: "<frontier model, different family from the planner>"
-  compression:
-    provider: openrouter
-    model: "<capable mid-tier model>"   # a weak summariser loses detail in long sessions
-
-provider_routing:
-  data_collection: "deny"        # skip OpenRouter providers that may store or train on data
+```bash
+hermes config set terminal.backend local                  # runs as the hermes user
+hermes config set terminal.cwd /home/hermes/repos
+hermes config set agent.reasoning_effort high             # planner thinks harder; costs more tokens
+hermes config set delegation.provider openrouter
+hermes config set delegation.model '<strong mid-tier agentic coder>'
+hermes config set delegation.max_concurrent_children 3    # default 10; 3 keeps spend predictable
+hermes config set delegation.max_iterations 200
+hermes config set delegation.worktree_isolation true      # each subagent works on its own branch and worktree
+hermes config set auxiliary.review.provider openrouter
+hermes config set auxiliary.review.model '<frontier model, different family from the planner>'
+hermes config set auxiliary.compression.provider openrouter
+hermes config set auxiliary.compression.model '<capable mid-tier model>'   # a weak summariser loses detail in long sessions
+hermes config set provider_routing.data_collection deny   # skip OpenRouter providers that may store or train on data
 ```
+
+**Verify:** `hermes config get delegation.worktree_isolation` prints `true`. If you edit with `hermes config edit` instead, change the existing `terminal`, `agent` and `delegation` blocks in place and never add a second top-level key of the same name.
 
 Worktree isolation gives each subagent a branch `hermes-subagent/<id>` under `<repo>/.worktrees/`, so parallel workers never overwrite each other. It only works with the local terminal backend, which is one reason the agent does not run inside Docker.
 
-Once the dashboard is up (Phase 4), open Config and set the dangerous-command **approval mode to off**. The agent then runs every command, including `sudo`, without asking, in chat sessions, subagents and cron runs alike. Unattended jobs never stall waiting for an approval nobody will give. Set it back to smart if you ever want a check before risky commands.
+Now set the dangerous-command **approval mode to off**, before Step 12: `hermes config set approvals.mode off`. The agent then runs every command, including `sudo`, without asking, in chat sessions, subagents and cron runs alike. Unattended jobs never stall waiting for an approval nobody will give. A small hardline blocklist (`rm -rf /`, `mkfs` on the root disk and similar) stays active even with approvals off. You can also change it later on the dashboard's Config page; set it back to `smart` if you ever want a check before risky commands.
 
 ### Step 12 — Prove subagents and review
 
-**Do:** in a test repo, ask *"Use subagents in parallel: one adds a `--version` flag, one adds a test for the config loader. Run the tests, merge both into a branch `hermes/demo` and push it."* Press **Ctrl+T** in the TUI to watch the workers. When it finishes, type `/review`.
+**Do:** start the session inside the repo you cloned in Step 8 (`cd ~/repos/yourrepo && hermes --tui`; Hermes uses the directory it was launched from), then ask *"Use subagents in parallel: one adds a `--version` flag, one adds a test for the config loader. Run the tests, merge both into a branch `hermes/demo` and push it."* Press **Ctrl+T** in the TUI to watch the workers. When it finishes, type `/review`.
 
 **Verify:**
 
@@ -382,7 +386,9 @@ hermes gateway status
 hermes cron status
 ```
 
-**Verify:** the gateway shows running, and `hermes cron status` reports a recent scheduler tick.
+`hermes gateway install` asks two questions on a terminal, "Start the gateway now?" and "Start it automatically on login/boot with systemd?". Answer **Y** to both. If the Step 9 installer already installed the gateway you will see "Service already installed"; just run the two status commands.
+
+**Verify:** wait about a minute, then the gateway shows running and `hermes cron status` shows a recent successful scheduler tick.
 
 ### Step 14 — Run the dashboard as a service
 
@@ -420,15 +426,16 @@ The first start takes a minute while it builds the web frontend. On loopback the
 
 ### Step 15 — Open it from the desktop
 
-**Do** (desktop): save this as `hermes-tunnel.cmd` on the desktop and pin it to the taskbar:
+**Do** (desktop): save this as `hermes-tunnel.cmd` on the desktop. (A `.cmd` file cannot be pinned directly: right-click it, Create shortcut, set the shortcut's Target to `cmd.exe /c "%USERPROFILE%\Desktop\hermes-tunnel.cmd"` and pin the shortcut.)
 
 ```bat
 ssh -N -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes -L 9119:127.0.0.1:9119 ai-node@192.168.1.150
+pause
 ```
 
 Run it, then browse to `http://localhost:9119`.
 
-**Use port 9119 on both ends.** The dashboard checks the browser's Host header to block DNS-rebinding attacks, and a tunnel on a different local port can be refused even though the tunnel itself works.
+**Browse to `http://localhost:9119` or `http://127.0.0.1:9119` only.** The dashboard rejects any other hostname (for example the laptop's LAN address) to block DNS-rebinding attacks. 9119 is just the default: if it is busy on the desktop, change the left number (`-L 9120:127.0.0.1:9119`) and browse to `http://localhost:9120`. The `pause` keeps the window open if `ssh` fails, so you can read why.
 
 **Verify:**
 
@@ -482,9 +489,9 @@ sudo install -d /opt/llama.cpp/bin
 sudo install -m 755 build/bin/llama-server build/bin/llama-bench build/bin/llama-cli /opt/llama.cpp/bin/
 ```
 
-**Verify:** `/opt/llama.cpp/bin/llama-server --version` prints a build number and finds `GTX 1070, compute capability 6.1`.
+**Verify:** `/opt/llama.cpp/bin/llama-server --list-devices` prints `Device 0: NVIDIA GeForce GTX 1070, compute capability 6.1` and a `CUDA0: NVIDIA GeForce GTX 1070 (... MiB ...)` line. (`--version` prints only the build number and never lists the GPU.)
 
-**If CUDA will not build:** use Vulkan instead. Run `sudo apt install libvulkan-dev glslc nvidia-vulkan-icd` and replace the three CUDA flags with `-DGGML_VULKAN=ON`. It is usually a little slower on Pascal. One known cause: errors mentioning `sinpi`, `cospi` or `rsqrt` with "exception specification is incompatible" come from CUDA 12.x headers clashing with newer glibc math headers. Vulkan avoids that clash entirely.
+**If CUDA will not build:** use Vulkan instead. Run `sudo apt install libvulkan-dev glslc spirv-headers nvidia-vulkan-icd` (without `spirv-headers` the configure step fails) and replace the three CUDA flags with `-DGGML_VULKAN=ON`. Then `--list-devices` shows a `Vulkan0` device for the GTX 1070. It is usually a little slower on Pascal. One known cause: errors mentioning `sinpi`, `cospi` or `rsqrt` with "exception specification is incompatible" come from CUDA 12.x headers clashing with newer glibc math headers. Vulkan avoids that clash entirely.
 
 **Updating:** `git pull`, re-run the two `cmake` lines and the `install` line, then restart the service. These models are recent, so stay current.
 
@@ -495,9 +502,10 @@ sudo install -m 755 build/bin/llama-server build/bin/llama-bench build/bin/llama
 ```bash
 sudo adduser --system --group --home /srv/llm llm
 sudo install -d -o llm -g llm /srv/models /srv/llm/slots
-# Check the exact file name on the repo's "Files" tab if this 404s
-sudo -u llm curl -L -o /srv/models/Qwen3.5-9B-UD-Q5_K_XL.gguf \
+# -f makes a wrong file name fail (404) instead of saving the error page as the model; check the name on the repo's "Files" tab
+sudo -u llm curl -fL -C - --retry 5 --retry-delay 5 -o /srv/models/Qwen3.5-9B-UD-Q5_K_XL.gguf \
   https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-UD-Q5_K_XL.gguf
+head -c4 /srv/models/Qwen3.5-9B-UD-Q5_K_XL.gguf; echo     # must print GGUF
 
 # Measure: context cache in VRAM (-nkvo 0) against in RAM (-nkvo 1), empty and 32K deep
 /opt/llama.cpp/bin/llama-bench -m /srv/models/Qwen3.5-9B-UD-Q5_K_XL.gguf \
@@ -555,16 +563,24 @@ The desktop has an AMD card, so it uses llama.cpp's Vulkan build. That needs no 
 
 ```powershell
 mkdir C:\models
-# 26.6GB; check the exact file name on the repo's Files tab if this 404s
-curl.exe -L -o C:\models\Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf
+# 26.6GB. -f makes a wrong file name fail (404) instead of saving the error page as the model; check the name on the repo's Files tab
+curl.exe -f -L -C - --retry 5 -o C:\models\Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf
 ```
 
-4. Make an API key. This server listens on the LAN, so it gets a password even though the firewall already limits it to the laptop. Run `[Convert]::ToBase64String((1..32 | % { Get-Random -Max 256 }))` and keep the output.
+The first four bytes of a real model file are `GGUF` (`Get-Content C:\models\Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf -TotalCount 1 -Encoding Byte` begins 71 71 85 70); a few hundred bytes of text means the download was an error page.
+
+4. Make an API key. This server listens on the LAN, so it gets a password even though the firewall already limits it to the laptop. Run this, which makes a random key with a cryptographic generator, saves it where only you and administrators can read it, and prints it (keep the output; it is the `DESKTOP_LLM_KEY` of Step 21):
+
+```powershell
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+$key = -join ($b | % { $_.ToString('x2') }); Set-Content C:\llama\api-key.txt $key -Encoding ascii
+icacls C:\llama\api-key.txt /inheritance:r /grant:r "${env:USERNAME}:(R)" 'BUILTIN\Administrators:(F)'; $key
+```
 5. Create `C:\llama\start-llama.cmd`:
 
 ```bat
 C:\llama\llama-server.exe -m C:\models\Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf --alias qwen3.6-35b-a3b ^
-  --host 192.168.1.100 --port 8080 --api-key PASTE_KEY_HERE ^
+  --host 192.168.1.100 --port 8080 --api-key-file C:\llama\api-key.txt ^
   --jinja -ngl 99 --n-cpu-moe 40 -fa on -np 1 -c 131072 -ctk f16 -ctv q8_0 ^
   --cache-ram 1024 --chat-template-kwargs "{\"preserve_thinking\":true}" ^
   --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0
@@ -576,7 +592,19 @@ C:\llama\llama-server.exe -m C:\models\Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf --alias q
 New-NetFirewallRule -DisplayName "llama-server 8080 (laptop only)" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -RemoteAddress 192.168.1.150
 ```
 
-7. Start it at logon, from an administrator PowerShell: `schtasks /create /tn llama-server /tr C:\llama\start-llama.cmd /sc onlogon /rl highest`
+7. Start it at logon and now, from an administrator PowerShell. Task Scheduler kills a task after 72 hours by default, which would stop the server every third day, so the time limit is removed:
+
+```powershell
+$me = "$env:USERDOMAIN\$env:USERNAME"
+$a  = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c "C:\llama\start-llama.cmd"'
+$t  = New-ScheduledTaskTrigger -AtLogOn -User $me
+$p  = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Highest
+$s  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+Register-ScheduledTask -TaskName llama-server -Action $a -Trigger $t -Principal $p -Settings $s -Force
+Start-ScheduledTask -TaskName llama-server
+```
+
+   Wait until `http://192.168.1.100:8080/health` returns 200 (the first load takes a few minutes), then go on to Step 20.
 
 **Tune the expert split.** `--n-cpu-moe 40` keeps the experts of all 40 layers in RAM, which is the safe starting point. Recent llama.cpp builds include `llama-fit-params`, which probes free VRAM and prints placement flags without starting the server. If `C:\llama\llama-fit-params.exe` exists, run it with the same model and `-c` and use what it suggests. Otherwise tune by hand: open Task Manager → Performance → GPU, note **Dedicated GPU memory**, and lower the number step by step (32, 28, 24...) until it sits at about 7.3GB. Each layer moved back to the GPU adds roughly 0.6GB at Q5 and speeds up generation.
 
@@ -646,7 +674,7 @@ fallback_providers:
     model: qwen3.5-9b
 ```
 
-The chain is meant to cover three failures: one upstream model being overloaded, OpenRouter itself being unreachable, and the desktop being asleep. Fallback works per turn. Each new message tries OpenRouter first again, and every switch resets the prompt cache, so a session that keeps bouncing costs more. Hermes's documentation does not settle whether one turn can walk past more than one failing entry, so Step 29 tests it.
+The chain is meant to cover three failures: one upstream model being overloaded, OpenRouter itself being unreachable, and the desktop being asleep. Fallback works per turn. Each new message tries OpenRouter first again, and every switch resets the prompt cache, so a session that keeps bouncing costs more. Hermes's documentation says fallback activates at most once per turn, so Step 29 confirms it. If so, an OpenRouter outage reaches the desktop and laptop only through `hermes-mode local` or `/model custom:desktop:...`, not through the chain alone.
 
 **Verify:** `hermes fallback list` shows the three entries in order. In a chat, `/model custom:desktop:qwen3.6-35b-a3b` switches to the desktop and the next answer comes from it.
 
@@ -659,6 +687,8 @@ A profile is a separate Hermes home with its own config, keys, memory and sessio
 ```bash
 hermes profile create local --clone
 ```
+
+Hermes also drops a `~/.local/bin/local` wrapper for the profile, but `local` is a bash builtin and wins over anything on `PATH`, so a bare `local tools` fails. Always type `hermes -p local <command>`.
 
 Edit `~/.hermes/profiles/local/config.yaml` so these keys read:
 
@@ -684,7 +714,7 @@ auxiliary:
 
 The clone copies your cloud settings, so also delete the `provider: openrouter` line inside `delegation:`. The `base_url` above sends subagents to the laptop, and a leftover provider line can make Hermes look for OpenRouter credentials. Then remove the `OPENROUTER_API_KEY` line from `~/.hermes/profiles/local/.env`, and keep `DESKTOP_LLM_KEY`. Nothing in this profile can reach the cloud.
 
-**Trim its tools:** run `local tools` and turn off browser, image generation, voice and web search. Each enabled toolset adds its definitions to every request, and reading the prompt is the slow part on these GPUs.
+**Trim its tools:** run `hermes -p local tools` and turn off browser, image generation, voice and web search. Each enabled toolset adds its definitions to every request, and reading the prompt is the slow part on these GPUs.
 
 ### Step 23 — One command to switch modes
 
@@ -694,6 +724,7 @@ The clone copies your cloud settings, so also delete the `provider: openrouter` 
 #!/usr/bin/env bash
 # hermes-mode [cloud|local|status] - switch the default Hermes profile and show what is reachable
 set -uo pipefail
+export PATH="$HOME/.local/bin:$PATH"   # hermes lives here; services and cron do not run a login shell
 KEY=$(grep -E '^DESKTOP_LLM_KEY=' ~/.hermes/.env | cut -d= -f2- | tr -d "'\"")
 probe() { curl -s -m 3 -o /dev/null -w '%{http_code}' "$@" || true; }
 case "${1:-status}" in
@@ -714,11 +745,11 @@ hermes profile list
 
 - **The CLI and TUI** (`hermes`, `hermes chat`, `hermes --tui`) follow the sticky profile that `hermes-mode` sets.
 - **The dashboard's Chat** follows the profile switcher in its sidebar, independently of the sticky setting. Pick `local` there for a local Chat session.
-- **Scheduled jobs** always run in the profile they were created in, on that profile's gateway. Jobs in the default profile already fall back to local. For a job that must never use the cloud, create it with `local cron create`, after running `local gateway install` once (Step 31 does this).
+- **Scheduled jobs** always run in the profile they were created in, on that profile's gateway. Jobs in the default profile already fall back to local. For a job that must never use the cloud, create it with `hermes -p local cron create`, after running `hermes -p local gateway install` once (Step 31 does this).
 
 **Verify:** `hermes-mode local`, then `hermes chat -q "Which model are you?"` answers from `qwen3.6-35b-a3b`. Turn the desktop off and ask again: the answer comes from `qwen3.5-9b` after a short retry. Check that the gateways were not affected: `hermes -p default cron list` still lists the default profile's jobs. Then `hermes-mode cloud` switches back.
 
-**If the default gateway starts serving the `local` profile** after a restart in local mode, your Hermes version applies the sticky profile to services too. Leave the mode on `cloud`, and use `local chat` or the dashboard's profile switcher for local work instead.
+**If the default gateway starts serving the `local` profile** after a restart in local mode, your Hermes version applies the sticky profile to services too. Leave the mode on `cloud`, and use `hermes -p local chat` or the dashboard's profile switcher for local work instead.
 
 ## Phase 7 — Build, test and release on GitHub
 
@@ -732,7 +763,7 @@ The lifecycle has one human gate per change: you merge. The agent does everythin
 
 ### Step 24 — Write each repo's rules
 
-Every session and every subagent loads `AGENTS.md` from the repo root automatically. **Do:** commit one per repo, adjusted to the project:
+Every session and every subagent loads `AGENTS.md` from the repo root automatically. **Do:** add one per repo, adjusted to the project. The `main` ruleset from Step 8 blocks direct pushes, so use your own account (not the machine account): `git switch -c add-agent-rules && git add AGENTS.md && git commit -m "Add agent rules" && git push -u origin HEAD`, open a PR and merge it. Afterwards, as `hermes`, update the agent's clones so they see it: `git -C ~/repos/yourrepo pull --ff-only` and `git -C ~/repos-cron/yourrepo pull --ff-only`:
 
 ```markdown
 # Agent rules for this repo
@@ -795,7 +826,7 @@ First check: if a PR titled "Release v<version>" is already merged and the tag v
 ## Stage 2: tag and release
 1. Confirm the PR is merged: gh pr view <number> --json state,mergeCommit.
 2. git fetch origin, then tag the merge commit: git tag -a v<version> <merge sha> -m "v<version>", and git push origin v<version>.
-3. If .github/workflows/release.yml exists, find its run with gh run list --workflow release.yml -L 1, wait with gh run watch, and report the outcome.
+3. If .github/workflows/release.yml exists, find the tag's run with gh run list --workflow release.yml --commit <merge sha> --json databaseId,status,conclusion -L 1 (retry every 10 seconds for up to 2 minutes until a run appears), then poll gh run view <databaseId> --json status,conclusion every 20 seconds until status is completed, and report the conclusion. Do not use gh run watch: it needs a permission the fine-grained token does not have.
 4. If there is no release workflow, run gh release create v<version> --verify-tag --title "v<version>" --notes-file <the changelog section> with the artifacts from the package command.
 5. Finish by checking gh release view v<version> and report its URL and assets.
 6. Never delete or move a tag. If something is wrong, release the next patch version.
@@ -807,7 +838,7 @@ First check: if a PR titled "Release v<version>" is already merged and the tag v
 
 The agent's token cannot write workflow files, so you add them, once per repo. CI then builds release artifacts from a clean machine with the repo's own secrets, and the agent never sees those secrets.
 
-**Do:** commit `.github/workflows/test.yml` (runs on every PR) and `.github/workflows/release.yml`. Then add the test job as a required status check on the `main` ruleset from Step 8.
+**Do:** with your own account, add `.github/workflows/test.yml` (runs on every PR) and `.github/workflows/release.yml` through a PR, as in Step 24 (the Step 8 ruleset blocks direct pushes). Once the `test` job has run on that PR, add it as a required status check on the `main` ruleset (the check name must exist first). Then pull the merge into the agent's clones.
 
 ```yaml
 # .github/workflows/release.yml - runs when the agent pushes a vX.Y.Z tag
@@ -821,7 +852,11 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Tag must be on main (never release an unreviewed commit)
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - run: make test            # your test command
       - run: make dist            # your package command, output in dist/
       - name: Publish
@@ -843,7 +878,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: make install         # your install command
       - run: make test            # your test command
 ```
@@ -870,15 +905,16 @@ hermes cron create "weekdays at 6am" \
 hermes cron run nightly-tests      # manual run works while paused
 ```
 
-**Finish releases automatically once you merge a release PR.** A script checks GitHub every 15 minutes at no model cost, and wakes the agent only when a merged release PR has no tag yet. Save this as `~/.hermes/scripts/release-pending.sh` and run `chmod +x` on it:
+**Finish releases automatically once you merge a release PR.** A script checks GitHub every 15 minutes at no model cost, and wakes the agent only when a merged release PR has no tag yet. Run `mkdir -p ~/.hermes/scripts`, save this as `~/.hermes/scripts/release-pending.sh` and run `chmod +x` on it. Each repository needs its own copy (the `cd` line) and its own watcher job:
 
 ```bash
 #!/usr/bin/env bash
 # Wakes the agent only when a merged "Release vX.Y.Z" PR has no tag yet
 cd /home/hermes/repos-cron/yourrepo || exit 1
 git fetch -q --tags origin
-for v in $(gh pr list --state merged --search 'Release v in:title' --json title -q '.[].title' \
-           | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'); do
+# GitHub search matches whole words, so 'v' never matches 'v1.2.3': search the word Release, then keep exactly "Release vX.Y.Z"
+for v in $(gh pr list --state merged --search 'Release in:title' --limit 100 --json title -q '.[].title' \
+           | grep -E '^Release v[0-9]+\.[0-9]+\.[0-9]+$' | cut -d' ' -f2); do
   if ! git rev-parse -q --verify "refs/tags/$v" >/dev/null; then
     echo "{\"wakeAgent\": true, \"context\": {\"version\": \"$v\"}}"
     exit 0
@@ -910,7 +946,7 @@ The agent has root on this machine, so it can change or disable everything below
 
 `--force reset` deletes every existing rule. Run `sudo ufw status numbered` first if you rely on any.
 
-**Do** (as `ai-node`):
+**Do** (as `ai-node`). Run this from the desktop over SSH, and first check that `echo $SSH_CLIENT` starts with `192.168.1.100` and that `grep ^nameserver /etc/resolv.conf` shows only `192.168.1.1` (otherwise change the DNS rule to the address shown). Keep this session open and open a second `ssh` from the desktop after enabling. If you are locked out, run `sudo ufw disable` at the laptop's keyboard.
 
 ```bash
 sudo ufw --force reset
@@ -924,7 +960,7 @@ sudo ufw allow out to 192.168.1.100 port 8080 proto tcp comment 'desktop model'
 sudo ufw deny  out to 192.168.1.0/24 comment 'nothing else on the LAN'
 sudo ufw allow out 80/tcp
 sudo ufw allow out 443/tcp
-sudo ufw enable
+sudo ufw --force enable
 sudo ufw status numbered
 
 sudo -u hermes chmod 600 /home/hermes/.hermes/.env /home/hermes/.hermes/profiles/local/.env
@@ -959,13 +995,15 @@ sudo machinectl shell hermes@ $H/hermes chat -q "Which model are you? One line."
 # 2. now put the desktop to sleep, then ask again: falls back to the laptop model
 sudo machinectl shell hermes@ $H/hermes chat -q "Which model are you? One line."
 # 3. local profile works offline
-sudo machinectl shell hermes@ $H/local chat -q "List the files in ~/repos/yourrepo"
+sudo machinectl shell hermes@ $H/hermes -p local chat -q "List the files in ~/repos/yourrepo"
 
 sudo ufw delete deny out 443/tcp
 sudo machinectl shell hermes@ $H/hermes resume                   # schedules on
 ```
 
-**Verify:** all three answer, after a delay while Hermes retries. Answer 1 comes from `qwen3.6-35b-a3b` and answer 2 from `qwen3.5-9b`. Use the paths from `command -v` if they differ.
+If anything fails or you interrupt it, still run the last two lines. Then `sudo ufw status numbered | grep 443` must show only `ALLOW OUT` lines.
+
+**Verify:** all three answer, after a delay while Hermes retries. A model's own description of itself is only a hint (`--alias` sets the API name, not what the model says). Count requests on the laptop's server instead: `sudo journalctl -u llama-server --since '2 min ago' | grep -c 'chat/completions'` after each answer. Answer 1 must add 0 laptop requests (the desktop's console shows it instead) and answer 2 at least 1. The grep pattern may need adjusting to your llama.cpp build's log format. Use the paths from `command -v` if they differ.
 
 **If answer 1 or 2 errors instead of falling back,** your Hermes version stops after one fallback per turn. With the internet off, that one fallback is the second OpenRouter model, which also fails. Keep the chain for ordinary outages, and switch with `hermes-mode local` when you know the internet is out. The `local` profile goes straight to the desktop, and has the laptop as its only fallback.
 
@@ -980,7 +1018,7 @@ Unsloth improves local quality in two ways. The first you already have: its Dyna
 | Change | Where | How | Expected effect |
 | --- | --- | --- | --- |
 | Keep quants current | Both | Re-download when the Unsloth repo updates. Unsloth has fixed Qwen3.5 tool-calling template bugs and re-released improved quants before. | Fewer broken tool calls |
-| A/B the MiMo distill | Laptop | Download bartowski's `MiMo-V2.6-Distill-Qwen-9B-Q5_K_M.gguf` and change `-m` and `--alias`. If the server rejects `enable_thinking` with MiMo's chat template, remove that line. Run the Step 20 smoke test, then the test set. | Keep whichever model passes more tasks |
+| A/B the MiMo distill | Laptop | Download bartowski's `MiMo-V2.6-Distill-Qwen-9B-Q5_K_M.gguf` to `/srv/models` (as `llm`), change only `-m` in `/etc/systemd/system/llama-server.service` and keep `--alias qwen3.5-9b` so Hermes's config does not change. If the server rejects `enable_thinking` with MiMo's chat template, remove that line. Run `sudo systemctl daemon-reload && sudo systemctl restart llama-server` (without the `daemon-reload` the old `ExecStart` keeps running), check `curl -s http://127.0.0.1:8080/v1/models | jq -r '.data[].id'`, then the Step 20 smoke test and the test set. | Keep whichever model passes more tasks |
 | MTP speculative decoding | Desktop | Use the `-MTP-GGUF` repo for the same model and quant, and add `--spec-type draft-mtp --spec-draft-n-max 2` | Unsloth measured 1.15 to 1.2x faster generation on MoE with no accuracy change. Needs about 1GB more RAM, which Q5 may not have. Skip it on the laptop, where it would force a drop to Q4. |
 | Fewer experts in RAM | Desktop | Lower `--n-cpu-moe` while VRAM allows (Step 19) | Faster generation, same quality |
 | Lower reasoning effort | Cloud | `agent.reasoning_effort: medium` | The "to a point" lever: use it if cost or latency outgrows the gain |
@@ -997,25 +1035,25 @@ Between 01:00 and 07:00 the desktop swaps to it. Overnight jobs run in the `loca
 **Do** (desktop) — download and try it by hand:
 
 ```powershell
-curl.exe -L -o C:\models\Qwen3.8-27B-UD-Q4_K_XL.gguf https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_XL.gguf
+curl.exe -f -L -C - --retry 5 -o C:\models\Qwen3.8-27B-UD-Q4_K_XL.gguf https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_XL.gguf
 ```
 
 Create `C:\llama\start-llama-27b.cmd`:
 
 ```bat
 C:\llama\llama-server.exe -m C:\models\Qwen3.8-27B-UD-Q4_K_XL.gguf --alias qwen3.8-27b ^
-  --host 192.168.1.100 --port 8080 --api-key PASTE_KEY_HERE ^
-  --jinja -ngl 24 -fa on -np 1 -c 131072 -ctk f16 -ctv q8_0 --cache-ram 1024 ^
-  --chat-template-kwargs "{\"reasoning_effort\":\"high\"}" ^
+  --host 192.168.1.100 --port 8080 --api-key-file C:\llama\api-key.txt ^
+  --jinja -ngl 16 -fa on -np 1 -c 131072 -ctk f16 -ctv q8_0 --cache-ram 1024 ^
+  --chat-template-kwargs "{\"reasoning_effort\":\"medium\"}" ^
   --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0 ^
   --spec-type draft-mtp --spec-draft-n-max 2
 ```
 
 Close the 35B server's window and run the script.
 
-- **Set `-ngl`.** Run `llama-fit-params` if your build has it. Otherwise raise `-ngl` from 24, restarting each time, until Task Manager shows about 7.3GB of dedicated GPU memory.
+- **Set `-ngl`.** Run `llama-fit-params` if your build has it. Otherwise start at 16 and raise it (or lower it if the server fails to start with an out-of-memory error), restarting each time, until Task Manager shows about 7.3GB of dedicated GPU memory.
 - **MTP.** Unsloth's Qwen3.8 GGUFs ship with MTP. The last line turns it on, which Unsloth measured at about 1.4x faster on dense models with no change in output. If the server rejects those flags, delete the line.
-- **Reasoning effort.** Qwen3.8 defaults to `xhigh`. `high` keeps most of the quality at a lower token cost.
+- **Reasoning effort.** Qwen3.8 defaults to `xhigh`, and its template maps `high` to `xhigh`, so `high` changes nothing. `medium` thinks less and costs fewer tokens; remove the flag if you prefer maximum effort.
 
 **Do** (laptop, as `hermes`) — wire it into the `local` profile. Add a third endpoint under `providers:` in `~/.hermes/profiles/local/config.yaml`:
 
@@ -1030,31 +1068,37 @@ Close the 35B server's window and run the script.
 Then give the `local` profile its own scheduler and tools, and create the first job while the 27B server is still running from your manual test:
 
 ```bash
-local gateway install            # the local profile's own gateway; runs its cron jobs
-local tools                      # select the "cron" platform; enable file, terminal, delegation
+hermes -p local gateway install            # the local profile's own gateway; runs its cron jobs
+hermes -p local tools                      # select the "cron" platform; enable file, terminal, delegation
 
-local cron create "daily at 2am" \
+hermes -p local cron create "daily at 2am" \
   "<self-contained task: e.g. raise test coverage of src/parser to 90%, keep all tests green, push hermes/coverage-parser and open a draft PR with before/after coverage>" \
   --workdir /home/hermes/repos-cron/yourrepo \
   --provider custom:desktop-night --model qwen3.8-27b --name overnight-coverage --paused
-local cron run overnight-coverage     # a manual run, now, against the 27B
+hermes -p local cron run overnight-coverage     # a manual run, now, against the 27B
 ```
 
-**Verify the manual run:** `local cron runs overnight-coverage` shows it completed. The desktop's console shows the 27B working, and `nvidia-smi` on the laptop shows the 9B busy while subagents run. Afterwards, close the 27B window and run `C:\llama\start-llama.cmd` again.
+**Verify the manual run:** `hermes -p local cron runs overnight-coverage` shows it completed. The desktop's console shows the 27B working, and `nvidia-smi` on the laptop shows the 9B busy while subagents run. Afterwards, close the 27B window and run `C:\llama\start-llama.cmd` again.
 
 **Do** (desktop, administrator PowerShell) — schedule the swap so it wakes the machine:
 
 ```powershell
 $s     = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries
+$me    = "$env:USERDOMAIN\$env:USERNAME"
+$p     = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Highest   # the day server runs elevated; a normal task cannot stop it
 $night = New-ScheduledTaskAction -Execute cmd.exe -Argument '/c taskkill /im llama-server.exe /f & start "" C:\llama\start-llama-27b.cmd'
 $day   = New-ScheduledTaskAction -Execute cmd.exe -Argument '/c taskkill /im llama-server.exe /f & start "" C:\llama\start-llama.cmd'
-Register-ScheduledTask -TaskName llama-night -Action $night -Trigger (New-ScheduledTaskTrigger -Daily -At 01:00) -Settings $s
-Register-ScheduledTask -TaskName llama-day   -Action $day   -Trigger (New-ScheduledTaskTrigger -Daily -At 07:00) -Settings $s
+Register-ScheduledTask -TaskName llama-night -Action $night -Trigger (New-ScheduledTaskTrigger -Daily -At 01:00) -Settings $s -Principal $p
+Register-ScheduledTask -TaskName llama-day   -Action $day   -Trigger (New-ScheduledTaskTrigger -Daily -At 07:00) -Settings $s -Principal $p
 ```
+
+**Test the swap before the first night** (with the day server running): `schtasks /run /tn llama-night`, wait about a minute, then `curl -H "Authorization: Bearer <key>" http://192.168.1.100:8080/v1/models` must list `qwen3.8-27b`. Then `schtasks /run /tn llama-day` and the same curl must list `qwen3.6-35b-a3b`.
+
+Also keep the PC awake after the timer wake: with nobody at the machine, Windows goes back to sleep when the "system unattended sleep timeout" (default 2 minutes) expires, possibly before the job starts. In the same administrator PowerShell: `powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP 7bc4a2f9-d8fc-4469-b07b-33eb785aaca0 25200; powercfg /setactive SCHEME_CURRENT` (stay awake up to 7 hours).
 
 Then allow wake timers: Control Panel → Power Options → Change plan settings → Change advanced power settings → Sleep → Allow wake timers → Enable. Leave your account signed in and lock the screen rather than signing out. The tasks run in your session, which is where the GPU driver works reliably. In Windows Update, set active hours to cover 01:00 to 07:00 so it does not restart mid-job.
 
-Finally, resume the job on the laptop: `local cron resume overnight-coverage`.
+Finally, resume the job on the laptop: `hermes -p local cron resume overnight-coverage`.
 
 **Rules for overnight jobs:**
 
@@ -1065,11 +1109,11 @@ Finally, resume the job on the laptop: `local cron resume overnight-coverage`.
 
 **Verify** (next morning):
 
-- `local cron runs overnight-coverage` shows a completed run, and the draft PR exists.
+- `hermes -p local cron runs overnight-coverage` shows a completed run, and the draft PR exists.
 - Task Scheduler's history on the desktop shows both `llama-night` and `llama-day` ran.
-- `hermes-mode status` shows the desktop at `200`, and it is serving `qwen3.6-35b-a3b` again.
+- As `hermes`, `curl -s -H "Authorization: Bearer $(grep -E '^DESKTOP_LLM_KEY=' ~/.hermes/.env | cut -d= -f2-)" http://192.168.1.100:8080/v1/models | jq -r '.data[].id'` prints `qwen3.6-35b-a3b` again (`hermes-mode status` only shows that the desktop answers with `200`, not which model it serves).
 
-**If the job failed with a connection error around 01:00,** the desktop did not wake or you were signed out. Check the wake-timer setting, and that the PC sleeps rather than hibernates.
+**If the job failed with a connection error around 01:00,** the desktop did not wake or you were signed out. Check the wake-timer setting, the unattended sleep timeout above, and that the PC sleeps rather than hibernates.
 
 ### Step 32 — Optional: fine-tune the laptop model on your own work
 
@@ -1077,10 +1121,10 @@ Finally, resume the job on the laptop: `local cron resume overnight-coverage`.
 
 **The pipeline:**
 
-1. **Collect examples from the strong model.** Hermes's batch runner (`batch_runner.py` in `~/.hermes/hermes-agent`) runs a JSONL file of prompts through full agent sessions and writes ShareGPT-format trajectories. Run your real task prompts through it with the OpenRouter planner. Keep only trajectories whose tests passed, and aim for a few hundred. Check that the teacher model's terms allow training on its outputs.
-2. **Train a LoRA with Unsloth.** Unsloth supports the GTX 1070 but notes it is slow. A QLoRA of a 9B model needs about 6.5GB of VRAM, so stop `llama-server` while training. The faster route is one of Unsloth's free Colab or Kaggle notebooks for Qwen3.5, or a rented GPU for an hour. The desktop's AMD card cannot train through Unsloth on Windows.
+1. **Collect examples from the strong model.** Hermes's batch runner (`batch_runner.py` in `~/.hermes/hermes-agent`) runs a JSONL file of prompts through full agent sessions and writes ShareGPT-format trajectories. As `hermes`, in the Hermes checkout and with its Python environment, write `prompts.jsonl` with one `{"prompt": "..."}` per line and run `python batch_runner.py --dataset_file=data/prompts.jsonl --batch_size=5 --run_name=laptop-sft --model=<your OpenRouter planner id> --num_workers=2`; trajectories land in `data/laptop-sft/trajectories.jsonl`. The runner does not know whether your tests passed, so have each prompt run the tests and keep only trajectories whose final tool output shows a pass; aim for a few hundred. Check that the teacher model's terms allow training on its outputs.
+2. **Train a LoRA with Unsloth.** Train a 16-bit LoRA on a rented GPU or a Colab or Kaggle notebook with enough VRAM (Unsloth lists about 22GB for Qwen3.5-9B). Unsloth advises against 4-bit QLoRA for Qwen3.5. Do not train on the GTX 1070: Unsloth's requirements give a minimum CUDA capability of 7.0, and Qwen3.5's Triton kernels need it. The desktop's AMD card cannot train through Unsloth on Windows.
 3. **Export to GGUF** with Unsloth's export, at `Q4_K_M` or `Q5_K_M`. Your own export lacks Unsloth's Dynamic calibration, so the tuned model starts with a small quantization handicap.
-4. **Compare on the Step 30 test set.** Deploy only if it beats the stock Unsloth quant. To deploy, copy the file to `/srv/models`, change `-m` and `--alias` in the service, and restart. Keep the old file for rollback.
+4. **Compare on the Step 30 test set.** Deploy only if it beats the stock Unsloth quant. To deploy, copy the file to `/srv/models`, change `-m` (keep the alias) in the service, then `sudo systemctl daemon-reload && sudo systemctl restart llama-server`. Keep the old file for rollback: restore the old `-m` line and repeat the `daemon-reload` and restart.
 
 ## Phase 10 — Final checks
 
@@ -1093,7 +1137,7 @@ All must pass, except check 19, which applies only if you set up the overnight t
 | 1 | `nvidia-smi` on the laptop | GTX 1070, 550-series driver |
 | 2 | `sudo -u hermes sudo -n true && echo ROOT-OK` | `ROOT-OK`, with no password prompt; approval mode shows off in the dashboard's Config page |
 | 3 | As `hermes`, push to `main`, and delete a `v*` tag | Both rejected |
-| 4 | `hermes doctor` and `local doctor` | No errors |
+| 4 | `hermes doctor` and `hermes -p local doctor` | No errors |
 | 5 | Tunnel, then `http://localhost:9119` | Dashboard loads; gateway shown running |
 | 6 | The dashboard URL from a phone, using the laptop's IP | Does not load |
 | 7 | Parallel subagent task (Step 12) | Separate `hermes-subagent/*` branches; main checkout clean |
@@ -1105,7 +1149,7 @@ All must pass, except check 19, which applies only if you set up the overnight t
 | 13 | `/model custom:laptop:qwen3.5-9b` mid-session | Next answer from the laptop model |
 | 14 | Internet off (Step 29) | Desktop answers, then laptop with the desktop asleep |
 | 15 | `/release` round trip in a test repo (Step 26) | Release PR, then tag, CI run and published release |
-| 16 | `hermes cron status` and `hermes cron doctor`, plus `local cron status` if you set up Step 31 | Recent ticks; doctor exits 0 |
+| 16 | `hermes cron status` and `hermes cron doctor`, plus `hermes -p local cron status` if you set up Step 31 | Recent ticks; doctor exits 0 |
 | 17 | Firewall checks (Step 28) | 200, 200, BLOCKED, resolves, NTP synced |
 | 18 | Reboot the laptop and log in to the desktop. Do not log in as `hermes`. Repeat checks 5, 11 and 16 | All pass: gateways, dashboard and both model servers started on their own |
 | 19 | The morning after an overnight job (Step 31) | Completed run, a draft PR, and the desktop back on `qwen3.6-35b-a3b` |
@@ -1130,12 +1174,12 @@ For Hermes problems, start with `hermes doctor`, then the dashboard's Logs page 
 | Desktop generation very slow | Too many experts in RAM, or RAM paging to disk | Lower `--n-cpu-moe`; close other apps; or use `UD-Q4_K_XL` |
 | Desktop model unreachable from the laptop | Desktop asleep, Windows firewall rule, or laptop ufw rule | `hermes-mode status`; Steps 19 and 28 |
 | Overnight job fails around 01:00 | Desktop did not wake, or you were signed out | Wake timers and signed-in session (Step 31) |
-| Desktop serves the 27B during the day | `llama-day` task did not run | Run `C:\llama\start-llama.cmd`; check Task Scheduler history |
+| Desktop serves the 27B during the day | `llama-day` task did not run | Stop the 27B first (close its window, or in an administrator prompt `taskkill /im llama-server.exe /f`), run `C:\llama\start-llama.cmd`, then check `llama-day` in Task Scheduler history |
 | Answers in gibberish | Context set too low, or a cache-type problem | Keep `-c 131072`; try `-ctk bf16 -ctv bf16` |
 | Subagents edit the main checkout | Worktree isolation fell back | `terminal.backend: local`; start Hermes inside a git repo |
 | Push rejected: "refusing to allow ... workflow" | Working as intended: no Workflows permission | Change CI files yourself |
 | Release workflow did not run | Tag pushed before `release.yml` existed, or wrong tag pattern | Add the workflow, then release the next patch version |
-| Cron job shows `blocked_config` | Missing credential or toolset for the cron platform | `hermes cron doctor` (or `local cron doctor`); `hermes tools` for cron |
+| Cron job shows `blocked_config` | Missing credential or toolset for the cron platform | `hermes cron doctor` (or `hermes -p local cron doctor`); `hermes tools` for cron |
 | Costs higher than expected | High reasoning effort, fallback bouncing, or too many parallel subagents | Dashboard Analytics; `agent.reasoning_effort: medium`; lower `max_concurrent_children` |
 
 ## Worth knowing

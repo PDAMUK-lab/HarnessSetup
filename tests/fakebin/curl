@@ -3,7 +3,7 @@
 [[ -n ${FAKE_CURL_REAL:-} ]] && exec /usr/bin/curl "$@"
 case "$*" in
   *api/status*) echo '{"auth_required": false}' ;;
-  *hermes-agent*install.sh*) printf 'mkdir -p "$HOME/.local/bin"\ncp "%s" "$HOME/.local/bin/hermes"\n' "${FAKE_HERMES_SRC:-$(dirname "$0")/hermes}" ;;
+  *hermes-agent*install.sh*) printf 'printf "%%s\\n" "$*" >"$HOME/.hermes-install-args"\nmkdir -p "$HOME/.local/bin"\ncp "%s" "$HOME/.local/bin/hermes"\n' "${FAKE_HERMES_SRC:-$(dirname "$0")/hermes}" ;;
   *http_code*) printf '%s' "${FAKE_HTTP_CODE:-200}" ;;
   */v1/models*) echo '{"data":[{"id":"'"${FAKE_MODEL_ID:-qwen3.5-9b}"'"}]}' ;;
 esac

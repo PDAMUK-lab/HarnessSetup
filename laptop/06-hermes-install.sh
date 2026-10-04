@@ -15,7 +15,8 @@ use_hermes_path
 if command -v hermes >/dev/null 2>&1; then
   ok "hermes already installed at $(command -v hermes)"
 else
-  run bash -c 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash'
+  # --skip-setup: without it the installer opens its own interactive setup and gateway install (stages 07-13 do those)
+  run bash -c 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-setup'
 fi
 
 if [[ $DRY_RUN != 1 ]]; then

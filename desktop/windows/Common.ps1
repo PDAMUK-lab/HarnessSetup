@@ -136,7 +136,7 @@ function New-LlamaStartScript {
         $file = $Cfg['NIGHT_MODEL_FILE']; $alias = $Cfg['NIGHT_MODEL_ALIAS']
         $tail = @(
             "  --jinja -ngl $($Cfg['NIGHT_NGL']) -fa on -np 1 -c $($Cfg['DESKTOP_CTX']) -ctk f16 -ctv q8_0 --cache-ram $($Cfg['DESKTOP_CACHE_RAM_MB']) ^",
-            "  --chat-template-kwargs `"{\`"reasoning_effort\`":\`"high\`"}`" ^",
+            "  --chat-template-kwargs `"{\`"reasoning_effort\`":\`"medium\`"}`" ^",
             '  --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0 ^',
             '  --spec-type draft-mtp --spec-draft-n-max 2'
         )
@@ -168,7 +168,10 @@ function New-TunnelCmd {
         '@echo off',
         'title Hermes dashboard tunnel - leave this window open',
         "echo Browse to http://localhost:$p",
-        "ssh -N -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes -L ${p}:127.0.0.1:${p} $($Cfg['ADMIN_USER'])@$($Cfg['LAPTOP_IP'])"
+        "ssh -N -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes -L ${p}:127.0.0.1:${p} $($Cfg['ADMIN_USER'])@$($Cfg['LAPTOP_IP'])",
+        'echo.',
+        'echo The tunnel has stopped. Read any message above, then press a key to close.',
+        'pause'
     )
 }
 
@@ -1109,7 +1112,7 @@ function New-V100StartScript {
     }
     $lines += "cd /d $dir"
     $moe = ((Get-V100Family -ModelFile $file) -eq '35B')
-    $kwargs = if ($moe) { '"{\"preserve_thinking\":true}"' } else { '"{\"reasoning_effort\":\"high\"}"' }
+    $kwargs = if ($moe) { '"{\"preserve_thinking\":true}"' } else { '"{\"reasoning_effort\":\"medium\"}"' }
     $sampling = if ($moe) { '--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0' } else { '--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0' }
     $tail = @("  --cache-ram 2048 --chat-template-kwargs $kwargs ^")
     if ($Mtp -and $split -ne 'tensor') { $tail += '  --spec-type draft-mtp --spec-draft-n-max 2 ^' }

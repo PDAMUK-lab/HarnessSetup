@@ -50,7 +50,7 @@ Check 'Day: the key itself never appears in the script' { -not (($day -join "`n"
 $night = New-LlamaStartScript -Cfg $cfg -Tier Night
 Check 'Night: 27B model and alias' { $night[0] -eq 'C:\llama\llama-server.exe -m C:\models\Qwen3.8-27B-UD-Q4_K_XL.gguf --alias qwen3.8-27b ^' }
 Check 'Night: partial GPU offload (-ngl 24), no --n-cpu-moe' { ($night -join "`n") -match '-ngl 24' -and ($night -join "`n") -notmatch 'n-cpu-moe' }
-Check 'Night: reasoning effort high' { ($night -join "`n").Contains('--chat-template-kwargs "{\"reasoning_effort\":\"high\"}"') }
+Check 'Night: reasoning effort medium (the template maps high to the default xhigh)' { ($night -join "`n").Contains('--chat-template-kwargs "{\"reasoning_effort\":\"medium\"}"') }
 Check 'Night: temp 1.0 and MTP speculative decoding' { ($night -join "`n") -match '--temp 1\.0' -and ($night -join "`n") -match '--spec-type draft-mtp --spec-draft-n-max 2' }
 Check 'Night: every line but the last continues with ^' { (@($night[0..($night.Count - 2)] | Where-Object { $_ -notmatch ' \^$' }).Count -eq 0) -and ($night[-1] -notmatch '\^$') }
 $cfg2 = [ordered]@{} + $cfg; $cfg2['DESKTOP_N_CPU_MOE'] = '32'
@@ -63,6 +63,7 @@ Check 'cmd file uses CRLF line endings' { ([System.Text.Encoding]::ASCII.GetStri
 Check 'cmd file has no BOM' { $raw[0] -ne 0xEF -and $raw[0] -ne 0xFF }
 $tun = (New-TunnelCmd -Cfg $cfg) -join "`n"
 Check 'tunnel uses 9119 on both ends and the laptop address' { $tun.Contains('-L 9119:127.0.0.1:9119 ai-node@192.168.1.150') }
+Check 'tunnel window stays open after a failed connection (pause)' { $tun.Contains('pause') }
 Check 'tunnel keeps the connection alive and fails loudly' { $tun.Contains('ServerAliveInterval=30') -and $tun.Contains('ExitOnForwardFailure=yes') }
 
 # ---- Test-GgufFile / Select-VulkanAsset

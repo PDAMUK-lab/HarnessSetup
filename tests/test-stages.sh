@@ -84,6 +84,8 @@ check "09: installs into /opt/llama.cpp/bin" has "/opt/llama.cpp/bin"
 dry 09 --vulkan
 check "09: --vulkan uses the Vulkan backend" has "DGGML_VULKAN=ON"
 check "09: --vulkan drops the CUDA flags" lacks "DGGML_CUDA"
+check "09: --vulkan installs spirv-headers (cmake configure fails without it)" has "spirv-headers"
+check "static: 09 verifies with --list-devices, not --version" bash -c "grep -q -- '--list-devices' '$ROOT/laptop/09-llama-cpp.sh' && ! grep -q 'llama-server --version' '$ROOT/laptop/09-llama-cpp.sh'"
 
 # ---- stage 10
 dry 10

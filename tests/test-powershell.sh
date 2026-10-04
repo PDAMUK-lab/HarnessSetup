@@ -72,6 +72,10 @@ check "Install-Overnight -DryRun exits 0" test $RC -eq 0
 check "Install-Overnight: downloads the 27B" has "Qwen3.8-27B-UD-Q4_K_XL.gguf"
 check "Install-Overnight: night and day tasks at the configured times" has "tasks llama-night at 01:00 and llama-day at 07:00"
 check "Install-Overnight: allows wake timers" has "wake timers on"
+check "Install-Overnight: stays awake after an unattended wake" has "stay awake for up to 7 hours"
+# the task bodies do not run in a dry run, so check the source: both swap tasks must run elevated like the day server
+check "static: Install-Overnight registers llama-night and llama-day elevated" bash -c "[[ \$(grep -c 'Register-ScheduledTask.*-Principal \$principal' '$ROOT/desktop/windows/Install-Overnight.ps1') -eq 2 ]] && grep -q 'New-ScheduledTaskPrincipal.*-RunLevel Highest' '$ROOT/desktop/windows/Install-Overnight.ps1'"
+check "static: Install-Overnight sets the unattended sleep timeout (25200 s)" grep -q '7bc4a2f9-d8fc-4469-b07b-33eb785aaca0 25200' "$ROOT/desktop/windows/Install-Overnight.ps1"
 check "Install-Overnight: active hours only on request" has "-SetUpdateActiveHours"
 run_ps Install-Overnight.ps1 -DryRun -SetUpdateActiveHours
 check "Install-Overnight: -SetUpdateActiveHours sets them" has "Windows Update active hours"

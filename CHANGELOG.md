@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.1
+
+The guide was checked line by line against the real tools; the guide and the kit were corrected where they disagreed.
+
+- **Lid and sleep first.** Ignoring the lid and masking sleep moved from Step 4 to Step 1 (stage 01 does it before any `apt` run), so a
+  closed lid can no longer kill SSH during the upgrade or the driver build.
+- **Root password.** The guide now says that an empty root password locks root: `su` fails, use `sudo -i` (and what to do if you
+  want a root password instead).
+- **Fixes in the kit:** zram swap is switched on (`systemctl start /dev/zram0`; the setup service only creates the device); stage 01
+  warns about a 6.16+ (backports) kernel, which the 550 module does not build on; the Vulkan fallback installs `spirv-headers`; stage 09
+  checks the GPU with `--list-devices` (`--version` never lists it); the Hermes installer runs with `--skip-setup`; the release watcher
+  searches `Release in:title` and accepts only `Release vX.Y.Z` titles; the release skill polls the run instead of `gh run watch`; the
+  release workflow refuses a tag that is not on `main`; `actions/checkout@v7`; the overnight swap tasks run elevated like the day
+  server, and the PC stays awake after a timer wake; the overnight 27B uses `reasoning_effort` `medium` (`high` is an alias of the
+  default); the dashboard tunnel script pauses on error.
+- **Guide corrections:** the dkms module is `nvidia-current`; Debian's 550 driver is end-of-life; GitHub ruleset setup (organisation
+  member, Active enforcement, required approvals, private-repo plan); direct pushes go through a PR; sudoers is validated before it is
+  installed; `hermes config set` instead of pasted YAML; `hermes -p local` instead of the shadowed `local`; model downloads with `curl -f`
+  and a GGUF check; a crypto-random API key; scheduled-task time limit removed; firewall lock-out guard; and more (see the git log).
+
 ## 0.3.0
 
 Two additions, both optional, and a fix.

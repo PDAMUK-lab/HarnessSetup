@@ -63,16 +63,26 @@ Write-Ok "wrote $llama\stop-llama.cmd (stops only the server that runs from $lla
 Write-Step 'swap tasks (they wake the PC)'
 Invoke-Action "tasks llama-night at $($cfg['NIGHT_START']) and llama-day at $($cfg['NIGHT_END'])" {
     $settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries
+    # The day server runs elevated (its logon task is 'highest'); a non-elevated swap task cannot stop it ("Access is denied"),
+    # so the 27B would fail to bind the port while the 35B kept answering. Run the swap tasks elevated too.
+    $me = "$env:USERDOMAIN\$env:USERNAME"
+    $principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Highest
     # stop only THIS folder's server (the V100 server has the same program name), then start the other model
     $night = New-ScheduledTaskAction -Execute cmd.exe -Argument "/c call $llama\stop-llama.cmd & start `"`" $llama\start-llama-27b.cmd"
     $day = New-ScheduledTaskAction -Execute cmd.exe -Argument "/c call $llama\stop-llama.cmd & start `"`" $llama\start-llama.cmd"
-    Register-ScheduledTask -TaskName llama-night -Action $night -Trigger (New-ScheduledTaskTrigger -Daily -At $cfg['NIGHT_START']) -Settings $settings -Force | Out-Null
-    Register-ScheduledTask -TaskName llama-day -Action $day -Trigger (New-ScheduledTaskTrigger -Daily -At $cfg['NIGHT_END']) -Settings $settings -Force | Out-Null
+    Register-ScheduledTask -TaskName llama-night -Action $night -Trigger (New-ScheduledTaskTrigger -Daily -At $cfg['NIGHT_START']) -Settings $settings -Principal $principal -Force | Out-Null
+    Register-ScheduledTask -TaskName llama-day -Action $day -Trigger (New-ScheduledTaskTrigger -Daily -At $cfg['NIGHT_END']) -Settings $settings -Principal $principal -Force | Out-Null
 }
 
 Write-Step 'allow wake timers (Power Options > Sleep > Allow wake timers = Enable)'
 Invoke-Action 'powercfg: wake timers on (mains)' {
     & powercfg.exe /setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKE 1
+    & powercfg.exe /setactive SCHEME_CURRENT
+}
+# After a timer wake with nobody at the PC, Windows goes back to sleep when the 'system unattended sleep timeout' (default 2 minutes) runs out,
+# which can be before the job starts. 7 hours (25200 s) covers the night window.
+Invoke-Action 'powercfg: stay awake for up to 7 hours after an unattended wake (mains)' {
+    & powercfg.exe /setacvalueindex SCHEME_CURRENT SUB_SLEEP 7bc4a2f9-d8fc-4469-b07b-33eb785aaca0 25200
     & powercfg.exe /setactive SCHEME_CURRENT
 }
 

@@ -9,7 +9,11 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Tag must be on main (never release an unreviewed commit)
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - run: |
           @@INSTALL_CMD@@
       - run: |
