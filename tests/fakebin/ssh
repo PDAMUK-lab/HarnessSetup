@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Test stub for ssh: record the arguments; FAKE_SSH_FAIL=1 makes it fail like an unreachable laptop
+echo "ssh $*" >>"${FAKE_LOG:-/dev/null}"
+[[ ${FAKE_SSH_FAIL:-0} == 1 ]] && { echo "ssh: connect to host failed" >&2; exit 255; }
+exit 0

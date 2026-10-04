@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test stub for lspci: FAKE_LSPCI=nvidia pretends the laptop has its GTX 1070
+if [[ ${FAKE_LSPCI:-none} == nvidia ]]; then
+  echo "01:00.0 VGA compatible controller: NVIDIA Corporation GP104 [GeForce GTX 1070] (rev a1)"
+else
+  echo "00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 620"
+fi

@@ -1,0 +1,12 @@
+# Your filled-in settings (non-secret, but machine specific)
+config/node.env
+# Anything that looks like a secret
+*.key
+*.pem
+.env
+*.env
+!config/node.env.example
+# Editor / OS noise
+*.swp
+.DS_Store
+Thumbs.db

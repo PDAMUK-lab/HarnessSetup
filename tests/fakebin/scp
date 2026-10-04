@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Test stub for scp: `scp login:remote DEST` copies $FAKE_SCP_SRC to DEST
+echo "scp $*" >>"${FAKE_LOG:-/dev/null}"
+dest=${*: -1}
+[[ -n ${FAKE_SCP_SRC:-} ]] || exit 1
+cp "$FAKE_SCP_SRC" "$dest"

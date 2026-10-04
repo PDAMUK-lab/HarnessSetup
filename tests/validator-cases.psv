@@ -1,0 +1,123 @@
+# type|value|expect(ok|bad)|normalised(optional; <empty> = must normalise to empty)|why
+# Shared by tests/test-config.sh (bash) and tests/powershell/Test-Settings.ps1 so both validators agree.
+ip|192.168.1.150|ok||ip: valid
+ip|192.168.1.256|bad||ip: 256 octet
+ip|192.168.1|bad||ip: too few octets
+ip|192.168.01.5|bad||ip: leading zero
+ip|1.2.3.4;rm|bad||ip: injection attempt
+cidr|192.168.1.150/24|ok|192.168.1.0/24|cidr: normalised to the network
+cidr|10.1.2.3/16|ok|10.1.0.0/16|cidr: /16
+cidr|192.168.1.0/32|bad||cidr: prefix too long
+cidr|192.168.1.0|bad||cidr: no prefix
+port|9119|ok||port: ok
+port|0|bad||port: zero
+port|65536|bad||port: too big
+port|80a|bad||port: junk
+int:1-10|3|ok|3|int range: ok
+int:1-10|0|bad||int range: below
+int:1-10|11|bad||int range: above
+int:1-10|007|ok|7|int range: leading zero normalised
+bool01|Yes|ok|1|bool: yes
+bool01|0|ok|0|bool: 0
+bool01|maybe|bad||bool: maybe
+unixuser|ai-node|ok||unixuser: ok
+unixuser|AiNode|bad||unixuser: upper case
+unixuser|root|bad||unixuser: root refused
+ghname|acme-corp|ok||ghname: ok
+ghname|-acme|bad||ghname: leading hyphen
+ghname|ac--me|bad||ghname: double hyphen
+ghname|acme/api|bad||ghname: slash
+repos|  api   web |ok|api web|repos: list normalised
+repos|acme/api|bad||repos: owner/name refused
+repos||bad||repos: empty
+noreply|42+acme-hermes@users.noreply.github.com|ok||noreply: with id
+noreply|acme-hermes@users.noreply.github.com|ok||noreply: without id
+noreply|me@gmail.com|bad||noreply: other domain
+model|vendor/model-3.5|ok||model: ok
+model|vendor/model:free|ok||model: with :free tag
+model|justaname|bad||model: no vendor
+model||bad||model: empty
+optmodel||ok|<empty>|optmodel: empty ok
+optmodel|-|ok|<empty>|optmodel: dash clears
+optmodel|nonsense|bad||optmodel: junk
+gguf|Qwen3.5-9B-UD-Q5_K_XL.gguf|ok||gguf: ok
+gguf|model.bin|bad||gguf: wrong extension
+url|https://huggingface.co/a/b/resolve/main/x.gguf|ok||url: https ok
+url|http://example.com/x|bad||url: http refused
+url|https://x.com/a b|bad||url: space refused
+time|1:00|ok|01:00|time: pads the hour
+time|23:59|ok|23:59|time: ok
+time|24:00|bad||time: 24h refused
+time|01:60|bad||time: minutes
+winpath|C:\llama|ok||winpath: ok
+winpath|D:\models\|ok|D:\models|winpath: trailing slash stripped
+winpath|C:\my models|bad||winpath: spaces refused
+winpath|/srv/models|bad||winpath: unix path refused
+alias|qwen3.5-9b|ok||alias: ok
+choice:a,b,c|b|ok||choice: ok
+choice:a,b,c|d|bad||choice: other
+ghname|yourorg|bad||placeholder: yourorg refused
+text|a'b|bad||quote injection refused
+text|a$(id)|bad||dollar injection refused
+text|a`id`|bad||backtick refused
+alias|a\b|bad||backslash refused outside winpath
+alias|on|bad||YAML would read it as a boolean
+alias|Yes|bad||YAML boolean, any case
+alias|null|bad||YAML null
+alias|7b|bad||must start with a letter
+alias|qwen3.5-9b|ok||normal model name
+cidr|10.0.0.1/08|ok|10.0.0.0/8|leading-zero prefix is not octal
+cidr|10.0.0.1/09|ok|10.0.0.0/9|leading-zero prefix is not octal
+repos|*|bad||a glob is not a repository name
+repos|api *|bad||a glob among real names
+repos|api   web|ok|api web|whitespace is squeezed
+port|1|ok||lowest port
+port|65535|ok||highest port
+port|65536|bad||one past the highest
+int:1-10|10|ok|10|upper bound
+int:1-10|11|bad||past the upper bound
+int:1-10|1|ok|1|lower bound
+time|00:00|ok|00:00|midnight
+time|23:59|ok|23:59|last minute
+time|7:05|ok|07:05|single-digit hour is padded
+cidr|10.0.0.0/8|ok|10.0.0.0/8|shortest allowed prefix
+cidr|10.0.0.0/30|ok|10.0.0.0/30|longest allowed prefix
+cidr|10.0.0.0/7|bad||prefix too short
+cidr|10.0.0.0/31|bad||prefix too long
+ip|0.0.0.0|ok||all zeros
+ip|255.255.255.255|ok||all ones
+ip|1.2.3.4.5|bad||five octets
+ghname|a|ok||one character
+ghname|abcdefghijklmnopqrstuvwxyzabcdefghijklm|ok||39 characters
+ghname|abcdefghijklmnopqrstuvwxyzabcdefghijklmn|bad||40 characters
+unixuser|abcdefghijklmnopqrstuvwxyzabcdef|ok||32 characters
+unixuser|abcdefghijklmnopqrstuvwxyzabcdefg|bad||33 characters
+model|vendor/model:free|ok||colon tag
+model|vendor/|bad||nothing after the slash
+gguf|a.b.gguf|ok||dots in the name
+gguf|.gguf|bad||no name
+winpath|C:\llama\sub|ok||nested folder
+winpath|C:\|bad||drive root alone
+kwargs|enable_thinking=true|ok||kwargs: one pair
+kwargs|reasoning_effort=medium,enable_thinking=false|ok||kwargs: two pairs
+kwargs|none|ok||kwargs: none
+kwargs|auto|ok||kwargs: auto
+kwargs|enable_thinking|bad||kwargs: no value
+kwargs|a=1,,b=2|bad||kwargs: empty pair
+kwargs|a=1,|bad||kwargs: trailing comma
+kwargs|a=1,a=2|bad||kwargs: duplicate key
+kwargs|a=1,A=2|ok||kwargs: keys are case-sensitive (two different keys)
+kwargs|a=x y|bad||kwargs: space in value
+kwargs|1a=x|bad||kwargs: key starts with a digit
+kwargs|a=x;b|bad||kwargs: semicolon
+sampling|--temp 0.6 --top-p 0.95 --top-k 20|ok||sampling: three pairs
+sampling|--temp  0.6   --min-p 0|ok|--temp 0.6 --min-p 0|sampling: extra spaces normalised
+sampling|--repeat-last-n -1|ok||sampling: negative number
+sampling|none|ok||sampling: none
+sampling|auto|ok||sampling: auto
+sampling|--temp|bad||sampling: flag without value
+sampling|--temp 0.6 --top-p|bad||sampling: odd count
+sampling|--temp hot|bad||sampling: not a number
+sampling|--model x.gguf|bad||sampling: not an allowed flag
+sampling|--temp 0.6;rm|bad||sampling: injection attempt
+sampling|-t 0.6|bad||sampling: short flag

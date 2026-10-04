@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Test stub for nvidia-smi.
+#   no arguments        the laptop's GTX 1070 table (FAKE_NVIDIA=missing: the driver is not there)
+#   --query-gpu=...     the desktop's V100 cards: FAKE_V100=<count> (default none), FAKE_V100_MODE=TCC|WDDM, FAKE_V100_MEM=<MiB>,
+#                       FAKE_V100_DRIVER=<version>, FAKE_V100_WIDTH=<PCIe lanes>, FAKE_V100_TEMP=<C>
+#   -i N -dm / -pl      record the call
+echo "nvidia-smi $*" >>"${FAKE_LOG:-/dev/null}"
+[[ ${FAKE_NVIDIA:-ok} == missing ]] && { echo "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver." >&2; exit 9; }
+case "$*" in
+  *--query-gpu=index,temperature.gpu*)
+    for ((i = 0; i < ${FAKE_V100:-0}; i++)); do echo "$i, ${FAKE_V100_TEMP:-45}, 41.20"; done
+    exit 0 ;;
+  *--query-gpu=*)
+    for ((i = 0; i < ${FAKE_V100:-0}; i++)); do
+      echo "$i, Tesla V100-SXM2-16GB, GPU-0000000$i, 00000000:4$i:00.0, ${FAKE_V100_MEM:-16384}, 300.00, 300.00, 100.00, 300.00, ${FAKE_V100_MODE:-TCC}, ${FAKE_V100_DRIVER:-582.78}, 3, ${FAKE_V100_WIDTH:-4}"
+    done
+    exit 0 ;;
+  *-dm*) echo "Set driver model to TCC for GPU 00000000:41:00.0."; echo "Reboot required."; exit 0 ;;
+  *-pl*) echo "Power limit for GPU set."; exit 0 ;;
+esac
+echo "| NVIDIA-SMI 550.163.01   Driver Version: 550.163.01   CUDA Version: 12.4 |"
+echo "|   0  NVIDIA GeForce GTX 1070   Off | 00000000:01:00.0 Off |  N/A |"
+echo "|  N/A   45C  P8   9W / 151W |   7012MiB /  8192MiB |"

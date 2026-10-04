@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "systemctl $* [XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-}]" >>"${FAKE_LOG:-/dev/null}"
+exit 0

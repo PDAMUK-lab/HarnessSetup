@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Test stub for the hermes CLI: records calls, emulates just enough profile/cron state.
+echo "hermes $*" >>"${FAKE_LOG:-/dev/null}"
+profile=''
+if [[ ${1:-} == -p ]]; then profile=$2; shift 2; fi
+home=$HOME/.hermes; [[ -n $profile && $profile != default ]] && home=$HOME/.hermes/profiles/$profile
+case "${1:-} ${2:-}" in
+  "profile create")
+    dst=$HOME/.hermes/profiles/$3; mkdir -p "$dst"
+    if [[ " $* " == *" --clone "* ]]; then cp "$HOME/.hermes/config.yaml" "$HOME/.hermes/.env" "$dst/" 2>/dev/null; fi ;;
+  "chat -q")
+    if [[ -n ${FAKE_ANSWERS:-} && -s $FAKE_ANSWERS ]]; then
+      line=$(head -1 "$FAKE_ANSWERS"); sed -i 1d "$FAKE_ANSWERS"
+      [[ $line == FAIL ]] && { echo "error: all providers failed" >&2; exit 1; }
+      echo "$line"
+    fi ;;
+  "gateway status") echo "gateway: running" ;;
+  "config get")
+    # like Hermes: booleans in lower case; a missing file or key is an error
+    python3 - "$home/config.yaml" "${3:-}" <<'PY' 2>/dev/null || exit 1
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1])) or {}
+for k in sys.argv[2].split("."):
+    d = d[k]
+print(str(d).lower() if isinstance(d, bool) else d)
+PY
+    ;;
+  "fallback list")
+    # with the desktop out of the loop (hermes-desktop off) the chain has no desktop entry
+    if [[ -e $HOME/.hermes/desktop-away ]]; then printf '1. openrouter\n2. custom:laptop\n'
+    else printf '1. openrouter\n2. custom:desktop\n3. custom:laptop\n'; fi ;;
+  "profile list") echo default; ls "$HOME/.hermes/profiles" 2>/dev/null ;;
+  "cron list") cat "$home/fake-cron" 2>/dev/null ;;
+  "cron create")
+    name=''; prev=''
+    for a in "$@"; do [[ $prev == --name ]] && name=$a; prev=$a; done
+    mkdir -p "$home"; echo "$name" >>"$home/fake-cron" ;;
+esac
+exit 0
