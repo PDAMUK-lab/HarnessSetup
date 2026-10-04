@@ -27,6 +27,29 @@ git clone https://github.com/PDAMUK/HarnessSetup.git ~/HarnessSetup && cd ~/Harn
 
 The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps between stages.
 
+### Before you start: accounts and things to have ready
+
+| What | Why | Notes |
+| --- | --- | --- |
+| A **GitHub machine account** | The agent works as this account: its commits, pushes and PRs come from it, and its token is the only GitHub access on the laptop | See below. Not needed for offline-only use |
+| A **GitHub organization** (free) holding the repos | Fine-grained tokens and team permissions only work for repos in an organization | Create it with your own account (github.com → + → New organization); you stay its owner |
+| An **OpenRouter account** with credit and a monthly credit limit on the key | The cloud planner and workers; the limit is the spending cap | Not needed offline |
+| Access to your **router's admin page** | DHCP reservations for the laptop and desktop (and any NAS or phone you add) | |
+| A USB stick (1GB or more) | The Debian 13 netinst installer | |
+| An **administrator account** on the Windows desktop | The desktop scripts install services and firewall rules | |
+| Internet during setup | Debian packages, Hermes, llama.cpp and the model files (~40GB) are downloaded once | Afterwards the node can run offline |
+
+**What is a "machine account"?** An ordinary, second GitHub *user* account that you create for the agent - there is
+no special account type. GitHub's terms allow one per person, for automation. You keep your own account; the agent never
+gets it. Why a separate account: GitHub never lets an account approve its own pull request, so the agent's PRs need *your*
+approval before they reach `main`; its token can be limited to a few repos and revoked without touching your account; and
+every change it makes is visibly its own in the history.
+
+How to make one: sign out of GitHub (or use a private browser window), sign up with a **different email address** (a
+`you+hermes@example.com` alias works with most mail providers) and a name such as `yourname-hermes`, turn on two-factor
+authentication, then from your own account invite it to the organization as a **member** and give it Write on the repos
+([runbook §2](docs/RUNBOOK.md#github-on-the-web-manual-step-8) has the exact clicks, the rulesets and the token).
+
 ### Manual steps the quick start depends on
 
 Some steps need you (a router, the GitHub web UI, a key). They gate the stages as follows:
