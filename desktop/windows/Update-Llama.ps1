@@ -1,0 +1,71 @@
+<#
+.SYNOPSIS
+  Update the desktop's llama.cpp (Vulkan build) to the newest release, and put the old one back if the new one fails.
+.DESCRIPTION
+  Run in an ADMINISTRATOR PowerShell, during the day (it restarts the day server).
+    .\Update-Llama.ps1             keep the current binaries in <DESKTOP_LLAMA_DIR>\prev, unpack the newest build, start the
+                                   day server and run the tool-call test; if it fails, the previous build is put back
+    .\Update-Llama.ps1 -Rollback   put the previous build back by hand
+  The start scripts, the API key and the models are not touched. The V100 tier's CUDA build is updated by
+  re-running Install-V100.ps1.
+#>
+[CmdletBinding()]
+param([string]$ConfigFile, [switch]$Rollback, [switch]$DryRun, [switch]$Yes)
+$ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\Common.ps1"
+$script:HsDryRun = [bool]$DryRun
+$script:HsAssumeYes = [bool]$Yes
+Assert-Admin
+if (-not $ConfigFile) { $ConfigFile = Get-DefaultConfigPath }
+$need = 'DESKTOP_IP', 'LLM_PORT', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODEL_ALIAS'
+$cfg = Initialize-NodeConfig -Path $ConfigFile -Need $need
+Assert-Config $cfg $need
+$llama = $cfg['DESKTOP_LLAMA_DIR']
+$prev = "$llama\prev"
+$base = "http://$($cfg['DESKTOP_IP']):$($cfg['LLM_PORT'])"
+
+function Get-Binaries { @(Get-ChildItem -LiteralPath $llama -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll' }) }
+function Start-DayServer {
+    Invoke-Action "start the day server (task 'llama-server')" { Start-ScheduledTask -TaskName 'llama-server' }
+}
+function Test-DayServer {
+    if ($script:HsDryRun) { return $true }
+    $key = (Get-Content -LiteralPath "$llama\api-key.txt" -Raw).Trim()
+    if (-not (Wait-Http -Url "$base/health" -Seconds 300 -Headers @{ Authorization = "Bearer $key" })) { return $false }
+    return (Test-ToolCall -BaseUrl $base -Model $cfg['DESKTOP_MODEL_ALIAS'] -ApiKey $key)
+}
+function Restore-Previous {
+    if (-not $script:HsDryRun -and -not (Test-Path -LiteralPath "$prev\llama-server.exe")) { throw "no previous build in $prev" }
+    Invoke-Action "stop the server and put the build in $prev back" {
+        Stop-LlamaServer -Dir $llama
+        Copy-Item -Path "$prev\*" -Destination $llama -Force
+    }
+    Start-DayServer
+}
+
+if ($Rollback) {
+    Write-Step 'rollback'
+    Restore-Previous
+    if (Test-DayServer) { Write-Ok 'the previous build answers with tool calls' } else { throw 'the previous build does not answer either: look at the server window' }
+    return
+}
+
+if (-not $script:HsDryRun -and -not (Test-Path -LiteralPath "$llama\llama-server.exe")) { throw "no llama-server.exe in $llama yet: run Install-Llama.ps1 first" }
+Write-Step "keep the current build in $prev"
+Invoke-Action "copy the current .exe and .dll files to $prev" {
+    if (Test-Path -LiteralPath $prev) { Remove-Item -LiteralPath $prev -Recurse -Force }
+    New-Item -ItemType Directory -Path $prev | Out-Null
+    Get-Binaries | Copy-Item -Destination $prev
+}
+Write-Step 'the newest build'
+Invoke-Action 'download and extract the latest llama-*-bin-win-vulkan-x64.zip' { $null = Install-LlamaVulkanBuild -Dir $llama }
+Start-DayServer
+Write-Step 'test it'
+if (Test-DayServer) {
+    Write-Ok "updated; the previous build stays in $prev (.\Update-Llama.ps1 -Rollback goes back)"
+} else {
+    Write-Warn 'the new build did not answer with a tool call: putting the previous one back'
+    Restore-Previous
+    if (Test-DayServer) { throw 'rolled back to the previous build (it answers again); the new one failed - see its server window or try again later' }
+    throw 'rolled back, but the previous build does not answer either: look at the server window'
+}

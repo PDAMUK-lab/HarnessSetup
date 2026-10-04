@@ -198,6 +198,27 @@ function New-LlamaStartScript {
     return @($guard + (Join-CmdLines -Segments @($head + $tail)))
 }
 
+# Install-LlamaVulkanBuild -Dir C:\llama  - download the newest llama.cpp Windows Vulkan build and unpack it into Dir
+# (stops the server running from Dir first). Used by Install-Llama.ps1 and Update-Llama.ps1.
+function Install-LlamaVulkanBuild {
+    param([Parameter(Mandatory)][string]$Dir)
+    # not /releases/latest: that is a source-only tag; the builds are pre-releases
+    $rel = Select-LlamaRelease -Releases (Get-LlamaReleases) -Patterns '^llama-.+-bin-win-vulkan-x64\.zip$'
+    if (-not $rel) { throw 'None of the ten newest llama.cpp releases has a win-vulkan-x64 zip. Download it by hand from https://github.com/ggml-org/llama.cpp/releases' }
+    $asset = Select-VulkanAsset $rel.assets
+    $zip = Join-Path ([IO.Path]::GetTempPath()) $asset.name
+    Write-Host "    $($rel.tag_name): $($asset.name)"
+    & curl.exe -L --fail -o $zip $asset.browser_download_url
+    if ($LASTEXITCODE -ne 0) { throw 'download of the llama.cpp zip failed' }
+    Stop-LlamaServer -Dir $Dir
+    Expand-Archive -Path $zip -DestinationPath $Dir -Force
+    Remove-Item $zip
+    # some zips unpack into a subfolder: move the binaries up to Dir
+    $exe = Get-ChildItem -Path $Dir -Recurse -Filter llama-server.exe | Where-Object { $_.DirectoryName -notlike "$Dir\prev*" } | Select-Object -First 1
+    if ($exe -and $exe.DirectoryName -ne $Dir) { Move-Item -Path "$($exe.DirectoryName)\*" -Destination $Dir -Force }
+    return $rel.tag_name
+}
+
 # Write-CmdFile PATH LINES  - cmd.exe wants CRLF line endings, no BOM
 function Write-CmdFile {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string[]]$Lines)

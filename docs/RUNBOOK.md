@@ -330,6 +330,17 @@ Another model (the MiMo distill, Ornith, Gemma 4, an uncensored drop-in) is a se
 `start-llama.cmd` by hand as the guide's table says. Server logs show tokens per second:
 `journalctl -u llama-server -f` on the laptop, the console window on the desktop.
 
+### Updating llama.cpp (with an undo)
+
+```bash
+./setup.sh tool update-llama              # laptop: keeps the current build in /opt/llama.cpp/bin.prev, rebuilds (stage 09),
+                                          # restarts and runs the tool-call test; a failing build is replaced by the old one
+./setup.sh tool update-llama --rollback   # back to the previous build by hand (add --vulkan to the update for a Vulkan build)
+```
+
+**Desktop (administrator PowerShell, during the day):** `.\desktop\windows\Update-Llama.ps1` does the same for the
+Vulkan build (`-Rollback` to go back); the start scripts, the key and the models are kept.
+
 ## 11. Final checks and upkeep (Step 33)
 
 Run [CHECKLIST.md](CHECKLIST.md). **Check 18 matters most**: reboot the laptop, do not log in as `hermes`, and repeat

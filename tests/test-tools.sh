@@ -290,6 +290,21 @@ check "restore: a missing file is refused" test $RC -ne 0
 OUT=$(bash "$ROOT/tools/backup.sh" --install --dry-run 2>&1)
 check "backup --install: a daily timer at BACKUP_TIME" bash -c "grep -q 'hermes-backup.timer' <<<\"\$0\" && grep -q 'enable --now hermes-backup.timer' <<<\"\$0\"" "$OUT"
 
+# ---- update-llama.sh: rebuild, test, roll back on failure (the build is a stub that writes a new llama-server)
+lp="$T/llama"; mkdir -p "$lp/bin"
+printf '#!/bin/sh\necho "version: 100 (old)"\n' >"$lp/bin/llama-server"; chmod +x "$lp/bin/llama-server"
+newbuild="printf '#!/bin/sh\\necho \"version: 200 (new)\"\\n' >'$lp/bin/llama-server'"
+upd() { OUT=$(HS_LLAMA_PREFIX="$lp" HS_LLAMA_BUILD="$newbuild" bash "$ROOT/tools/update-llama.sh" "$@" 2>&1); RC=$?; }
+upd
+check "update-llama: a build that serves tool calls is kept" bash -c "[[ $RC -eq 0 ]] && grep -q '200 (new)' '$lp/bin/llama-server' && grep -q '100 (old)' '$lp/bin.prev/llama-server'"
+check "update-llama: restarts the service" grep -q 'systemctl restart llama-server' "$FAKE_LOG"
+printf '#!/bin/sh\necho "version: 100 (old)"\n' >"$lp/bin/llama-server"
+OUT=$(FAKE_TOOLCALL=no HS_LLAMA_PREFIX="$lp" HS_LLAMA_BUILD="$newbuild" bash "$ROOT/tools/update-llama.sh" 2>&1); RC=$?
+check "update-llama: a build without tool calls is rolled back" bash -c "[[ $RC -ne 0 ]] && grep -q '100 (old)' '$lp/bin/llama-server' && grep -q '200 (new)' '$lp/bin.failed/llama-server'"
+check "update-llama: says it rolled back" has "putting the previous one back"
+upd --rollback
+check "update-llama --rollback: puts the kept build back" bash -c "[[ $RC -eq 0 ]] && grep -q '100 (old)' '$lp/bin/llama-server'"
+
 # ---- the kit's own release (.github/workflows/release.yml uses these)
 check "release notes: the VERSION file's section exists in CHANGELOG.md" bash -c "[[ -n \$(bash '$ROOT/.github/scripts/release-notes.sh') ]]"
 check "release notes: a section stops at the next heading" bash -c "! bash '$ROOT/.github/scripts/release-notes.sh' 0.3.1 | grep -q '^## '"

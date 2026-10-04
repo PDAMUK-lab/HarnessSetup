@@ -69,22 +69,7 @@ Write-Step 'Step 19.2: llama.cpp (Vulkan build, needs no CUDA or ROCm)'
 if ((Test-Path "$llama\llama-server.exe") -and -not $UpdateLlama) {
     Write-Ok "llama-server.exe already in $llama (use -UpdateLlama to replace it)"
 } else {
-    Invoke-Action 'download and extract the latest llama-*-bin-win-vulkan-x64.zip' {
-        # not /releases/latest: that is a source-only tag; the builds are pre-releases
-        $rel = Select-LlamaRelease -Releases (Get-LlamaReleases) -Patterns '^llama-.+-bin-win-vulkan-x64\.zip$'
-        if (-not $rel) { throw 'None of the ten newest llama.cpp releases has a win-vulkan-x64 zip. Download it by hand from https://github.com/ggml-org/llama.cpp/releases' }
-        $asset = Select-VulkanAsset $rel.assets
-        $zip = Join-Path $env:TEMP $asset.name
-        Write-Host "    $($rel.tag_name): $($asset.name)"
-        & curl.exe -L --fail -o $zip $asset.browser_download_url
-        if ($LASTEXITCODE -ne 0) { throw 'download of the llama.cpp zip failed' }
-        Stop-LlamaServer -Dir $llama
-        Expand-Archive -Path $zip -DestinationPath $llama -Force
-        Remove-Item $zip
-        # some zips unpack into a subfolder: move the binaries up to $llama
-        $exe = Get-ChildItem -Path $llama -Recurse -Filter llama-server.exe | Select-Object -First 1
-        if ($exe -and $exe.DirectoryName -ne $llama) { Move-Item -Path "$($exe.DirectoryName)\*" -Destination $llama -Force }
-    }
+    Invoke-Action 'download and extract the latest llama-*-bin-win-vulkan-x64.zip' { Install-LlamaVulkanBuild -Dir $llama }
 }
 Invoke-Action 'llama-cli.exe --list-devices (the RX 6600 XT must be listed)' {
     $devices = Invoke-NativeText { & "$llama\llama-cli.exe" --list-devices }

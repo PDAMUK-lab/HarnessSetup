@@ -100,6 +100,14 @@ run_ps Setup-LaptopAccess.ps1 -DryRun -NoTunnelFile
 check "Setup-LaptopAccess: reuses an existing key" has "using the existing key"
 check "Setup-LaptopAccess: -NoTunnelFile skips the shortcut" bash -c "! grep -q 'hermes-tunnel.cmd' <<<\"\$0\"" "$OUT"
 
+# ---- Update-Llama.ps1: newest build, test, roll back
+run_ps Update-Llama.ps1 -DryRun
+check "Update-Llama -DryRun exits 0" test $RC -eq 0
+check "Update-Llama: keeps the current build first" has "copy the current .exe and .dll files to C:\\llama\\prev"
+check "Update-Llama: then the newest Vulkan build, restart and the tool-call test" bash -c "grep -q 'latest llama-\*-bin-win-vulkan-x64.zip' <<<\"\$0\" && grep -q \"start the day server (task 'llama-server')\" <<<\"\$0\"" "$OUT"
+run_ps Update-Llama.ps1 -DryRun -Rollback
+check "Update-Llama -Rollback: puts the kept build back" has "put the build in C:\\llama\\prev back"
+
 # ---- Backup-Laptop.ps1: copy the laptop's newest backup here
 run_ps Backup-Laptop.ps1 -DryRun -Register
 check "Backup-Laptop -DryRun exits 0" test $RC -eq 0
