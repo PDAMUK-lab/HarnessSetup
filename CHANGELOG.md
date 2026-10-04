@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0
+
+Other models, sub-agents that survive an outage, and a release workflow.
+
+- **Any model family per slot.** The chat-template switches and sampling were hard-coded for Qwen. They are now
+  settings per slot (`LAPTOP_/DESKTOP_/NIGHT_/V100_CHAT_KWARGS` as `key=value` pairs, `*_SAMPLING` as allow-listed
+  llama-server flags, `auto`/`none`), plus `NIGHT_MTP` for models without an MTP head; validated alike in bash and
+  PowerShell. `NIGHT_NGL` now defaults to 16 (the guide's value).
+- **[docs/MODELS.md](docs/MODELS.md):** other model families per slot (Ornith 1.5, MiMo distill, Gemma 4, Granite 4.2,
+  Mellum2, Laguna XS/S, North Mini Code, Muse Glimmer) and uncensored drop-ins, every file checked on Hugging Face and
+  every architecture in llama.cpp; an assessment of RAM/SSD offload engines (keep llama.cpp; a ROCm A/B is worth a try);
+  how the agent's sub-agents are set up.
+- **Sub-agents** (checked against Hermes's source): a sub-agent pinned to a provider got no fallback, so an OpenRouter
+  outage failed every sub-agent while the planner fell back; `lib/chain.sh` now writes `delegation.fallback_providers`
+  for both profiles. The approval mode was a manual dashboard step, and under Hermes's default sub-agents and cron jobs
+  refuse risky commands; it is now the setting `APPROVAL_MODE` (default `off`), applied by stage 07 and checked by
+  `verify`. A sub-agent with no progress for 30 minutes is stopped.
+- **Guide findings applied:** the GitHub smoke test also proves that the agent cannot merge its own PR without your
+  approval; `hermes-mode status` shows which model each endpoint actually serves; the laptop's CUDA build compiles the
+  FlashAttention kernel for its f16/q8_0 context cache.
+- `Configure.ps1 -Set` keeps commas inside a value.
+- **Releases:** `.github/workflows/release.yml` tags and publishes a release (notes from this file, `.tar.gz`/`.zip`
+  of the kit, checksums) when a new `VERSION` lands on `main`.
+
 ## 0.3.1
 
 The guide was checked line by line against the real tools; the guide and the kit were corrected where they disagreed.

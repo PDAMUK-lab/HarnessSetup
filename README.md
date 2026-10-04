@@ -77,6 +77,7 @@ The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps betwee
 | 32 fine-tuning | not automated (optional in the guide) | - |
 | extra: take the desktop out of the loop while you use it | `desktop/windows/Desktop-Mode.ps1` (`away` / `back`), `hermes-desktop on\|off` on the laptop | script |
 | extra: two Tesla V100 cards in the desktop (optional, added later) | [docs/V100.md](docs/V100.md): `Check-V100.ps1`, `Install-V100.ps1`, `tools/v100-laptop.sh` | script + hardware |
+| extra: other model families, uncensored drop-ins, RAM/SSD offload engines, sub-agents | [docs/MODELS.md](docs/MODELS.md): every model slot is settings (file, URL, alias, chat-template switches, sampling) | settings |
 | 33 final checks | `tools/verify.sh`, [checklist](docs/CHECKLIST.md) | script + manual |
 
 ## How it behaves
@@ -110,7 +111,7 @@ desktop/windows/         PowerShell for the desktop (llama.cpp server, SSH, over
 templates/               systemd units, Hermes config fragments, hermes-mode, release skill, AGENTS.md, workflows
 lib/                     common.sh (helpers), config.sh (settings wizard and validation), chain.sh (order of the local endpoints), merge_yaml.py (merge into ~/.hermes/config.yaml)
 tests/                   run-tests.sh and the suites it runs
-docs/                    GUIDE.md (the source guide), RUNBOOK.md, CHECKLIST.md, V100.md (the optional V100 tier)
+docs/                    GUIDE.md (the source guide), RUNBOOK.md, CHECKLIST.md, V100.md (the optional V100 tier), MODELS.md (other models, offload engines, sub-agents)
 ```
 
 ## Tests
@@ -144,6 +145,7 @@ this hardware" list also still applies.
 
 ## Changing the guide's choices
 
-Model files, quant, context size, expert split, overnight times and the OpenRouter model IDs are all settings:
+Model files, quant, context size, expert split, chat-template switches, sampling, overnight times, the approval mode and
+the OpenRouter model IDs are all settings ([docs/MODELS.md](docs/MODELS.md) lists other models and how to switch):
 change one with `./setup.sh configure --only LAPTOP_QUANT` (or `.\Configure.ps1 -Only DESKTOP_QUANT` on the desktop)
 and re-run the stage (for example `./setup.sh run 10` after switching to `UD-Q4_K_XL`). Version: see [VERSION](VERSION) and [CHANGELOG.md](CHANGELOG.md).
