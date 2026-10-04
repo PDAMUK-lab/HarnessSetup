@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TITLE: Prove the GitHub guard rails (push branch ok, main/tag-delete/workflow rejected)
+# TITLE: Prove the GitHub guard rails (push branch and PR ok; main, unapproved merge, tag delete, workflow change rejected)
 # RUN-AS: hermes
 # GUIDE: Step 8 Verify
 # NEEDS: GITHUB_ORG GITHUB_REPOS
@@ -31,7 +31,7 @@ cd "$dir" || exit 1
 
 echo "This pushes a throw-away branch and a v0.0.0-smoke.* tag to $GITHUB_ORG/$REPO and tries to break the rules."
 confirm "Continue?" || die "not confirmed"
-[[ $DRY_RUN == 1 ]] && { log "[dry-run] would run the five checks"; exit 0; }
+[[ $DRY_RUN == 1 ]] && { log "[dry-run] would run the seven checks"; exit 0; }
 
 git fetch -q origin
 base=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's|^origin/||')
@@ -49,6 +49,10 @@ git switch -q -c "$br" "origin/$base"
 git commit -q --allow-empty -m "smoke test"
 expect ok     "push a hermes/ branch"                 git push -q -u origin "$br"
 expect reject "push straight to $base is rejected"    git push -q origin "HEAD:refs/heads/$base"
+# "Require a pull request" alone only needs a PR to exist; without required approvals the agent could merge its own
+expect ok     "open a pull request"                   gh pr create --head "$br" --base "$base" --title "smoke test (close me)" --body "Throw-away PR from tools/github-smoke-test.sh"
+expect reject "merging it without your approval is rejected" gh pr merge "$br" --squash
+gh pr close "$br" --delete-branch >/dev/null 2>&1 || true
 git tag "$tag"
 expect ok     "create a release tag"                  git push -q origin "$tag"
 expect reject "delete that tag is rejected"           git push -q origin ":refs/tags/$tag"
@@ -66,9 +70,10 @@ rm -f "$out"
 echo
 if ((fails)); then
   echo "FAILED ($fails). A push that should have been rejected succeeded: the matching ruleset is not active or targets the wrong"
-  echo "branch/tag pattern, or the token has too many permissions (Workflows). Fix it before continuing."
+  echo "branch/tag pattern, the main ruleset does not require an approval, or the token has too many permissions (Workflows)."
+  echo "Fix it before continuing."
 else
   echo "All guard rails hold."
 fi
-echo "Clean up in the GitHub web UI: remote branch $br, tag $tag. Deleting the tag needs you as a bypass actor on the tag ruleset."
+echo "Clean up in the GitHub web UI: tag $tag (deleting it needs you as a bypass actor on the tag ruleset), and branch $br if it is still there."
 exit $((fails > 0))

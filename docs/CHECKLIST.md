@@ -7,7 +7,7 @@
 | --- | --- | --- | --- |
 | 1 | `nvidia-smi` on the laptop | GTX 1070, 550-series driver | verify |
 | 2 | `sudo -u hermes sudo -n true` | works without a password; approval mode **off** on the dashboard's Config page | verify + manual |
-| 3 | As `hermes`: push to `main`, delete a `v*` tag, change `.github/workflows` | all rejected | `./setup.sh tool github-smoke-test` |
+| 3 | As `hermes`: push to `main`, merge its own PR without approval, delete a `v*` tag, change `.github/workflows` | all rejected | `./setup.sh tool github-smoke-test` |
 | 4 | `hermes doctor` and `hermes -p local doctor` | no errors | verify |
 | 5 | Tunnel, then `http://localhost:9119` | dashboard loads, gateway running | verify (laptop side) + manual (browser) |
 | 6 | Dashboard URL from a phone using the laptop's IP | does **not** load | verify (loopback bind) + manual (phone) |

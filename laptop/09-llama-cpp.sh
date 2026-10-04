@@ -35,7 +35,10 @@ else
     log "nvcc release $rel"
     [[ ${rel%%.*} -lt 13 ]] || die "CUDA $rel does not support Pascal. Remove it and use Debian's 12.4 toolkit (or re-run with --vulkan)."
   fi
-  gpuflags=(-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=61 -DCMAKE_CUDA_HOST_COMPILER=g++-13)
+  # The FlashAttention kernels are compiled only for the listed K-V cache type pairs; the default list lacks the f16-K / q8_0-V
+  # pair this kit uses (-ctk f16 -ctv q8_0), which matters whenever the cache sits in VRAM (benchmarks with -nkvo 0).
+  gpuflags=(-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=61 -DCMAKE_CUDA_HOST_COMPILER=g++-13
+    "-DGGML_CUDA_FA_QUANTS=q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16;f16-q8_0")
 fi
 
 if [[ -d $src/.git ]]; then

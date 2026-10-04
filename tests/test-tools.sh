@@ -164,7 +164,7 @@ check "v100: registers a hermes-mode probe" grep -qxF 'desktop-v100 qwen3.8-27b|
 check "v100: reports the server as reachable" has "the V100 server answers on 192.168.1.100:8081"
 HM=$(bash "$HOME/.local/bin/hermes-mode" status 2>&1)
 check "v100: hermes-mode status shows the V100 line" grep -q '^desktop-v100 qwen3.8-27b *: 200' <<<"$HM"
-check "v100: ...beside the day server's line" grep -q '^desktop qwen3.6-35b-a3b *: 200' <<<"$HM"
+check "v100: ...beside the day server's line" grep -q '^desktop (day model qwen3.6-35b-a3b) *: 200' <<<"$HM"
 sed 's|^V100_PRIMARY=.*|V100_PRIMARY=0|' "$T/v100.env" >"$T/v100-second.env"
 OUT=$(NODE_ENV="$T/v100-second.env" bash "$ROOT/tools/v100-laptop.sh" 2>&1); RC=$?
 check "v100: V100_PRIMARY=0 puts the desktop model first" test "$(for i in 0 1 2 3; do yget "$cfgy" fallback_providers.$i.provider; done | tr '\n' ' ')" = "openrouter custom:desktop custom:desktop-v100 custom:laptop "

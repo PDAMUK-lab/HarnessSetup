@@ -114,7 +114,7 @@ From here on, enter the agent's account with `sudo machinectl shell hermes@`, ne
 
 ```bash
 ./setup.sh run 05                  # asks for the token (hidden), sets git identity, clones your repos
-./setup.sh tool github-smoke-test  # branch push works; push to main, tag delete and workflow edits are REJECTED
+./setup.sh tool github-smoke-test  # branch push and PR work; push to main, unapproved merge, tag delete and workflow edits are REJECTED
 ```
 
 Then delete the smoke branch and tag in the GitHub web UI. **If a push that should fail succeeds, stop** and fix the

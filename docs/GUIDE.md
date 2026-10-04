@@ -483,7 +483,8 @@ nvcc --version                      # release 12.4
 
 git clone https://github.com/ggml-org/llama.cpp ~/src/llama.cpp && cd ~/src/llama.cpp
 cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=61 \
-  -DCMAKE_CUDA_HOST_COMPILER=g++-13 -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_CUDA_HOST_COMPILER=g++-13 -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release \
+  "-DGGML_CUDA_FA_QUANTS=q4_0-q4_0;q8_0-q8_0;f16-f16;bf16-bf16;f16-q8_0"   # adds the f16-K / q8_0-V cache pair used below
 cmake --build build -j"$(nproc)" --target llama-server llama-bench llama-cli
 sudo install -d /opt/llama.cpp/bin
 sudo install -m 755 build/bin/llama-server build/bin/llama-bench build/bin/llama-cli /opt/llama.cpp/bin/

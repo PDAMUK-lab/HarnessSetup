@@ -109,6 +109,9 @@ check "off twice is harmless" bash -c "[[ $RC -eq 0 ]] && cmp -s '$cfg' '$T/cfg.
 # ================= the rest of the kit respects it
 HM_OUT=$(bash -c "$(cd "$ROOT" && source lib/common.sh && load_config >/dev/null 2>&1 && render_template templates/bin/hermes-mode.tpl && printf '%s' "$RENDERED")" status 2>&1)
 check "hermes-mode status says the desktop is out of the loop" grep -q 'OUT of the loop' <<<"$HM_OUT"
+check "hermes-mode status shows which model the desktop actually serves" grep -qE 'desktop .*: 200  serving qwen3.5-9b' <<<"$HM_OUT"
+HM_OUT=$(FAKE_HTTP_CODE=000 bash -c "$(cd "$ROOT" && source lib/common.sh && load_config >/dev/null 2>&1 && render_template templates/bin/hermes-mode.tpl && printf '%s' "$RENDERED")" status 2>&1)
+check "hermes-mode status: no 'serving' line for an endpoint that is down" bash -c "grep -qE 'desktop .*: 000\$' <<<\"\$1\"" _ "$HM_OUT"
 cp "$T/cfg.before" "$cfg"; cp "$T/pc.before" "$pc"   # configs as stage 11 finds them: desktop still in both
 OUT=$(bash "$ROOT/laptop/11-hermes-local-config.sh" 2>&1); RC=$?
 check "stage 11 re-run: exits 0 while away" test $RC -eq 0

@@ -212,15 +212,17 @@ done
 exit 0
 HOOK
 chmod +x "$T/origin.git/hooks/pre-receive"
-OUT=$(bash "$ROOT/tools/github-smoke-test.sh" --repo app --yes 2>&1); RC=$?
+OUT=$(FAKE_LOG="$T/smoke-gh.log" bash "$ROOT/tools/github-smoke-test.sh" --repo app --yes 2>&1); RC=$?
 check "smoke: passes when the rules hold" test $RC -eq 0
-check "smoke: reports five PASS lines" test "$(grep -c 'PASS' <<<"$OUT")" -eq 5
+check "smoke: reports seven PASS lines" test "$(grep -c 'PASS' <<<"$OUT")" -eq 7
+check "smoke: tries to merge its own PR (the approval rule)" grep -q "gh pr merge hermes/smoke-" "$T/smoke-gh.log"
+check "smoke: closes the PR and deletes its branch" grep -q "gh pr close hermes/smoke-.* --delete-branch" "$T/smoke-gh.log"
 check "smoke: leaves the clone on main with no leftover branch" bash -c "cd '$HOME/repos/app' && test \"\$(git branch --show-current)\" = main && test \"\$(git branch | wc -l)\" -eq 1"
 check "smoke: leaves no local smoke tag" bash -c "cd '$HOME/repos/app' && test -z \"\$(git tag)\""
 rm "$T/origin.git/hooks/pre-receive"
-OUT=$(bash "$ROOT/tools/github-smoke-test.sh" --repo app --yes 2>&1); RC=$?
+OUT=$(FAKE_PR_MERGE=ok bash "$ROOT/tools/github-smoke-test.sh" --repo app --yes 2>&1); RC=$?
 check "smoke: FAILS when nothing is protected" test $RC -ne 0
-check "smoke: flags exactly the three unprotected checks" test "$(grep -c '  FAIL  ' <<<"$OUT")" -eq 3
+check "smoke: flags exactly the four unprotected checks (incl. the unapproved merge)" test "$(grep -c '  FAIL  ' <<<"$OUT")" -eq 4
 
 echo "real-run stages: $pass passed, $failn failed"
 [[ $failn -eq 0 ]]

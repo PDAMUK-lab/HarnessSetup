@@ -78,6 +78,7 @@ lineno() { grep -nF -- "$1" <<<"$OUT" | head -1 | cut -d: -f1; }
 dry 09
 check "09: exits 0" test "$RC" -eq 0
 check "09: CUDA build" has "DGGML_CUDA=ON"
+check "09: compiles the FlashAttention kernel for the f16-K / q8_0-V cache it uses" has "f16-q8_0"
 check "09: for Pascal (compute capability 6.1)" has "DCMAKE_CUDA_ARCHITECTURES=61"
 check "09: host compiler g++-13" has "DCMAKE_CUDA_HOST_COMPILER=g++-13"
 check "09: installs into /opt/llama.cpp/bin" has "/opt/llama.cpp/bin"

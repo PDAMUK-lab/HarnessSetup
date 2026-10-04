@@ -97,8 +97,11 @@ elif [[ -n $o && -n $d && -n $l && $o -lt $d && $d -lt $l ]]; then res pass 10 "
 else res fail 10 "fallback chain: OpenRouter, then desktop, then laptop"; fi
 
 ms=$(agent_exec 'hermes-mode status' 2>&1 || true)
-code_of() { grep -E "^$1 " <<<"$ms" | sed 's/.*: *//' | tr -d '[:space:]'; }
+# lines read "LABEL : CODE" or "LABEL : CODE  serving MODEL-ID" (labels carry no colon)
+code_of() { grep -E "^$1 " <<<"$ms" | head -1 | sed -E 's/^[^:]*: *([0-9]*).*/\1/'; }
+served_of() { grep -E "^$1 " <<<"$ms" | head -1 | sed -n 's/.*  serving //p'; }
 is_eq "$(code_of laptop)" 200 11 "hermes-mode: laptop 200"
+if [[ -n $(served_of laptop) ]]; then is_eq "$(served_of laptop)" "$LAPTOP_MODEL_ALIAS" 11 "hermes-mode: the laptop serves $LAPTOP_MODEL_ALIAS"; fi
 is_eq "$(code_of desktop)" 200 11 "hermes-mode: desktop 200" warn "fine if the desktop is off"
 if [[ ${V100_ENABLED:-0} == 1 ]]; then is_eq "$(code_of desktop-v100)" 200 11 "hermes-mode: desktop-v100 200" warn "fine if the desktop is off"; fi
 is_eq "$(code_of openrouter)" 200 11 "hermes-mode: openrouter 200"
