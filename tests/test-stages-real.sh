@@ -118,6 +118,8 @@ check "11: local profile planner is the desktop model" test "$(cfgget "$pc" mode
 check "11: local profile has the laptop as its only fallback" test "$(python3 -c "import yaml;print(len(yaml.safe_load(open('$pc'))['fallback_providers']))")" = 1
 check "11: local subagents run on the laptop (loopback base_url)" test "$(cfgget "$pc" delegation.base_url)" = http://127.0.0.1:8080/v1
 check "11: leftover 'provider: openrouter' removed from delegation" cfgmissing "$pc" delegation.provider
+check "11: cloud sub-agents fall back along the main chain" test "$(python3 -c "import yaml;print(','.join(e['provider'] for e in yaml.safe_load(open('$cfg'))['delegation']['fallback_providers']))")" = openrouter,custom:desktop,custom:laptop
+check "11: local sub-agents fall back to the desktop only (never the cloud)" test "$(python3 -c "import yaml;print(','.join(e['provider'] for e in yaml.safe_load(open('$pc'))['delegation']['fallback_providers']))")" = custom:desktop
 check "11: review block uses the main model" test "$(cfgget "$pc" auxiliary.review.provider)" = main
 check "11: review block keeps no stale OpenRouter model" cfgmissing "$pc" auxiliary.review.model
 check "11: compression block keeps no stale OpenRouter model" cfgmissing "$pc" auxiliary.compression.model
