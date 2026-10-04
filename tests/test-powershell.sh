@@ -104,7 +104,7 @@ check "Setup-LaptopAccess: -NoTunnelFile skips the shortcut" bash -c "! grep -q 
 run_ps Update-Llama.ps1 -DryRun
 check "Update-Llama -DryRun exits 0" test $RC -eq 0
 check "Update-Llama: keeps the current build first" has "copy the current .exe and .dll files to C:\\llama\\prev"
-check "Update-Llama: then the newest Vulkan build, restart and the tool-call test" bash -c "grep -q 'latest llama-\*-bin-win-vulkan zip' <<<\"\$0\" && grep -q \"start the day server (task 'llama-server')\" <<<\"\$0\"" "$OUT"
+check "Update-Llama: then the newest Vulkan build and a restart" bash -c "grep -q 'latest llama-\*-bin-win-vulkan zip' <<<\"\$0\" && grep -q \"start the day server (task 'llama-server')\" <<<\"\$0\"" "$OUT"
 run_ps Update-Llama.ps1 -DryRun -Rollback
 check "Update-Llama -Rollback: puts the kept build back" has "put the build in C:\\llama\\prev back"
 run_ps Update-Llama.ps1 -DryRun -Backend rocm

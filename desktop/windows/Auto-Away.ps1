@@ -9,8 +9,9 @@
     .\Auto-Away.ps1 -Register      run it from now on, at every logon, hidden (task 'hermes-auto-away'; ADMINISTRATOR PowerShell)
     .\Auto-Away.ps1 -Unregister    stop it
     .\Auto-Away.ps1 -Once          one sample: print the GPU use and what it would do
-  Telling the laptop without a password needs the laptop's stage 03 from kit 0.5.0 or later (re-run ./setup.sh run 03);
-  until then the servers still stop and Hermes falls back on its own. The log is <DESKTOP_LLAMA_DIR>\auto-away.log.
+  Telling the laptop without a password needs the laptop's stage 03 from kit 0.5.0 or later (re-run ./setup.sh run 03).
+  Until then Desktop-Mode.ps1 cannot tell the laptop from a task, so it changes nothing and the log says so: automatic away
+  does not work before that. The log is <DESKTOP_LLAMA_DIR>\auto-away.log.
 #>
 [CmdletBinding()]
 param([string]$ConfigFile, [switch]$Register, [switch]$Unregister, [switch]$Once, [switch]$DryRun, [switch]$Yes)

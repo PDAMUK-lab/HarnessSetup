@@ -102,7 +102,8 @@ try {
 if (-not (Test-BuildDevice)) {
     Write-Warn "the new build does not list the card as a $Backend device: putting the previous one back"
     Restore-Previous
-    if ($Backend -eq 'rocm') { throw "rolled back. The ROCm build cannot use the card: $($script:RocmLibraryHelp)" }
+    if ($Backend -eq 'rocm' -and -not ($libs.HipBlas -and $libs.RocBlas)) { throw "rolled back. The ROCm build cannot use the card: $($script:RocmLibraryHelp)" }
+    if ($Backend -eq 'rocm') { throw 'rolled back. The ROCm build does not see the card although hipBLAS/rocBLAS are on the PATH (an older AMD driver, or libraries from another ROCm version than 10?)' }
     throw 'rolled back. The new build does not see the card: check the AMD driver (Check-Desktop.ps1)'
 }
 Start-DayServer

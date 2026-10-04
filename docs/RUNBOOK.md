@@ -229,7 +229,8 @@ You can run it on the laptop yourself, as the agent user:
 **Automatically:** `.\desktop\windows\Auto-Away.ps1 -Register` (administrator PowerShell) starts a hidden task at every
 logon that watches the GPU. When other programs keep it at least `AUTO_AWAY_GPU_PCT` (25%) busy for `AUTO_AWAY_AFTER_MIN`
 (2) minutes it runs `Desktop-Mode.ps1 away`; after `AUTO_BACK_AFTER_MIN` (15) quiet minutes it runs `back`. A manual `away`
-is left alone. `-Once` prints the current reading and what it would do; `-Unregister` turns it off; the log is
+is left alone. It needs the laptop's stage 03 from kit 0.5.0 (re-run it on an older laptop): without that it cannot
+tell the laptop and does nothing. `-Once` prints the current reading and what it would do; `-Unregister` turns it off; the log is
 `C:\llama\auto-away.log`. Browsing and video playback stay well under the threshold; raise it if something you leave
 running keeps the GPU busy.
 
