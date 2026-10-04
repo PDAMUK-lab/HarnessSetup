@@ -290,6 +290,33 @@ cfg_validate() {
         true | false | yes | no | on | off | null | y | n) CFG_ERR="'$v' would be read as a yes/no/null value in the YAML config"; return 1 ;;
       esac
       ;;
+    kwargs)
+      # key=value pairs for --chat-template-kwargs, rendered as JSON by cfg_kwargs_json (no quotes needed in node.env)
+      [[ $v == none || $v == auto ]] && return 0
+      [[ $v != *,,* && $v != ,* && $v != *, ]] || { CFG_ERR='empty pair (two commas, or a comma at the start or end)'; return 1; }
+      IFS=, read -r -a words <<<"$v"
+      ((${#words[@]} >= 1 && ${#words[@]} <= 8)) || { CFG_ERR='expected 1 to 8 key=value pairs separated by commas, or none / auto'; return 1; }
+      lo=','
+      for w in "${words[@]}"; do
+        [[ $w =~ ^([A-Za-z_][A-Za-z0-9_]*)=[A-Za-z0-9._-]+$ ]] || { CFG_ERR="'$w' is not key=value (letters, digits, . _ - only; no spaces)"; return 1; }
+        [[ $lo != *",${BASH_REMATCH[1]},"* ]] || { CFG_ERR="'${BASH_REMATCH[1]}' is given twice"; return 1; }
+        lo+="${BASH_REMATCH[1]},"
+      done
+      ;;
+    sampling)
+      [[ $v == none || $v == auto ]] && return 0
+      read -r -a words <<<"$v"
+      ((${#words[@]} >= 2 && ${#words[@]} % 2 == 0)) || { CFG_ERR='expected flag value pairs like --temp 0.6 --top-p 0.95, or none / auto'; return 1; }
+      for ((lo = 0; lo < ${#words[@]}; lo += 2)); do
+        case ${words[lo]} in
+          --temp | --top-p | --top-k | --min-p | --presence-penalty | --frequency-penalty | --repeat-penalty | --repeat-last-n | --typical | \
+            --top-nsigma | --xtc-probability | --xtc-threshold | --dry-multiplier | --dry-base | --dry-allowed-length | --dry-penalty-last-n) ;;
+          *) CFG_ERR="'${words[lo]}' is not an allowed sampling flag"; return 1 ;;
+        esac
+        [[ ${words[lo + 1]} =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || { CFG_ERR="'${words[lo + 1]}' after ${words[lo]} is not a number"; return 1; }
+      done
+      CFG_NORM="${words[*]}"
+      ;;
     text) ;;
     choice:*)
       lo=${type#choice:}
@@ -300,6 +327,19 @@ cfg_validate() {
     *) CFG_ERR="unknown setting type '$type' in the schema"; return 1 ;;
   esac
   return 0
+}
+
+# cfg_kwargs_json "a=true,b=medium"  - the JSON object llama-server's --chat-template-kwargs expects:
+# {"a":true,"b":"medium"} (true/false/numbers stay bare). The value was validated as type kwargs.
+cfg_kwargs_json() {
+  local out='' kv k v
+  local -a pairs=()
+  IFS=, read -r -a pairs <<<"$1"
+  for kv in "${pairs[@]}"; do
+    k=${kv%%=*} v=${kv#*=}
+    if [[ $v =~ ^(true|false|-?[0-9]+(\.[0-9]+)?)$ ]]; then out+="\"$k\":$v,"; else out+="\"$k\":\"$v\","; fi
+  done
+  printf '{%s}' "${out%,}"
 }
 
 # ---- reading and writing node.env ----------------------------------------------

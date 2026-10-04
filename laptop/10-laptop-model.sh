@@ -2,7 +2,7 @@
 # TITLE: Laptop model service (Qwen3.5-9B, context cache in RAM)
 # RUN-AS: admin
 # GUIDE: Steps 18, 20
-# NEEDS: LAPTOP_QUANT LAPTOP_MODEL_FILE LAPTOP_MODEL_URL LAPTOP_MODEL_ALIAS LAPTOP_CTX LLM_PORT LAPTOP_CACHE_RAM_MB
+# NEEDS: LAPTOP_QUANT LAPTOP_MODEL_FILE LAPTOP_MODEL_URL LAPTOP_MODEL_ALIAS LAPTOP_CTX LLM_PORT LAPTOP_CACHE_RAM_MB LAPTOP_CHAT_KWARGS LAPTOP_SAMPLING
 # Options (asked when not given): --bench | --no-bench   --start | --no-start
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

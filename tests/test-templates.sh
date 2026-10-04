@@ -51,6 +51,17 @@ nkvo_off() {
   ( NODE_ENV="$T/node-nokv.env"; load_config; render_template "$ROOT/templates/systemd/llama-server.service.tpl"; ! grep -q -- '-nkvo' <<<"$RENDERED" )
 }
 check "LAPTOP_KV_IN_RAM=0 drops -nkvo" nkvo_off
+qwen_default() { grep -qF -- "--chat-template-kwargs '{\"enable_thinking\":true}' --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0" "$T/systemd_llama-server.service.tpl"; }
+check "llama unit: Qwen3.5 thinking switch and sampling by default" qwen_default
+other_family() { # another model family: its own switches and sampling, or none at all
+  sed -e "s/^LAPTOP_CHAT_KWARGS=.*/LAPTOP_CHAT_KWARGS=reasoning_effort=low,enable_thinking=false/" -e "s/^LAPTOP_SAMPLING=.*/LAPTOP_SAMPLING='--temp 1.0 --top-k 64'/" "$T/node.env" >"$T/node-fam.env"
+  ( NODE_ENV="$T/node-fam.env"; load_config; render_template "$ROOT/templates/systemd/llama-server.service.tpl"
+    grep -qF -- "--chat-template-kwargs '{\"reasoning_effort\":\"low\",\"enable_thinking\":false}' --temp 1.0 --top-k 64" <<<"$RENDERED" ) || return 1
+  sed -e "s/^LAPTOP_CHAT_KWARGS=.*/LAPTOP_CHAT_KWARGS=none/" -e "s/^LAPTOP_SAMPLING=.*/LAPTOP_SAMPLING=none/" "$T/node.env" >"$T/node-none.env"
+  ( NODE_ENV="$T/node-none.env"; load_config; render_template "$ROOT/templates/systemd/llama-server.service.tpl"
+    ! grep -qE -- 'chat-template-kwargs|--temp' <<<"$RENDERED" )
+}
+check "llama unit: other families get their own switches and sampling; none leaves both out" other_family
 
 # shell scripts rendered from templates
 for f in bin_hermes-mode.tpl scripts_release-pending.sh.tpl; do

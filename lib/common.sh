@@ -100,9 +100,19 @@ load_config() {
   HERMES_BIN=$HERMES_BIN_DIR/hermes
   LAPTOP_NKVO_FLAG=''
   [[ ${LAPTOP_KV_IN_RAM:-1} == 1 ]] && LAPTOP_NKVO_FLAG='-nkvo'
+  # model-specific request defaults ('auto' = the kit's values for the Qwen3.5 model it ships; 'none' = nothing)
+  local kw=${LAPTOP_CHAT_KWARGS:-auto}
+  [[ $kw == auto ]] && kw=enable_thinking=true
+  LAPTOP_KWARGS_FLAG=''
+  # shellcheck disable=SC2089  # text for the systemd unit (rendered into ExecStart), never word-split by this shell
+  [[ $kw == none ]] || LAPTOP_KWARGS_FLAG="--chat-template-kwargs '$(cfg_kwargs_json "$kw")'"
+  LAPTOP_SAMPLING_FLAGS=${LAPTOP_SAMPLING:-auto}
+  [[ $LAPTOP_SAMPLING_FLAGS == auto ]] && LAPTOP_SAMPLING_FLAGS='--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0'
+  [[ $LAPTOP_SAMPLING_FLAGS == none ]] && LAPTOP_SAMPLING_FLAGS=''
   CRON_REPO=${GITHUB_REPOS:-}
   CRON_REPO=${CRON_REPO%% *}
-  export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG CRON_REPO
+  # shellcheck disable=SC2090  # see above
+  export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG LAPTOP_KWARGS_FLAG LAPTOP_SAMPLING_FLAGS CRON_REPO
 }
 
 # ---- templates --------------------------------------------------------------

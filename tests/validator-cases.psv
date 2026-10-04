@@ -98,3 +98,25 @@ gguf|a.b.gguf|ok||dots in the name
 gguf|.gguf|bad||no name
 winpath|C:\llama\sub|ok||nested folder
 winpath|C:\|bad||drive root alone
+kwargs|enable_thinking=true|ok||kwargs: one pair
+kwargs|reasoning_effort=medium,enable_thinking=false|ok||kwargs: two pairs
+kwargs|none|ok||kwargs: none
+kwargs|auto|ok||kwargs: auto
+kwargs|enable_thinking|bad||kwargs: no value
+kwargs|a=1,,b=2|bad||kwargs: empty pair
+kwargs|a=1,|bad||kwargs: trailing comma
+kwargs|a=1,a=2|bad||kwargs: duplicate key
+kwargs|a=x y|bad||kwargs: space in value
+kwargs|1a=x|bad||kwargs: key starts with a digit
+kwargs|a=x;b|bad||kwargs: semicolon
+sampling|--temp 0.6 --top-p 0.95 --top-k 20|ok||sampling: three pairs
+sampling|--temp  0.6   --min-p 0|ok|--temp 0.6 --min-p 0|sampling: extra spaces normalised
+sampling|--repeat-last-n -1|ok||sampling: negative number
+sampling|none|ok||sampling: none
+sampling|auto|ok||sampling: auto
+sampling|--temp|bad||sampling: flag without value
+sampling|--temp 0.6 --top-p|bad||sampling: odd count
+sampling|--temp hot|bad||sampling: not a number
+sampling|--model x.gguf|bad||sampling: not an allowed flag
+sampling|--temp 0.6;rm|bad||sampling: injection attempt
+sampling|-t 0.6|bad||sampling: short flag

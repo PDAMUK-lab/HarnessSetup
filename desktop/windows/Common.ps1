@@ -117,6 +117,32 @@ function Select-VulkanAsset {
     return $hit
 }
 
+# Resolve-ModelSetting VALUE AUTO  - a *_CHAT_KWARGS / *_SAMPLING value: 'auto' (or missing) = AUTO, 'none' = nothing
+function Resolve-ModelSetting {
+    param([AllowEmptyString()][AllowNull()][string]$Value, [Parameter(Mandatory)][string]$Auto)
+    if (-not $Value -or $Value -ceq 'auto') { return $Auto }
+    if ($Value -ceq 'none') { return '' }
+    return $Value
+}
+
+# ConvertTo-CmdKwargs 'a=true,b=medium'  - the --chat-template-kwargs argument as a cmd file needs it: "{\"a\":true,\"b\":\"medium\"}"
+function ConvertTo-CmdKwargs {
+    param([Parameter(Mandatory)][string]$Pairs)
+    $parts = foreach ($kv in ($Pairs -split ',')) {
+        $k, $val = $kv -split '=', 2
+        if ($val -cmatch '^(true|false|-?[0-9]+(\.[0-9]+)?)$') { '\"' + $k + '\":' + $val } else { '\"' + $k + '\":\"' + $val + '\"' }
+    }
+    return '"{' + ($parts -join ',') + '}"'
+}
+
+# Join-CmdLines SEGMENTS  - continuation lines for a cmd file: ' ^' after every line but the last; empty segments are dropped
+function Join-CmdLines {
+    param([AllowEmptyCollection()][string[]]$Segments)
+    $s = @($Segments | Where-Object { $_ -and $_.Trim() })
+    for ($i = 0; $i -lt $s.Count - 1; $i++) { $s[$i] = $s[$i] + ' ^' }
+    return , $s
+}
+
 # New-LlamaStartScript -Cfg $cfg -Tier Day|Night  - lines of the cmd file that starts llama-server (guide Steps 19 and 31)
 function New-LlamaStartScript {
     param(
@@ -125,31 +151,37 @@ function New-LlamaStartScript {
     )
     $dir = $Cfg['DESKTOP_LLAMA_DIR']
     $models = $Cfg['DESKTOP_MODELS_DIR']
+    # *_CHAT_KWARGS / *_SAMPLING: 'auto' = the kit's values for the Qwen model it ships (docs/MODELS.md for other families)
     if ($Tier -eq 'Day') {
         $file = $Cfg['DESKTOP_MODEL_FILE']; $alias = $Cfg['DESKTOP_MODEL_ALIAS']
+        $kw = Resolve-ModelSetting $Cfg['DESKTOP_CHAT_KWARGS'] 'preserve_thinking=true'
+        $smp = Resolve-ModelSetting $Cfg['DESKTOP_SAMPLING'] '--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0'
         $tail = @(
-            "  --jinja -ngl 99 --n-cpu-moe $($Cfg['DESKTOP_N_CPU_MOE']) -fa on -np 1 -c $($Cfg['DESKTOP_CTX']) -ctk f16 -ctv q8_0 ^",
-            "  --cache-ram $($Cfg['DESKTOP_CACHE_RAM_MB']) --chat-template-kwargs `"{\`"preserve_thinking\`":true}`" ^",
-            '  --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0'
+            "  --jinja -ngl 99 --n-cpu-moe $($Cfg['DESKTOP_N_CPU_MOE']) -fa on -np 1 -c $($Cfg['DESKTOP_CTX']) -ctk f16 -ctv q8_0",
+            "  --cache-ram $($Cfg['DESKTOP_CACHE_RAM_MB'])$(if ($kw) { ' --chat-template-kwargs ' + (ConvertTo-CmdKwargs $kw) })",
+            "  $smp"
         )
     } else {
         $file = $Cfg['NIGHT_MODEL_FILE']; $alias = $Cfg['NIGHT_MODEL_ALIAS']
+        $kw = Resolve-ModelSetting $Cfg['NIGHT_CHAT_KWARGS'] 'reasoning_effort=medium'
+        $smp = Resolve-ModelSetting $Cfg['NIGHT_SAMPLING'] '--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0'
+        $mtp = -not ($Cfg.Contains('NIGHT_MTP') -and $Cfg['NIGHT_MTP'] -eq '0')
         $tail = @(
-            "  --jinja -ngl $($Cfg['NIGHT_NGL']) -fa on -np 1 -c $($Cfg['DESKTOP_CTX']) -ctk f16 -ctv q8_0 --cache-ram $($Cfg['DESKTOP_CACHE_RAM_MB']) ^",
-            "  --chat-template-kwargs `"{\`"reasoning_effort\`":\`"medium\`"}`" ^",
-            '  --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0 ^',
-            '  --spec-type draft-mtp --spec-draft-n-max 2'
+            "  --jinja -ngl $($Cfg['NIGHT_NGL']) -fa on -np 1 -c $($Cfg['DESKTOP_CTX']) -ctk f16 -ctv q8_0 --cache-ram $($Cfg['DESKTOP_CACHE_RAM_MB'])",
+            $(if ($kw) { '  --chat-template-kwargs ' + (ConvertTo-CmdKwargs $kw) }),
+            "  $smp",
+            $(if ($mtp) { '  --spec-type draft-mtp --spec-draft-n-max 2' })
         )
     }
     $head = @(
-        "$dir\llama-server.exe -m $models\$file --alias $alias ^",
-        "  --host $($Cfg['DESKTOP_IP']) --port $($Cfg['LLM_PORT']) --api-key-file $dir\api-key.txt ^"
+        "$dir\llama-server.exe -m $models\$file --alias $alias",
+        "  --host $($Cfg['DESKTOP_IP']) --port $($Cfg['LLM_PORT']) --api-key-file $dir\api-key.txt"
     )
     # With the V100 tier on, keep this Vulkan server on the RX 6600 XT: hide NVIDIA's Vulkan driver from it (a V100 is compute-only
     # and should not show up in Vulkan at all; this makes sure, and Install-V100.ps1 / Check-V100.ps1 verify it)
     $guard = @()
     if ($Cfg.Contains('V100_ENABLED') -and $Cfg['V100_ENABLED'] -eq '1') { $guard = @('set VK_LOADER_DRIVERS_DISABLE=*nv*') }
-    return @($guard + $head + $tail)
+    return @($guard + (Join-CmdLines -Segments @($head + $tail)))
 }
 
 # Write-CmdFile PATH LINES  - cmd.exe wants CRLF line endings, no BOM
@@ -361,6 +393,31 @@ function Test-SettingValue {
             if ($v -cnotmatch '^[A-Za-z][A-Za-z0-9._-]*$') { return & $r $false $v 'expected a name starting with a letter (then letters, digits, dots, dashes)' }
             if ($v.ToLowerInvariant() -in 'true', 'false', 'yes', 'no', 'on', 'off', 'null', 'y', 'n') { return & $r $false $v "'$v' would be read as a yes/no/null value in the YAML config" }
             return & $r $true $v ''
+        }
+        '^kwargs$' {
+            if ($v -ceq 'none' -or $v -ceq 'auto') { return & $r $true $v '' }
+            if ($v -match ',,' -or $v.StartsWith(',') -or $v.EndsWith(',')) { return & $r $false $v 'empty pair (two commas, or a comma at the start or end)' }
+            $pairs = @($v -split ',')
+            if ($pairs.Count -lt 1 -or $pairs.Count -gt 8) { return & $r $false $v 'expected 1 to 8 key=value pairs separated by commas, or none / auto' }
+            $seen = @{}
+            foreach ($w in $pairs) {
+                if ($w -cnotmatch '^([A-Za-z_][A-Za-z0-9_]*)=[A-Za-z0-9._-]+$') { return & $r $false $v "'$w' is not key=value (letters, digits, . _ - only; no spaces)" }
+                if ($seen.ContainsKey($Matches[1])) { return & $r $false $v "'$($Matches[1])' is given twice" }
+                $seen[$Matches[1]] = 1
+            }
+            return & $r $true $v ''
+        }
+        '^sampling$' {
+            if ($v -ceq 'none' -or $v -ceq 'auto') { return & $r $true $v '' }
+            $words = @($v.Trim() -split '\s+' | Where-Object { $_ -ne '' })
+            if ($words.Count -lt 2 -or $words.Count % 2 -ne 0) { return & $r $false $v 'expected flag value pairs like --temp 0.6 --top-p 0.95, or none / auto' }
+            $allowed = '--temp', '--top-p', '--top-k', '--min-p', '--presence-penalty', '--frequency-penalty', '--repeat-penalty', '--repeat-last-n', '--typical',
+                '--top-nsigma', '--xtc-probability', '--xtc-threshold', '--dry-multiplier', '--dry-base', '--dry-allowed-length', '--dry-penalty-last-n'
+            for ($i = 0; $i -lt $words.Count; $i += 2) {
+                if ($allowed -cnotcontains $words[$i]) { return & $r $false $v "'$($words[$i])' is not an allowed sampling flag" }
+                if ($words[$i + 1] -cnotmatch '^-?[0-9]+(\.[0-9]+)?$') { return & $r $false $v "'$($words[$i + 1])' after $($words[$i]) is not a number" }
+            }
+            return & $r $true ($words -join ' ') ''
         }
         '^text$' { return & $r $true $v '' }
         '^choice:(.+)$' {
@@ -1112,17 +1169,17 @@ function New-V100StartScript {
     }
     $lines += "cd /d $dir"
     $moe = ((Get-V100Family -ModelFile $file) -eq '35B')
-    $kwargs = if ($moe) { '"{\"preserve_thinking\":true}"' } else { '"{\"reasoning_effort\":\"medium\"}"' }
-    $sampling = if ($moe) { '--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0' } else { '--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0' }
-    $tail = @("  --cache-ram 2048 --chat-template-kwargs $kwargs ^")
-    if ($Mtp -and $split -ne 'tensor') { $tail += '  --spec-type draft-mtp --spec-draft-n-max 2 ^' }
-    $tail += "  $sampling"
-    $lines += @(
-        "$dir\llama-server.exe -m $models\$file --alias $($Cfg['V100_MODEL_ALIAS']) ^",
-        "  --host $($Cfg['DESKTOP_IP']) --port $($Cfg['V100_PORT']) --api-key-file $day\api-key.txt ^",
-        "  --device $devices --split-mode $split --jinja -ngl 99 -fit off -fa on -np 1 -ub 512 -c $($Cfg['V100_CTX']) -ctk $kvType -ctv $kvType ^"
+    $kw = Resolve-ModelSetting $Cfg['V100_CHAT_KWARGS'] $(if ($moe) { 'preserve_thinking=true' } else { 'reasoning_effort=medium' })
+    $sampling = Resolve-ModelSetting $Cfg['V100_SAMPLING'] $(if ($moe) { '--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0' } else { '--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0' })
+    $segments = @(
+        "$dir\llama-server.exe -m $models\$file --alias $($Cfg['V100_MODEL_ALIAS'])",
+        "  --host $($Cfg['DESKTOP_IP']) --port $($Cfg['V100_PORT']) --api-key-file $day\api-key.txt",
+        "  --device $devices --split-mode $split --jinja -ngl 99 -fit off -fa on -np 1 -ub 512 -c $($Cfg['V100_CTX']) -ctk $kvType -ctv $kvType",
+        "  --cache-ram 2048$(if ($kw) { ' --chat-template-kwargs ' + (ConvertTo-CmdKwargs $kw) })",
+        $(if ($Mtp -and $split -ne 'tensor') { '  --spec-type draft-mtp --spec-draft-n-max 2' }),
+        "  $sampling"
     )
-    $lines += $tail
+    $lines += Join-CmdLines -Segments $segments
     return $lines
 }
 

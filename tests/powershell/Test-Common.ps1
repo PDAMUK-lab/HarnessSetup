@@ -49,12 +49,25 @@ Check 'Day: every line but the last continues with ^' { (@($day[0..($day.Count -
 Check 'Day: the key itself never appears in the script' { -not (($day -join "`n") -match '--api-key [^f]') }
 $night = New-LlamaStartScript -Cfg $cfg -Tier Night
 Check 'Night: 27B model and alias' { $night[0] -eq 'C:\llama\llama-server.exe -m C:\models\Qwen3.8-27B-UD-Q4_K_XL.gguf --alias qwen3.8-27b ^' }
-Check 'Night: partial GPU offload (-ngl 24), no --n-cpu-moe' { ($night -join "`n") -match '-ngl 24' -and ($night -join "`n") -notmatch 'n-cpu-moe' }
+Check 'Night: partial GPU offload (-ngl 16), no --n-cpu-moe' { ($night -join "`n") -match '-ngl 16 ' -and ($night -join "`n") -notmatch 'n-cpu-moe' }
 Check 'Night: reasoning effort medium (the template maps high to the default xhigh)' { ($night -join "`n").Contains('--chat-template-kwargs "{\"reasoning_effort\":\"medium\"}"') }
 Check 'Night: temp 1.0 and MTP speculative decoding' { ($night -join "`n") -match '--temp 1\.0' -and ($night -join "`n") -match '--spec-type draft-mtp --spec-draft-n-max 2' }
 Check 'Night: every line but the last continues with ^' { (@($night[0..($night.Count - 2)] | Where-Object { $_ -notmatch ' \^$' }).Count -eq 0) -and ($night[-1] -notmatch '\^$') }
 $cfg2 = [ordered]@{} + $cfg; $cfg2['DESKTOP_N_CPU_MOE'] = '32'
 Check 'settings flow through (-n-cpu-moe 32)' { (New-LlamaStartScript -Cfg $cfg2 -Tier Day)[2] -match '--n-cpu-moe 32 ' }
+# ---- other model families: chat-template switches, sampling, MTP are settings
+Check 'ConvertTo-CmdKwargs: booleans and numbers bare, words quoted, cmd escaping' { (ConvertTo-CmdKwargs 'enable_thinking=false,reasoning_effort=low,n=-1.5') -eq '"{\"enable_thinking\":false,\"reasoning_effort\":\"low\",\"n\":-1.5}"' }
+Check 'Resolve-ModelSetting: auto, none, missing, value' { (Resolve-ModelSetting 'auto' 'X') -eq 'X' -and (Resolve-ModelSetting 'none' 'X') -eq '' -and (Resolve-ModelSetting $null 'X') -eq 'X' -and (Resolve-ModelSetting 'a=1' 'X') -eq 'a=1' }
+$cfg3 = [ordered]@{} + $cfg; $cfg3['DESKTOP_CHAT_KWARGS'] = 'reasoning_effort=high'; $cfg3['DESKTOP_SAMPLING'] = '--temp 1.0 --top-p 1.0'
+$d3 = New-LlamaStartScript -Cfg $cfg3 -Tier Day
+Check 'Day: another family''s switches and sampling come from the settings' { $d3[3] -eq '  --cache-ram 1024 --chat-template-kwargs "{\"reasoning_effort\":\"high\"}" ^' -and $d3[4] -eq '  --temp 1.0 --top-p 1.0' }
+$cfg3['DESKTOP_CHAT_KWARGS'] = 'none'; $cfg3['DESKTOP_SAMPLING'] = 'none'
+$d3 = New-LlamaStartScript -Cfg $cfg3 -Tier Day
+Check 'Day: none and none leave out both flags, and the last line has no ^' { -not (($d3 -join "`n") -match 'chat-template-kwargs|--temp') -and $d3[-1] -eq '  --cache-ram 1024' }
+$cfg3 = [ordered]@{} + $cfg; $cfg3['NIGHT_MTP'] = '0'; $cfg3['NIGHT_SAMPLING'] = '--temp 0.7'
+$n3 = New-LlamaStartScript -Cfg $cfg3 -Tier Night
+Check 'Night: NIGHT_MTP=0 drops the MTP flags; the sampling line ends the command' { -not (($n3 -join "`n") -match 'draft-mtp') -and $n3[-1] -eq '  --temp 0.7' }
+Check 'Night: every line but the last continues with ^ (MTP off)' { (@($n3[0..($n3.Count - 2)] | Where-Object { $_ -notmatch ' \^$' }).Count -eq 0) -and ($n3[-1] -notmatch '\^$') }
 
 # ---- Write-CmdFile / New-TunnelCmd
 Write-CmdFile -Path "$Tmp/t.cmd" -Lines (New-TunnelCmd -Cfg $cfg)

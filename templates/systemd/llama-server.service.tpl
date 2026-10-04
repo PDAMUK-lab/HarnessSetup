@@ -10,8 +10,7 @@ ExecStart=/opt/llama.cpp/bin/llama-server \
   --host 127.0.0.1 --port @@LLM_PORT@@ --jinja -ngl 99 -fa on -np 1 \
   -c @@LAPTOP_CTX@@ @@LAPTOP_NKVO_FLAG@@ -ctk f16 -ctv q8_0 \
   --cache-ram @@LAPTOP_CACHE_RAM_MB@@ --slot-save-path /srv/llm/slots \
-  --chat-template-kwargs '{"enable_thinking":true}' \
-  --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0
+  @@LAPTOP_KWARGS_FLAG@@ @@LAPTOP_SAMPLING_FLAGS@@
 Restart=on-failure
 RestartSec=5
 
