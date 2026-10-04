@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0
+
+Guard rails, backups and upkeep.
+
+- **Guard rails.** `AGENT_SUDO=full|limited|none` (stage 03, checked by `verify`): full is the guide's passwordless root,
+  limited allows apt, apt-get, systemctl and journalctl only, none removes sudo. `APPROVAL_DENY` (on by default) writes
+  Hermes's `approvals.deny` list for both profiles: deleting or archiving a repo, wiping a disk, removing the agent's state
+  or its clones and turning the firewall off are refused even with approvals off.
+- **Backups.** `tools/backup.sh` saves the agent's state (Hermes config, memory, sessions with consistent SQLite snapshots,
+  cron jobs, keys, user services, GitHub login) and the kit's settings; `--install` runs it daily at `BACKUP_TIME` and keeps
+  `BACKUP_KEEP`. `tools/restore.sh` puts one back (the current state is kept aside). `Backup-Laptop.ps1 -Register` copies the
+  newest one to the desktop every day.
+- **Spend check.** `tools/spend.sh` and `verify` read the OpenRouter key's limit and usage: a warning without a limit, with
+  a limit that does not reset monthly, or at `SPEND_WARN_PCT` of it; a failure when it is used up.
+- **Model test set.** `tools/model-test.sh` runs your own tasks (`config/model-tests.example`) against a profile, provider
+  or model in throw-away worktrees, checks each with your command and appends to `~/model-tests/results.csv`.
+- **llama.cpp updates with an undo.** `tools/update-llama.sh` and `Update-Llama.ps1` keep the current build, install the
+  newest, test health, model name and a tool call, and put the old build back when that fails (`--rollback` / `-Rollback`
+  by hand). `Compare-LlamaBackends.ps1` benchmarks llama.cpp's ROCm build against the Vulkan build on the desktop's card
+  (C:\llama untouched; the advice is to switch only for 10% at every depth), and `Update-Llama.ps1 -Backend rocm|vulkan`
+  switches. The build installer clears old binaries first, so two backends' DLLs never load together.
+- **Automatic desktop away.** `Auto-Away.ps1 -Register` watches the GPU use of other programs and runs
+  `Desktop-Mode.ps1 away` / `back` by itself (`AUTO_AWAY_GPU_PCT`, `AUTO_AWAY_AFTER_MIN`, `AUTO_BACK_AFTER_MIN`); a manual
+  away is left alone. Stage 03 lets the admin user run `hermes-desktop` as the agent without a password, so telling the
+  laptop needs nobody at the keyboard (re-run stage 03 on an existing laptop).
+- **Sub-agent reasoning effort.** `WORKER_EFFORT` sets `delegation.reasoning_effort` (default `inherit`).
+- **Log size.** Stage 01 caps the systemd journal at `JOURNAL_MAX_MB` (default 500MB), keeps 2GB free and a month at most.
+
+Upgrading from 0.4.0: run `./setup.sh configure` (the new settings get their defaults), then re-run stages 01, 03, 07 and 11.
+
 ## 0.4.0
 
 Other models, sub-agents that survive an outage, and a release workflow.
