@@ -2,7 +2,7 @@
 # TITLE: Firewall and file permissions
 # RUN-AS: admin
 # GUIDE: Step 28
-# NEEDS: ROUTER_IP LAN_CIDR DESKTOP_IP SSH_ALLOWED_FROM LLM_PORT V100_ENABLED V100_PORT
+# NEEDS: ROUTER_IP LAN_CIDR DESKTOP_IP SSH_ALLOWED_FROM LLM_PORT V100_ENABLED V100_PORT DASHBOARD_FROM DASHBOARD_PORT SMB_SHARE
 # Options: --force (apply even if this SSH session does not come from SSH_ALLOWED_FROM)
 # NOTE: the agent has root, so it can change these rules. They guard against mistakes, not against the agent.
 set -Eeuo pipefail
@@ -49,6 +49,16 @@ sudo_run ufw allow out 67/udp comment 'DHCP renewals'
 sudo_run ufw allow out to "$DESKTOP_IP" port "$LLM_PORT" proto tcp comment 'desktop model'
 if [[ ${V100_ENABLED:-0} == 1 ]]; then
   sudo_run ufw allow out to "$DESKTOP_IP" port "$V100_PORT" proto tcp comment 'desktop V100 model'
+fi
+if [[ ${DASHBOARD_FROM:-none} != none ]]; then
+  IFS=',' read -ra devs <<<"$DASHBOARD_FROM"
+  for d in "${devs[@]}"; do sudo_run ufw allow in from "$d" to any port "$DASHBOARD_PORT" proto tcp comment 'dashboard from a browser'; done
+fi
+if [[ ${SMB_SHARE:-none} != none ]]; then
+  smb_host=${SMB_SHARE#//}; smb_host=${smb_host%%/*}
+  smb_ip=$(getent ahostsv4 "$smb_host" 2>/dev/null | awk 'NR == 1 {print $1}' || true)   # ufw takes addresses only
+  if [[ -n $smb_ip ]]; then sudo_run ufw allow out to "$smb_ip" port 445 proto tcp comment 'SMB share for finished work'
+  else warn "cannot resolve $smb_host: no firewall rule for the SMB share (use its IP address in SMB_SHARE)"; fi
 fi
 sudo_run ufw deny out to "$LAN_CIDR" comment 'nothing else on the LAN'
 sudo_run ufw allow out 80/tcp

@@ -244,6 +244,28 @@ check "adopt: refuses a carriage return in a command (it could inject workflow s
 OUT=$("$ROOT/setup.sh" tool adopt-repo "$T/proj2" --install x --test y --package z 2>&1); RC=$?
 check "setup.sh tool adopt-repo works through the dispatcher" test $RC -eq 0
 
+# ---- dashboard login (tools/dashboard-login.sh): Hermes's scrypt format, the password never stored
+mkdir -p "$HOME/.hermes"; [[ -f $HOME/.hermes/config.yaml ]] || echo 'model: x' >"$HOME/.hermes/config.yaml"
+OUT=$(printf 'me\nshort\nshort\n' | bash "$ROOT/tools/dashboard-login.sh" 2>&1); RC=$?
+check "dashboard-login: a short password is refused" test $RC -ne 0
+OUT=$(printf 'me\ncorrect horse battery\ncorrect horse battery\n' | bash "$ROOT/tools/dashboard-login.sh" 2>&1); RC=$?
+check "dashboard-login: exits 0" test $RC -eq 0
+check "dashboard-login: writes a hash Hermes verifies, a secret, and no plain password" python3 -c "
+import base64, hashlib, sys, yaml
+c = yaml.safe_load(open(sys.argv[1]))['dashboard']['basic_auth']
+s, n, r, p, salt, dk = c['password_hash'].split('\$')
+ok = s == 'scrypt' and hashlib.scrypt(b'correct horse battery', salt=base64.b64decode(salt), n=int(n), r=int(r), p=int(p), dklen=32, maxmem=0) == base64.b64decode(dk)
+sys.exit(0 if ok and c['username'] == 'me' and len(c['secret']) == 64 and 'correct horse' not in open(sys.argv[1]).read() else 1)" "$HOME/.hermes/config.yaml"
+
+# ---- SMB share for finished work (tools/smb-share.sh)
+OUT=$(printf 'u\np\n' | bash "$ROOT/tools/smb-share.sh" --dry-run 2>&1); RC=$?
+check "smb-share: refuses while SMB_SHARE is none" bash -c "[[ $RC -ne 0 ]] && grep -q 'SMB_SHARE is none' <<<\"\$0\"" "$OUT"
+sed 's|^SMB_SHARE=.*|SMB_SHARE=//192.168.1.20/work|' "$NODE_ENV" >"$T/smb.env"
+OUT=$(printf '%s\n%s\n' 'OFFICE\nas-user' secret | NODE_ENV="$T/smb.env" DRY_RUN_SHOW=1 bash "$ROOT/tools/smb-share.sh" --dry-run 2>&1); RC=$?
+check "smb-share: exits 0" test $RC -eq 0
+check "smb-share: credentials root-only, with the domain split off" bash -c "grep -q 'hermes-smb.cred (mode 600' <<<\"\$0\" && grep -q 'username=nas-user' <<<\"\$0\" && grep -q 'domain=OFFICE' <<<\"\$0\"" "$OUT"
+check "smb-share: a cifs mount at /srv/share owned by the agent, mounted on first use" bash -c "grep -q 'What=//192.168.1.20/work' <<<\"\$0\" && grep -q 'Where=/srv/share' <<<\"\$0\" && grep -q 'enable --now srv-share.automount' <<<\"\$0\"" "$OUT"
+
 # ---- OpenRouter credit (tools/spend.sh, verify check 4, lib/common.sh or_spend)
 spend_level() { ( source "$ROOT/lib/common.sh"; or_spend "$1" | cut -d'|' -f1 ); }
 check "spend: 20% of a monthly limit is fine" test "$(spend_level '{"data":{"limit":50,"limit_remaining":40,"limit_reset":"monthly"}}')" = ok

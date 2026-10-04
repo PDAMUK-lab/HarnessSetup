@@ -442,6 +442,23 @@ function Test-SettingValue {
             }
             return & $r $false $v 'expected a network like 192.168.1.0/24 (prefix 8 to 30)'
         }
+        '^iplist$' {
+            if ($v -ceq 'none') { return & $r $true 'none' '' }
+            $bad = 'expected none, or addresses / networks separated by commas, like 192.168.1.40,192.168.1.64/28'
+            $out = @()
+            foreach ($item in (($v -replace ' ', '' -replace ',$', '') -split ','))   # one trailing comma is fine, as in bash {
+                if ($item -cmatch '^([0-9.]+)/([0-9]{1,2})$') {
+                    if ((Test-IPv4 $Matches[1]) -and [int]$Matches[2] -ge 8 -and [int]$Matches[2] -le 30) { $out += (Get-NetworkAddress $item); continue }
+                } elseif ($item -and (Test-IPv4 $item)) { $out += $item; continue }
+                return & $r $false $v $bad
+            }
+            return & $r $true ($out -join ',') ''
+        }
+        '^smbpath$' {
+            if ($v -ceq 'none') { return & $r $true 'none' '' }
+            if ($v -cmatch '^//[A-Za-z0-9.-]+/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$') { return & $r $true $v '' }
+            return & $r $false $v 'expected none or a share like //192.168.1.20/work (forward slashes, no spaces)'
+        }
         '^port$' {
             if ($v -cmatch '^[1-9][0-9]{0,4}$' -and [int]$v -le 65535) { return & $r $true $v '' }
             return & $r $false $v 'expected a port number from 1 to 65535'
