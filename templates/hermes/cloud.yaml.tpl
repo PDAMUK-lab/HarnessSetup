@@ -12,6 +12,11 @@ delegation:
   max_concurrent_children: @@MAX_CONCURRENT_CHILDREN@@
   max_iterations: @@MAX_ITERATIONS@@
   worktree_isolation: true       # each subagent works on its own branch and worktree
+  child_timeout_seconds: 1800    # stop a sub-agent that makes no progress for 30 minutes (Hermes default: never)
+  # fallback_providers for sub-agents is written by lib/chain.sh with the main chain
+
+approvals:
+  mode: "@@APPROVAL_MODE@@"            # off = no prompts for the agent, its sub-agents or cron (quoted: YAML reads a bare off as false)
 
 auxiliary:
   review:

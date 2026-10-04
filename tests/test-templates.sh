@@ -35,6 +35,8 @@ for f in hermes_cloud.yaml.tpl hermes_providers.yaml.tpl hermes_local-profile.ya
   check "$f is valid YAML" yaml_ok "$T/$f"
 done
 check "cloud.yaml: keeps worker model as a string" grep -q 'model: "vendor-a/worker"' "$T/hermes_cloud.yaml.tpl"
+check "cloud.yaml: approval mode is the string 'off' (a bare off would be YAML false)" python3 -c "import yaml,sys; d=yaml.safe_load(open('$T/hermes_cloud.yaml.tpl')); assert d['approvals']['mode']=='off', d['approvals']"
+check "cloud.yaml: a stuck sub-agent is stopped (child_timeout_seconds)" python3 -c "import yaml,sys; d=yaml.safe_load(open('$T/hermes_cloud.yaml.tpl')); assert d['delegation']['child_timeout_seconds']==1800"
 check "providers.yaml: both endpoints, and no chain (lib/chain.sh writes it)" bash -c "grep -q 'desktop:' '$T/hermes_providers.yaml.tpl' && grep -q 'laptop:' '$T/hermes_providers.yaml.tpl' && ! grep -q fallback_providers '$T/hermes_providers.yaml.tpl'"
 check "v100-provider.yaml: its own port and the shared key" bash -c "grep -q 'api: http://192.168.1.100:8081/v1' '$T/hermes_v100-provider.yaml.tpl' && grep -q 'key_env: DESKTOP_LLM_KEY' '$T/hermes_v100-provider.yaml.tpl'"
 # shellcheck disable=SC2016  # the ${{ }} is literal GitHub Actions syntax

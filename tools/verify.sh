@@ -2,7 +2,7 @@
 # TITLE: Final checks (the guide's Step 33 table, automated where a machine can judge)
 # RUN-AS: admin
 # GUIDE: Step 33
-# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS
+# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS APPROVAL_MODE
 # Options (asked when not given): --models | --no-models (the two tool-call smoke tests can take a few minutes)
 # Prints PASS / FAIL / WARN / MANUAL per check. Exit status is 1 if anything FAILED.
 set -Euo pipefail
@@ -47,7 +47,10 @@ gpu=$(nvidia-smi 2>&1 || true)
 if grep -q 'GTX 1070' <<<"$gpu" && grep -qE 'Driver Version: 550\.' <<<"$gpu"; then res pass 1 "nvidia-smi: GTX 1070 on a 550-series driver"; else res fail 1 "nvidia-smi: GTX 1070 on a 550-series driver" "$(head -1 <<<"$gpu")"; fi
 
 if agent_exec 'sudo -n true' >/dev/null 2>&1; then res pass 2 "$AGENT_USER has passwordless sudo"; else res fail 2 "$AGENT_USER has passwordless sudo"; fi
-res manual 2 "dashboard Config page shows approval mode OFF"
+am=$(agent_exec 'hermes config get approvals.mode' 2>/dev/null | tail -1 | tr -d "\"' [:space:]" || true)
+if [[ -z $am ]]; then res manual 2 "approval mode is ${APPROVAL_MODE:-off} (dashboard Config page)"
+elif [[ $am == "${APPROVAL_MODE:-off}" || ( $am == False && ${APPROVAL_MODE:-off} == off ) ]]; then res pass 2 "approval mode is ${APPROVAL_MODE:-off}"
+else res warn 2 "approval mode is '$am', the setting APPROVAL_MODE says '${APPROVAL_MODE:-off}'" "re-run ./setup.sh run 07, or change it on the dashboard's Config page"; fi
 res manual 3 "pushing to main and deleting a v* tag are rejected" "run: ./setup.sh tool github-smoke-test"
 
 if agent_exec 'hermes doctor' >/dev/null 2>&1; then res pass 4 "hermes doctor"; else res fail 4 "hermes doctor" "run it as $AGENT_USER to see the errors"; fi

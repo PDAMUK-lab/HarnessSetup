@@ -50,5 +50,5 @@ stage_end
 cat <<MSG
 Open it from the desktop with desktop/windows/hermes-tunnel.cmd, then browse to http://localhost:$DASHBOARD_PORT
 (use $DASHBOARD_PORT on BOTH ends of the tunnel). From a phone, http://$LAPTOP_IP:$DASHBOARD_PORT must NOT load.
-Set approval mode to off on the dashboard's Config page. Next: local models (./setup.sh run 09).
+The approval mode was set by stage 07 (APPROVAL_MODE); the dashboard's Config page shows it. Next: local models (./setup.sh run 09).
 MSG

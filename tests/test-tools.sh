@@ -38,6 +38,15 @@ check "verify: lists the manual checks" has "MANUAL"
 check "verify: points at the smoke test for check 3" has "github-smoke-test"
 check "verify: fallback order is checked" has "fallback chain: OpenRouter, then desktop, then laptop"
 check "verify: loopback binding is checked" has "dashboard listens on loopback only"
+check "verify: approval mode is a manual check while Hermes cannot say" has "approval mode is off (dashboard Config page)"
+cp "$HOME/.hermes/config.yaml" "$T/cfg.keep" 2>/dev/null || true
+printf 'approvals:\n  mode: "off"\n' >"$HOME/.hermes/config.yaml"
+OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: approval mode off matches the setting (PASS)" bash -c "grep -E 'PASS.*#2 +approval mode is off' <<<\"\$0\" >/dev/null" "$OUT"
+printf 'approvals:\n  mode: smart\n' >"$HOME/.hermes/config.yaml"
+OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: a different approval mode is a WARN naming both" has "approval mode is 'smart', the setting APPROVAL_MODE says 'off'"
+if [[ -f $T/cfg.keep ]]; then cp "$T/cfg.keep" "$HOME/.hermes/config.yaml"; else rm -f "$HOME/.hermes/config.yaml"; fi
 OUT=$(FAKE_NVIDIA=missing bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: a missing GPU fails the run" test $RC -eq 1
 check "verify: ...and names check 1" has "#1"

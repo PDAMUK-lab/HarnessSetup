@@ -2,7 +2,7 @@
 # TITLE: Roles on OpenRouter: workers, reviewer, compression, worktree isolation
 # RUN-AS: hermes
 # GUIDE: Step 11
-# NEEDS: OR_WORKER_MODEL OR_REVIEW_MODEL OR_COMPRESSION_MODEL REASONING_EFFORT MAX_CONCURRENT_CHILDREN MAX_ITERATIONS
+# NEEDS: OR_WORKER_MODEL OR_REVIEW_MODEL OR_COMPRESSION_MODEL REASONING_EFFORT MAX_CONCURRENT_CHILDREN MAX_ITERATIONS APPROVAL_MODE
 # Needs `hermes model` done (planner + OpenRouter key). The worker, reviewer and summariser model IDs are asked for.
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -34,7 +34,7 @@ rm -f "$frag"
 
 stage_end
 cat <<MSG
-Next: ./setup.sh run 08  (gateway + dashboard as services). After that, in the dashboard's Config page,
-set the dangerous-command approval mode to OFF (the guide's design: unattended jobs never stall on a prompt).
+Next: ./setup.sh run 08  (gateway + dashboard as services). The dangerous-command approval mode is now
+'$APPROVAL_MODE' (setting APPROVAL_MODE; the dashboard's Config page can change it too).
 Then prove subagents and review (guide Step 12) - see docs/CHECKLIST.md.
 MSG

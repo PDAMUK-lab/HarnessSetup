@@ -22,9 +22,14 @@ chain_entries() {
 
 # chain_main_yaml  - the default profile's fallback chain: OpenRouter first, then the local endpoints
 chain_main_yaml() {
-  local p m
-  printf 'fallback_providers:\n  - provider: openrouter\n    model: "%s"\n' "$OR_FALLBACK_MODEL"
-  while IFS='|' read -r p m; do printf '  - provider: %s\n    model: %s\n' "$p" "$m"; done < <(chain_entries)
+  local p m list
+  list=$(printf '  - provider: openrouter\n    model: "%s"\n' "$OR_FALLBACK_MODEL"
+    while IFS='|' read -r p m; do printf '  - provider: %s\n    model: %s\n' "$p" "$m"; done < <(chain_entries))
+  printf 'fallback_providers:\n%s\n' "$list"
+  # Sub-agents pinned to a provider (delegation.provider) get NO fallback unless delegation.fallback_providers says so
+  # (Hermes config_defaults: "A child pinned by provider, endpoint, or model gets no fallback unless this setting
+  # declares one explicitly"), so without this an OpenRouter outage fails every sub-agent while the planner falls back.
+  printf '\ndelegation:\n  fallback_providers:\n  %s\n' "${list//$'\n'/$'\n'  }"
 }
 
 # chain_local_yaml  - the `local` profile: the first endpoint is its model, the rest are its fallbacks (never OpenRouter)
@@ -41,6 +46,17 @@ chain_local_yaml() {
     printf 'fallback_providers:\n'
     for p in "${rest[@]}"; do printf '  - provider: %s\n    model: %s\n' "${p%%|*}" "${p#*|}"; done
   fi
+  # This profile's sub-agents are pinned to the laptop endpoint (delegation.base_url), so they too need an explicit
+  # fallback: the desktop endpoints (the planner waits for its sub-agent, so the desktop's single slot is free).
+  printf '\ndelegation:\n'
+  local any=0
+  while IFS='|' read -r p m; do
+    [[ $p == custom:laptop ]] && continue
+    ((any)) || printf '  fallback_providers:\n'
+    any=1
+    printf '    - provider: %s\n      model: %s\n' "$p" "$m"
+  done < <(chain_entries)
+  ((any)) || printf '  fallback_providers: []\n'
 }
 
 # chain_merge TARGET  - deep-merge the YAML on stdin into TARGET (or just show it on a dry run / when TARGET is not there yet)

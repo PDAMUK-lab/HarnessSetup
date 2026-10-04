@@ -15,6 +15,15 @@ case "${1:-} ${2:-}" in
       echo "$line"
     fi ;;
   "gateway status") echo "gateway: running" ;;
+  "config get")
+    python3 - "$home/config.yaml" "${3:-}" <<'PY' 2>/dev/null || true
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1])) or {}
+for k in sys.argv[2].split("."):
+    d = d[k]
+print(d)
+PY
+    ;;
   "fallback list")
     # with the desktop out of the loop (hermes-desktop off) the chain has no desktop entry
     if [[ -e $HOME/.hermes/desktop-away ]]; then printf '1. openrouter\n2. custom:laptop\n'

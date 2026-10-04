@@ -154,8 +154,9 @@ config-loader test), merge them into `hermes/demo` and push; press Ctrl+T to wat
 ```
 
 On the desktop run the `hermes-tunnel.cmd` that `Setup-LaptopAccess.ps1` put on your Desktop (to pin it: right-click > Create shortcut, Target `cmd.exe /c "<path>"`, pin the shortcut), then browse
-to `http://localhost:9119`. **MANUAL:** on the dashboard's **Config** page set the dangerous-command approval mode to
-**off** (the guide's design: unattended jobs never stall on a prompt). Use port 9119 on both ends of the tunnel.
+to `http://localhost:9119`. Stage 07 already set the dangerous-command approval mode from `APPROVAL_MODE` (default
+**off**, the guide's design: unattended jobs and sub-agents never stall or refuse on a prompt); the dashboard's **Config**
+page shows it. Browse to `localhost` or `127.0.0.1` only (the dashboard rejects other hostnames).
 
 **Verify:** Status shows the gateway running; Chat opens a session in `~/repos/yourrepo`; from a phone,
 `http://192.168.1.150:9119` does **not** load.

@@ -57,6 +57,12 @@ main, local = open(sys.argv[1]).read().split("---\n")
 m, l = yaml.safe_load(main), yaml.safe_load(local)
 assert m["fallback_providers"][0] == {"provider": "openrouter", "model": "c/f"}, m
 assert l["model"]["provider"].startswith("custom:"), l
+# sub-agents: the cloud profile's children fall back along the same chain; the local profile's (pinned to the
+# laptop) fall back to the desktop endpoints only, or nowhere when the desktop is away
+assert m["delegation"]["fallback_providers"] == m["fallback_providers"], m
+lp = [e["provider"] for e in l["delegation"]["fallback_providers"]]
+assert "custom:laptop" not in lp, lp
+assert lp == [p for p in [l["model"]["provider"]] + [e["provider"] for e in l["fallback_providers"]] if p != "custom:laptop"], (lp, l)
 PY
 ); }
 check "chain: both fragments are valid YAML (default)" chain_yaml_ok "$T/node.env"

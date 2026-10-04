@@ -39,6 +39,7 @@ CRON_MODEL|laptop|advanced|optmodel|||Cheaper model for scheduled jobs|Optional.
 REASONING_EFFORT|laptop|advanced|choice:low,medium,high,xhigh,max|high||Planner reasoning effort|High costs more tokens but thinks harder. Lower it (medium) if cost or latency outgrows the gain.
 MAX_CONCURRENT_CHILDREN|laptop|advanced|int:1-10|3||Parallel subagents|3 keeps spend predictable; Hermes' own default is 10.
 MAX_ITERATIONS|laptop|advanced|int:10-1000|200||Max iterations per subagent|Upper bound on a subagent's tool-call loop.
+APPROVAL_MODE|laptop|advanced|choice:off,smart,manual|off||Dangerous-command approval mode|off (the guide's design): the agent, its sub-agents and its cron jobs run every command, sudo included, without asking, so unattended work never stalls. smart: a guardian model asks first, and sub-agents and cron jobs then refuse risky commands instead of waiting. manual: always ask. A short hard-coded blocklist (rm -rf / and the like) applies in every mode.
 
 #> Laptop model: Qwen3.5-9B on the GTX 1070 (guide Step 18)
 LAPTOP_QUANT|laptop|basic|choice:UD-Q5_K_XL,UD-Q4_K_XL|UD-Q5_K_XL||Laptop model quantization|UD-Q5_K_XL is the guide's pick (6.7GB, higher quality). Choose UD-Q4_K_XL (6.0GB) if Q5 runs out of VRAM.
