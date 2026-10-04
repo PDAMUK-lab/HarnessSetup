@@ -305,6 +305,20 @@ check "update-llama: says it rolled back" has "putting the previous one back"
 upd --rollback
 check "update-llama --rollback: puts the kept build back" bash -c "[[ $RC -eq 0 ]] && grep -q '100 (old)' '$lp/bin/llama-server'"
 
+# ---- model-test.sh: a task set against a model (the hermes stub "does" a task by creating the file it names)
+git init -q --bare "$T/mt-origin.git"; rm -rf "$HOME/repos/mt"; git clone -q "$T/mt-origin.git" "$HOME/repos/mt" 2>/dev/null
+( cd "$HOME/repos/mt" && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init && git push -q origin HEAD:main && git remote set-head origin main )
+printf '# comment\nmakes-file | mt | test -f done.txt | Please create done.txt in the repo.\nnever-done | mt | test -f other.txt | Explain the code, change nothing.\n' >"$T/tasks.txt"
+OUT=$(bash "$ROOT/tools/model-test.sh" --file "$T/tasks.txt" --provider custom:laptop --model m9 2>&1); RC=$?
+check "model-test: runs every task and reports the pass rate" bash -c "grep -q 'm9: 1 of 2 passed' <<<\"\$0\" && [[ $RC -ne 0 ]]" "$OUT"
+check "model-test: records each task in results.csv" bash -c "grep -q ',m9,local,custom:laptop,m9,makes-file,pass,' '$HOME/model-tests/results.csv' && grep -q ',never-done,fail,' '$HOME/model-tests/results.csv'"
+check "model-test: passes the model and provider to hermes and reads the prompt from a file" grep -q 'hermes -p local chat --query-file .* --provider custom:laptop --model m9' "$FAKE_LOG"
+check "model-test: removes its worktrees and leaves the clone untouched" bash -c "[[ \$(git -C '$HOME/repos/mt' worktree list | wc -l) -eq 1 && ! -e '$HOME/repos/mt/done.txt' ]]"
+OUT=$(bash "$ROOT/tools/model-test.sh" --file "$T/tasks.txt" --only makes-file --label base 2>&1); RC=$?
+check "model-test: --only runs one task; all passing exits 0" bash -c "[[ $RC -eq 0 ]] && grep -q 'base: 1 of 1 passed' <<<\"\$0\"" "$OUT"
+OUT=$(bash "$ROOT/tools/model-test.sh" --file "$T/missing.txt" 2>&1); RC=$?
+check "model-test: a missing task file points at the example" bash -c "[[ $RC -ne 0 ]] && grep -q 'model-tests.example' <<<\"\$0\"" "$OUT"
+
 # ---- the kit's own release (.github/workflows/release.yml uses these)
 check "release notes: the VERSION file's section exists in CHANGELOG.md" bash -c "[[ -n \$(bash '$ROOT/.github/scripts/release-notes.sh') ]]"
 check "release notes: a section stops at the next heading" bash -c "! bash '$ROOT/.github/scripts/release-notes.sh' 0.3.1 | grep -q '^## '"

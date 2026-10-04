@@ -341,6 +341,19 @@ Another model (the MiMo distill, Ornith, Gemma 4, an uncensored drop-in) is a se
 **Desktop (administrator PowerShell, during the day):** `.\desktop\windows\Update-Llama.ps1` does the same for the
 Vulkan build (`-Rollback` to go back); the start scripts, the key and the models are kept.
 
+
+**Measure with the test set runner** (as `hermes`): copy `config/model-tests.example` to `~/model-tests.txt` and write
+10 to 20 real tasks (`NAME | REPO | CHECK COMMAND | PROMPT`). Then:
+
+```bash
+./setup.sh tool model-test                                   # the local profile's models
+./setup.sh tool model-test --provider custom:laptop --model qwen3.5-9b --label 9b-base
+./setup.sh tool model-test --provider custom:desktop --model ornith-35b --label ornith    # after switching a slot
+```
+
+Each task runs in a throw-away worktree; the pass rate and times go to `~/model-tests/results.csv`. Keep a model or a
+setting only if it passes more tasks.
+
 ## 11. Final checks and upkeep (Step 33)
 
 Run [CHECKLIST.md](CHECKLIST.md). **Check 18 matters most**: reboot the laptop, do not log in as `hermes`, and repeat
