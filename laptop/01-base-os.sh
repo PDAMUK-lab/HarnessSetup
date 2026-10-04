@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# TITLE: Base OS: non-free sources, NVIDIA 550 driver, server behaviour
+# TITLE: Base OS: no sleep, non-free sources, NVIDIA 550 driver, swap
 # RUN-AS: admin
-# GUIDE: Steps 2-4
+# GUIDE: Steps 1-4
 # NEEDS: -
 # Options (asked when not given): --nvidia | --skip-nvidia   --reboot | --no-reboot
 set -Eeuo pipefail
@@ -36,6 +36,13 @@ ask_flag INSTALL_NVIDIA "Install the NVIDIA 550 driver for the GTX 1070? (Debian
 . /etc/os-release
 [[ ${VERSION_ID:-} == 13 ]] || fail_or_warn "this guide targets Debian 13 (found ${PRETTY_NAME:-unknown})"
 
+# Lid and sleep first (guide Step 1): by default closing the lid suspends the laptop and drops SSH in the middle of apt or the DKMS build.
+log "Step 1: ignore the lid, never suspend"
+printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=ignore\n' |
+  put_file /etc/systemd/logind.conf.d/lid.conf 644
+sudo_run systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+sudo_run systemctl restart systemd-logind
+
 log "Step 2: enable contrib / non-free / non-free-firmware"
 if [[ -f /etc/apt/sources.list.d/debian.sources ]]; then
   sudo_run sed -i 's/^Components: .*/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
@@ -63,6 +70,12 @@ if [[ $INSTALL_NVIDIA == 1 ]]; then
     *) fail_or_warn "nvidia-driver candidate is '${cand:-none}', expected 550.x. Is trixie-backports enabled? It must not supply NVIDIA packages." ;;
   esac
 
+  # The other thing that kills this driver: a trixie-backports kernel (6.16+), which Debian's 550 module does not build on.
+  kern=${HS_KERNEL:-$(uname -r)}
+  if [[ $kern =~ ^([0-9]+)\.([0-9]+) ]] && ((BASH_REMATCH[1] > 6 || (BASH_REMATCH[1] == 6 && BASH_REMATCH[2] >= 16))); then
+    fail_or_warn "kernel $kern is newer than trixie's 6.12: the 550 module does not build on 6.16 or newer (a backports kernel). Boot the stock trixie kernel."
+  fi
+
   sudo_run "${APT[@]}" install linux-headers-amd64 nvidia-kernel-dkms nvidia-driver nvidia-smi \
     nvidia-persistenced firmware-misc-nonfree
   sudo_run systemctl enable nvidia-persistenced
@@ -73,16 +86,12 @@ if [[ $INSTALL_NVIDIA == 1 ]]; then
   fi
 fi
 
-log "Step 4: make the laptop behave like a server"
-printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=ignore\n' |
-  put_file /etc/systemd/logind.conf.d/lid.conf 644
-sudo_run systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
-sudo_run systemctl restart systemd-logind
-
+log "Step 4: compressed swap and automatic security updates"
 sudo_run "${APT[@]}" install systemd-zram-generator
 printf '[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd\n' | put_file /etc/systemd/zram-generator.conf 644
 sudo_run systemctl daemon-reload
-sudo_run systemctl start systemd-zram-setup@zram0.service
+# the generator's unit only creates the device; starting /dev/zram0 starts the generated dev-zram0.swap that turns it on
+sudo_run systemctl start /dev/zram0
 sudo_run "${APT[@]}" install unattended-upgrades
 
 if [[ $DRY_RUN != 1 ]]; then
@@ -96,7 +105,7 @@ fi
 
 stage_end
 echo
-echo "Next: $([[ ${NEED_REBOOT:-0} == 1 ]] && echo "reboot (sudo reboot), then check:  nvidia-smi  -> GeForce GTX 1070, 8192MiB, 550.x. If it fails: dkms status") "
+echo "Next: $([[ ${NEED_REBOOT:-0} == 1 ]] && echo "reboot (sudo reboot), then check:  nvidia-smi  -> GeForce GTX 1070, 8192MiB, 550.x. If it fails: dkms status (nvidia-current/550...: installed)") "
 echo "Then set up key-only SSH from the desktop (desktop/windows/Setup-LaptopAccess.ps1), then:  ./setup.sh run 02"
 if [[ $DRY_RUN != 1 ]]; then
   ask_flag REBOOT "Reboot now? (the NVIDIA driver needs one reboot before nvidia-smi works)" n

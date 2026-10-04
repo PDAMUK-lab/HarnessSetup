@@ -19,6 +19,9 @@ Commands are for the laptop unless the heading says **desktop**.
    loss" if it exists.
 3. **Install Debian 13** from the netinst image. Leave the root password **empty**. User `ai-node`, hostname
    `ai-node`. Software selection: only *SSH server* and *standard system utilities*.
+   With no root password, root is locked: `su` fails ("Authentication failure") and root cannot SSH in; use `sudo -i` for a
+   root shell. (Set a root password instead and the installer skips `sudo`, which every stage needs.) Keep the lid open until
+   stage 01 has run: it is the first thing the stage does, and a closed lid suspends the laptop and drops SSH.
 4. **Windows desktop.** Freshly reset, then the current AMD Adrenalin driver. Install the Microsoft Visual C++
    Redistributable (x64) if `llama-server.exe` later reports a missing DLL.
 5. **Get this kit onto both machines.** On the laptop, over SSH from the desktop:
@@ -47,13 +50,13 @@ Commands are for the laptop unless the heading says **desktop**.
 
 ```bash
 ./setup.sh run 01 --skip-nvidia --dry-run   # optional: see what it does
-./setup.sh run 01                           # non-free sources, NVIDIA 550 for Pascal, no sleep, zram, auto-updates
+./setup.sh run 01                           # no sleep (lid ignored), non-free sources, NVIDIA 550 for Pascal, zram, auto-updates
 sudo reboot
 nvidia-smi                                  # GeForce GTX 1070, 8192MiB, 550.x
 ```
 
-If `nvidia-smi` fails: `dkms status` should show `nvidia/550...: installed` for `uname -r`. The script refuses to
-continue if it sees `nvidia-open-kernel-dkms`, an NVIDIA apt repo, or a non-550 candidate: those drop Pascal.
+If `nvidia-smi` fails: `dkms status` should show `nvidia-current/550...: installed` for `uname -r` (build log: `/var/lib/dkms/nvidia-current/550.163.01/build/make.log`). The script refuses to
+continue if it sees `nvidia-open-kernel-dkms`, an NVIDIA apt repo, a non-550 candidate, or a backports kernel (6.16+): those drop or break Pascal.
 
 **Desktop (PowerShell):**
 

@@ -33,8 +33,9 @@ If check 18 fails on the dashboard or gateway, linger is off or a unit is not en
 ## Per-phase proofs from the guide
 
 - [ ] Step 1: SSH works, `sudo -v` accepts the password
-- [ ] Step 3: `nvidia-smi`; `dkms status` shows `nvidia/550...: installed`
-- [ ] Step 4: closing the lid keeps SSH alive; `swapon --show` lists `/dev/zram0`
+- [ ] Step 3: `nvidia-smi`; `dkms status` shows `nvidia-current/550...: installed`
+- [ ] Step 1: closing the lid keeps SSH alive (lid and sleep settings done before Step 2); `sudo -i` gives a root shell (`su` does not work without a root password)
+- [ ] Step 4: `swapon --show` lists `/dev/zram0`
 - [ ] Step 5: a **new** PowerShell window logs in without a password
 - [ ] Step 6: `ROOT-OK`; `Linger=yes`
 - [ ] Step 8: smoke test green; test branch and tag removed in the web UI

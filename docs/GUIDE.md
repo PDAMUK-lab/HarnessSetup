@@ -90,7 +90,22 @@ Solid lines are the everyday path. Dashed lines carry traffic in local mode, or 
 2. In the laptop's firmware, disable Secure Boot. This is a dedicated node, and it avoids signing the NVIDIA kernel module. If you must keep Secure Boot, see the note in Step 3. If the firmware has a "power on after AC loss" option, enable it.
 3. Install from the Debian 13 netinst image. **Leave the root password empty.** The installer then installs `sudo` and adds your user to it. Create the user `ai-node` and set the hostname to `ai-node`. In software selection, tick only **SSH server** and **standard system utilities**, with no desktop environment.
 
+   With no root password the root account is locked: `su` and `su -` fail with "Authentication failure", and root cannot log in over SSH. That is intended. For a root shell run `sudo -i`. (If you would rather have a root password, set one in the installer, but then it installs no `sudo` and does not add your user to it, and you must do both yourself as root: `apt install sudo` and `usermod -aG sudo ai-node`. Every later step assumes `sudo` works.)
+4. Keep the lid open and the charger in until the next block is done. By default closing the lid suspends the laptop and drops your SSH session, which could be in the middle of an `apt` or driver build.
+
 **Verify:** from the desktop, `ssh ai-node@192.168.1.150` logs in, and `sudo -v` asks for your password and accepts it.
+
+**Do** (over SSH, straight after that first login, before Step 2): make the laptop ignore the lid and never suspend.
+
+```bash
+sudo mkdir -p /etc/systemd/logind.conf.d
+printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=ignore\n' \
+  | sudo tee /etc/systemd/logind.conf.d/lid.conf
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+sudo systemctl restart systemd-logind
+```
+
+**Verify:** close the lid for ten seconds and open it: the SSH session is still alive. The laptop can now live closed, on mains power, somewhere it can breathe.
 
 ### Step 2 — Enable non-free packages and update
 
@@ -114,7 +129,9 @@ The installer writes either the newer deb822 file or the older one-line `sources
 
 ### Step 3 — NVIDIA driver for the GTX 1070
 
-The GTX 1070 is a Pascal card. Debian 13's own 550 driver supports it. Newer drivers do not: the 590 driver in trixie-backports and NVIDIA's own repository have both dropped Pascal, and the open kernel modules never supported it.
+The GTX 1070 is a Pascal card. Debian 13's own 550 driver supports it. Newer drivers do not: NVIDIA's 590 branch and later dropped Pascal (580 was the last branch that supports it), and the open kernel modules never supported it.
+
+Debian's 550 is an end-of-life branch with many CVEs unfixed in Debian (bug #1149642). This guide keeps the machine on the LAN only and treats a GPU-driver compromise as part of the agent's already-full control of the laptop. If you want security fixes, NVIDIA's 580 branch is the newest that supports Pascal, but installing it means leaving Debian's packages and changing the guard rails in `laptop/01-base-os.sh`.
 
 **Do:**
 
@@ -127,34 +144,29 @@ sudo reboot
 
 **Verify:** `nvidia-smi` lists `GeForce GTX 1070` with about 8192MiB and a 550.x driver.
 
-**Never** install `nvidia-open-kernel-dkms`, the trixie-backports NVIDIA packages, or NVIDIA's CUDA repository on this machine. Each of them replaces the 550 driver with one that does not support Pascal, and the GPU disappears at the next reboot.
+**Never** install `nvidia-open-kernel-dkms`, NVIDIA's own apt repository or its CUDA driver packages (they pull a branch without Pascal support), or a kernel from trixie-backports (6.16 and newer: the 550 module in trixie does not build on it, so DKMS fails and the GPU is gone after the reboot). Stay on the stock trixie kernel (6.12). The trixie-backports NVIDIA packages are the same 550 series, so there is no reason to use them.
 
 **If you kept Secure Boot:** after the install, run `sudo mokutil --import /var/lib/dkms/mok.pub`, choose a one-time password, reboot, and enrol the key in the blue MOK screen.
 
-**If `nvidia-smi` fails:** check `dkms status` shows `nvidia/550...: installed` for the running kernel (`uname -r`). If it is missing, reinstall `linux-headers-amd64` and `nvidia-kernel-dkms`.
+**If `nvidia-smi` fails:** run `dkms status`. It must show `nvidia-current/550.163.01, <uname -r>, x86_64: installed` for the running kernel (`uname -r`). If that line is missing or says `built` or `added`, check that `ls /usr/src/linux-headers-$(uname -r)` exists, then run `sudo apt install --reinstall linux-headers-amd64 nvidia-kernel-dkms`. On a build error, read `/var/lib/dkms/nvidia-current/550.163.01/build/make.log`.
 
 ### Step 4 — Make the laptop behave like a server
 
 **Do:**
 
-```bash
-# Ignore the lid; never suspend
-sudo mkdir -p /etc/systemd/logind.conf.d
-printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=ignore\n' \
-  | sudo tee /etc/systemd/logind.conf.d/lid.conf
-sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
-sudo systemctl restart systemd-logind
+The lid and sleep settings are already done (Step 1).
 
+```bash
 # Compressed swap in RAM, to absorb spikes from builds and tests
 sudo apt install -y systemd-zram-generator
 printf '[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd\n' | sudo tee /etc/systemd/zram-generator.conf
-sudo systemctl daemon-reload && sudo systemctl start systemd-zram-setup@zram0.service
+sudo systemctl daemon-reload && sudo systemctl start /dev/zram0
 
 # Automatic security updates
 sudo apt install -y unattended-upgrades
 ```
 
-**Verify:** close the lid and the SSH session stays alive. `swapon --show` lists `/dev/zram0`.
+**Verify:** close the lid and the SSH session stays alive. `swapon --show` lists `/dev/zram0` at priority 100, about half your RAM in size (the `zram-size = ram / 2` above). Starting `systemd-zram-setup@zram0.service` is not enough: it only creates the device, and `/dev/zram0` is what turns the swap on.
 
 Keep the laptop on mains power and somewhere it can breathe. Model inference holds the GPU at full load for minutes at a time.
 
@@ -191,9 +203,12 @@ sudo adduser --disabled-password --comment "" hermes
 sudo loginctl enable-linger hermes
 
 # Full control: passwordless sudo for the agent
-echo 'hermes ALL=(ALL:ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/90-hermes >/dev/null
-sudo chmod 440 /etc/sudoers.d/90-hermes
-sudo visudo -cf /etc/sudoers.d/90-hermes      # must print "parsed OK"
+# Check a temporary file first: a broken file in sudoers.d breaks sudo for everyone, and root has no password to fix it with
+tmp=$(mktemp)
+echo 'hermes ALL=(ALL:ALL) NOPASSWD: ALL' > "$tmp"
+sudo visudo -cf "$tmp" && sudo install -m 440 -o root -g root "$tmp" /etc/sudoers.d/90-hermes
+rm -f "$tmp"
+sudo visudo -c                                # the whole configuration must say "parsed OK"
 ```
 
 **Verify:** `sudo -u hermes sudo -n true && echo ROOT-OK` prints `ROOT-OK` with no password prompt. `loginctl show-user hermes -p Linger` prints `Linger=yes`.

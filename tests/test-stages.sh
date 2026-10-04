@@ -23,6 +23,8 @@ dry() { # dry ID [opts] -> output in $OUT, status in $RC
 }
 has() { [[ $1 == -- ]] && shift; grep -qF -- "$1" <<<"$OUT"; }
 hasre() { grep -qE -- "$1" <<<"$OUT"; }
+lacks() { ! grep -qF -- "$1" <<<"$OUT"; }
+line_of() { grep -nF -- "$1" <<<"$OUT" | head -1 | cut -d: -f1; }   # first line of OUT that has the text
 
 # ---- the dispatcher itself
 OUT=$("$ROOT/setup.sh" list 2>&1)
@@ -38,11 +40,18 @@ check "01: exits 0" test "$RC" -eq 0
 check "01: enables non-free components" has "contrib non-free non-free-firmware"
 check "01: ignores the lid switch" has "lid.conf"
 check "01: masks sleep targets" has "mask sleep.target suspend.target hibernate.target hybrid-sleep.target"
-check "01: sets up zram" has "systemd-zram-setup@zram0.service"
+check "01: sets up zram" has "systemd-zram-generator"
+check "01: starts the zram swap unit (the setup service only creates the device)" has "start /dev/zram0"
+check "01: no zram setup-service start (it never turns the swap on)" lacks "start systemd-zram-setup@zram0.service"
+check "01: lid and sleep come before the package upgrade (a closed lid must not break Steps 2-3)" bash -c "[[ $(line_of lid.conf) -gt 0 && $(line_of lid.conf) -lt $(line_of full-upgrade) ]]"
 check "01: --skip-nvidia installs no NVIDIA package" bash -c "! grep -q nvidia-driver <<<'$OUT'"
 dry 01 --nvidia
 check "01: installs the 550-series package set" has "nvidia-kernel-dkms nvidia-driver nvidia-smi"
 check "01: enables nvidia-persistenced" has "enable nvidia-persistenced"
+OUT=$(HS_KERNEL=6.17.8+deb13-amd64 "$ROOT/setup.sh" run 01 --nvidia --dry-run --yes 2>&1)
+check "01: warns about a 6.16+ kernel (backports) before building the 550 module" has "does not build on 6.16"
+OUT=$(HS_KERNEL=6.12.48+deb13-amd64 "$ROOT/setup.sh" run 01 --nvidia --dry-run --yes 2>&1)
+check "01: no kernel warning on trixie's 6.12" lacks "does not build on 6.16"
 check "static: no script ever installs the Pascal-breaking NVIDIA packages" bash -c "! grep -rnE 'nvidia-open|cuda-drivers|nvidia-driver-5[6-9]|backports' '$ROOT/laptop' | grep -vE 'die |warn |fail_or_warn|dpkg-query|^[^:]+:[0-9]+:[[:space:]]*#'"
 
 # ---- stage 02
@@ -65,7 +74,6 @@ check "04: installs ufw" has "ufw"
 check "04: --docker adds the agent to the docker group" bash -c "'$ROOT/setup.sh' run 04 --dry-run --yes --docker 2>&1 | grep -q 'usermod -aG docker hermes'"
 
 # ---- stage 09
-lacks() { ! grep -qF -- "$1" <<<"$OUT"; }
 lineno() { grep -nF -- "$1" <<<"$OUT" | head -1 | cut -d: -f1; }
 dry 09
 check "09: exits 0" test "$RC" -eq 0
