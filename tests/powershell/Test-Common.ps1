@@ -57,6 +57,13 @@ $cfg2 = [ordered]@{} + $cfg; $cfg2['DESKTOP_N_CPU_MOE'] = '32'
 Check 'settings flow through (-n-cpu-moe 32)' { (New-LlamaStartScript -Cfg $cfg2 -Tier Day)[2] -match '--n-cpu-moe 32 ' }
 # ---- other model families: chat-template switches, sampling, MTP are settings
 Check 'ConvertTo-CmdKwargs: booleans and numbers bare, words quoted, cmd escaping' { (ConvertTo-CmdKwargs 'enable_thinking=false,reasoning_effort=low,n=-1.5') -eq '"{\"enable_thinking\":false,\"reasoning_effort\":\"low\",\"n\":-1.5}"' }
+Check 'ConvertTo-CmdKwargs: a leading-zero number stays a string (07 is not JSON)' { (ConvertTo-CmdKwargs 'n=07,m=0,k=0.5') -eq '"{\"n\":\"07\",\"m\":0,\"k\":0.5}"' }
+$bad = [ordered]@{} + $cfg; $bad['DESKTOP_SAMPLING'] = '--temp'
+Check 'a bad sampling value in the settings file stops the start script with the setting name' { try { $null = New-LlamaStartScript -Cfg $bad -Tier Day; $false } catch { $_.Exception.Message -match 'DESKTOP_SAMPLING' } }
+$bad = [ordered]@{} + $cfg; $bad['NIGHT_CHAT_KWARGS'] = '{x}'
+Check 'a bad switch value stops the night script too' { try { $null = New-LlamaStartScript -Cfg $bad -Tier Night; $false } catch { $_.Exception.Message -match 'NIGHT_CHAT_KWARGS' } }
+$mtpno = [ordered]@{} + $cfg; $mtpno['NIGHT_MTP'] = 'no'
+Check 'NIGHT_MTP=no (any spelling of no) turns MTP off' { -not ((New-LlamaStartScript -Cfg $mtpno -Tier Night) -join "`n").Contains('draft-mtp') }
 Check 'Resolve-ModelSetting: auto, none, missing, value' { (Resolve-ModelSetting 'auto' 'X') -eq 'X' -and (Resolve-ModelSetting 'none' 'X') -eq '' -and (Resolve-ModelSetting $null 'X') -eq 'X' -and (Resolve-ModelSetting 'a=1' 'X') -eq 'a=1' }
 $cfg3 = [ordered]@{} + $cfg; $cfg3['DESKTOP_CHAT_KWARGS'] = 'reasoning_effort=high'; $cfg3['DESKTOP_SAMPLING'] = '--temp 1.0 --top-p 1.0'
 $d3 = New-LlamaStartScript -Cfg $cfg3 -Tier Day

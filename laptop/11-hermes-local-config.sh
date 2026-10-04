@@ -2,7 +2,7 @@
 # TITLE: Local endpoints, fallback chain, the `local` profile, hermes-mode
 # RUN-AS: hermes
 # GUIDE: Steps 21-23
-# NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT DESKTOP_MODEL_ALIAS DESKTOP_CTX LAPTOP_CTX LAPTOP_MODEL_ALIAS V100_ENABLED V100_PRIMARY V100_MODEL_ALIAS V100_CTX V100_PORT
+# NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT DESKTOP_MODEL_ALIAS DESKTOP_CTX LAPTOP_CTX LAPTOP_MODEL_ALIAS V100_ENABLED V100_PRIMARY V100_MODEL_ALIAS V100_CTX V100_PORT APPROVAL_MODE
 # Needs the desktop API key printed by Install-Llama.ps1 (prompted, or set DESKTOP_LLM_KEY in the environment).
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -38,8 +38,9 @@ fi
 set_env_var "$HOME/.hermes/.env" DESKTOP_LLM_KEY "$key"
 
 render_template "$HS_ROOT/templates/hermes/providers.yaml.tpl"
-frag=$(mktemp); printf '%s' "$RENDERED" >"$frag"
-if [[ $DRY_RUN == 1 ]]; then log "[dry-run] would merge the local endpoints into $cfg"; sed 's/^/    | /' "$frag" >&2; else merge "$cfg" "$frag"; fi
+pfrag=$(mktemp); printf '%s' "$RENDERED" >"$pfrag"
+if [[ $DRY_RUN == 1 ]]; then log "[dry-run] would merge the local endpoints into $cfg"; sed 's/^/    | /' "$pfrag" >&2; else merge "$cfg" "$pfrag"; fi
+frag=$(mktemp)
 
 # ---- Step 22: the local profile (cloned from the default one, then stripped of the cloud)
 if hermes profile list 2>/dev/null | grep -qw local; then
@@ -55,6 +56,8 @@ if [[ $DRY_RUN == 1 ]]; then
 else
   [[ -f $pcfg ]] || die "$pcfg does not exist after 'hermes profile create'. Check 'hermes profile list' for where profiles live."
   merge "$pcfg" "$frag" --delete delegation.provider --delete auxiliary.review --delete auxiliary.compression
+  # the profile was cloned once; keep its endpoints (aliases, context sizes) current on every run
+  merge "$pcfg" "$pfrag"
   # nothing in this profile may reach the cloud
   touch "$penv" && chmod 600 "$penv"
   sed -i '/^OPENROUTER_API_KEY=/d' "$penv"
@@ -62,7 +65,7 @@ else
   if grep -qi openrouter "$pcfg"; then warn "the local profile config still mentions openrouter: $(grep -ni openrouter "$pcfg" | head -3 | tr '\n' ' ')"; fi
   if grep -q '^OPENROUTER' "$penv"; then die "OPENROUTER_API_KEY is still in $penv"; fi
 fi
-rm -f "$frag"
+rm -f "$frag" "$pfrag"
 
 # ---- the fallback chain and the local profile's model (V100 tier and "desktop away" included): lib/chain.sh
 chain_apply "$cfg" "$pcfg"

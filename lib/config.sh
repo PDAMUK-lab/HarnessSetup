@@ -337,7 +337,8 @@ cfg_kwargs_json() {
   IFS=, read -r -a pairs <<<"$1"
   for kv in "${pairs[@]}"; do
     k=${kv%%=*} v=${kv#*=}
-    if [[ $v =~ ^(true|false|-?[0-9]+(\.[0-9]+)?)$ ]]; then out+="\"$k\":$v,"; else out+="\"$k\":\"$v\","; fi
+    # bare only for true/false and valid JSON numbers (no leading zeros: 07 stays the string "07")
+    if [[ $v =~ ^(true|false|-?(0|[1-9][0-9]*)(\.[0-9]+)?)$ ]]; then out+="\"$k\":$v,"; else out+="\"$k\":\"$v\","; fi
   done
   printf '{%s}' "${out%,}"
 }

@@ -7,6 +7,9 @@ case "$1 ${2:-}" in
   "pr list") printf '%s\n' "$*" >"$HOME/.gh-pr-list-args"; printf '%s' "${FAKE_PR_TITLES:-}" ;;
   "pr create") echo "https://github.com/acme/app/pull/1" ;;
   "pr merge") if [[ ${FAKE_PR_MERGE:-reject} == reject ]]; then echo "the base branch policy prohibits the merge" >&2; exit 1; fi ;;
+  "pr view") echo "${FAKE_REVIEW_DECISION-REVIEW_REQUIRED}" ;;
+  "pr close")   # like gh: closing the PR of the checked-out branch switches to the default branch, then deletes the branch
+    if [[ " $* " == *" --delete-branch "* ]]; then git switch -q main 2>/dev/null; git branch -q -D "$3" 2>/dev/null; fi ;;
   "repo clone") dest=${4:-$(basename "$3")}; mkdir -p "$dest" && git init -q "$dest" ;;
 esac
 exit 0

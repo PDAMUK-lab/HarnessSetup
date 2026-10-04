@@ -106,6 +106,7 @@ kwargs|enable_thinking|bad||kwargs: no value
 kwargs|a=1,,b=2|bad||kwargs: empty pair
 kwargs|a=1,|bad||kwargs: trailing comma
 kwargs|a=1,a=2|bad||kwargs: duplicate key
+kwargs|a=1,A=2|ok||kwargs: keys are case-sensitive (two different keys)
 kwargs|a=x y|bad||kwargs: space in value
 kwargs|1a=x|bad||kwargs: key starts with a digit
 kwargs|a=x;b|bad||kwargs: semicolon

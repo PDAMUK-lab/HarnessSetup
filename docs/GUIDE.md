@@ -568,7 +568,13 @@ mkdir C:\models
 curl.exe -f -L -C - --retry 5 -o C:\models\Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf
 ```
 
-The first four bytes of a real model file are `GGUF` (`Get-Content C:\models\Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf -TotalCount 1 -Encoding Byte` begins 71 71 85 70); a few hundred bytes of text means the download was an error page.
+The first four bytes of a real model file are `GGUF`. This prints them in any PowerShell version:
+
+```powershell
+$b = [byte[]]::new(4); $f = [IO.File]::OpenRead('C:\models\Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf'); [void]$f.Read($b, 0, 4); $f.Close(); [Text.Encoding]::ASCII.GetString($b)
+```
+
+Anything but `GGUF` (or a file of a few hundred bytes) means the download was an error page.
 
 4. Make an API key. This server listens on the LAN, so it gets a password even though the firewall already limits it to the laptop. Run this, which makes a random key with a cryptographic generator, saves it where only you and administrators can read it, and prints it (keep the output; it is the `DESKTOP_LLM_KEY` of Step 21):
 
@@ -1093,7 +1099,7 @@ Register-ScheduledTask -TaskName llama-night -Action $night -Trigger (New-Schedu
 Register-ScheduledTask -TaskName llama-day   -Action $day   -Trigger (New-ScheduledTaskTrigger -Daily -At 07:00) -Settings $s -Principal $p
 ```
 
-**Test the swap before the first night** (with the day server running): `schtasks /run /tn llama-night`, wait about a minute, then `curl -H "Authorization: Bearer <key>" http://192.168.1.100:8080/v1/models` must list `qwen3.8-27b`. Then `schtasks /run /tn llama-day` and the same curl must list `qwen3.6-35b-a3b`.
+**Test the swap before the first night** (with the day server running): `schtasks /run /tn llama-night`, wait about a minute, then `curl.exe -s -H "Authorization: Bearer <key>" http://192.168.1.100:8080/v1/models` must list `qwen3.8-27b` (in PowerShell, plain `curl` is a different command). Then `schtasks /run /tn llama-day` and the same curl must list `qwen3.6-35b-a3b`.
 
 Also keep the PC awake after the timer wake: with nobody at the machine, Windows goes back to sleep when the "system unattended sleep timeout" (default 2 minutes) expires, possibly before the job starts. In the same administrator PowerShell: `powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP 7bc4a2f9-d8fc-4469-b07b-33eb785aaca0 25200; powercfg /setactive SCHEME_CURRENT` (stay awake up to 7 hours).
 

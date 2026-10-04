@@ -38,15 +38,18 @@ check "verify: lists the manual checks" has "MANUAL"
 check "verify: points at the smoke test for check 3" has "github-smoke-test"
 check "verify: fallback order is checked" has "fallback chain: OpenRouter, then desktop, then laptop"
 check "verify: loopback binding is checked" has "dashboard listens on loopback only"
-check "verify: approval mode is a manual check while Hermes cannot say" has "approval mode is off (dashboard Config page)"
-cp "$HOME/.hermes/config.yaml" "$T/cfg.keep" 2>/dev/null || true
+check "verify: approval mode is a manual check while Hermes cannot say" has "approval mode is off in the default profile (dashboard Config page)"
+pc=$HOME/.hermes/profiles/local/config.yaml
+cp "$HOME/.hermes/config.yaml" "$T/cfg.keep" 2>/dev/null || true; cp "$pc" "$T/pc.keep"
 printf 'approvals:\n  mode: "off"\n' >"$HOME/.hermes/config.yaml"
+printf 'approvals:\n  mode: off\n' >>"$pc"   # a bare off is YAML false: Hermes prints false, which means off
 OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1)
-check "verify: approval mode off matches the setting (PASS)" bash -c "grep -E 'PASS.*#2 +approval mode is off' <<<\"\$0\" >/dev/null" "$OUT"
-printf 'approvals:\n  mode: smart\n' >"$HOME/.hermes/config.yaml"
+check "verify: approval mode off matches the setting in both profiles (PASS)" bash -c "grep -qE 'PASS.*#2 +approval mode is off in the default profile' <<<\"\$0\" && grep -qE 'PASS.*#2 +approval mode is off in the local profile' <<<\"\$0\"" "$OUT"
+cp "$T/pc.keep" "$pc"; printf 'approvals:\n  mode: smart\n' >>"$pc"
 OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1)
-check "verify: a different approval mode is a WARN naming both" has "approval mode is 'smart', the setting APPROVAL_MODE says 'off'"
+check "verify: a different approval mode in the local profile is a WARN naming both" has "approval mode is 'smart' in the local profile, the setting APPROVAL_MODE says 'off'"
 if [[ -f $T/cfg.keep ]]; then cp "$T/cfg.keep" "$HOME/.hermes/config.yaml"; else rm -f "$HOME/.hermes/config.yaml"; fi
+cp "$T/pc.keep" "$pc"
 OUT=$(FAKE_NVIDIA=missing bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: a missing GPU fails the run" test $RC -eq 1
 check "verify: ...and names check 1" has "#1"

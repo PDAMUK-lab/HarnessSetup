@@ -35,7 +35,7 @@ confirm "Continue?" || die "not confirmed"
 
 git fetch -q origin
 base=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's|^origin/||')
-ts=$(date +%Y%m%d%H%M%S)
+ts=$(date +%Y%m%d%H%M%S)-$$   # the pid keeps two runs in the same second apart
 br=hermes/smoke-$ts wf=hermes/smoke-wf-$ts tag=v0.0.0-smoke.$ts
 fails=0
 out=$(mktemp)
@@ -47,13 +47,24 @@ expect() { # expect ok|reject "label" cmd...
 
 git switch -q -c "$br" "origin/$base"
 git commit -q --allow-empty -m "smoke test"
+smoke=$(git rev-parse HEAD)   # the tag goes on this commit: 'gh pr close' below switches the clone back to $base
 expect ok     "push a hermes/ branch"                 git push -q -u origin "$br"
 expect reject "push straight to $base is rejected"    git push -q origin "HEAD:refs/heads/$base"
 # "Require a pull request" alone only needs a PR to exist; without required approvals the agent could merge its own
 expect ok     "open a pull request"                   gh pr create --head "$br" --base "$base" --title "smoke test (close me)" --body "Throw-away PR from tools/github-smoke-test.sh"
-expect reject "merging it without your approval is rejected" gh pr merge "$br" --squash
+# ...and refused because your approval is missing, not for another reason (a required check still running, say)
+if gh pr merge "$br" --squash >"$out" 2>&1; then
+  printf '  FAIL  %s (expected reject, got ok)\n' "merging it without your approval is rejected"; fails=$((fails + 1))
+else
+  why=$(gh pr view "$br" --json reviewDecision -q .reviewDecision 2>/dev/null || true)
+  if [[ $why == REVIEW_REQUIRED ]]; then printf '  PASS  %s\n' "merging it without your approval is rejected"
+  else
+    printf '  FAIL  %s\n' "the merge was refused, but GitHub does not require an approval (reviewDecision '${why:-none}'): set Required approvals to 1 on the main ruleset"
+    sed 's/^/        /' "$out"; fails=$((fails + 1))
+  fi
+fi
 gh pr close "$br" --delete-branch >/dev/null 2>&1 || true
-git tag "$tag"
+git tag "$tag" "$smoke"
 expect ok     "create a release tag"                  git push -q origin "$tag"
 expect reject "delete that tag is rejected"           git push -q origin ":refs/tags/$tag"
 git switch -q -c "$wf" "origin/$base"

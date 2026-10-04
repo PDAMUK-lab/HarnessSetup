@@ -47,10 +47,17 @@ gpu=$(nvidia-smi 2>&1 || true)
 if grep -q 'GTX 1070' <<<"$gpu" && grep -qE 'Driver Version: 550\.' <<<"$gpu"; then res pass 1 "nvidia-smi: GTX 1070 on a 550-series driver"; else res fail 1 "nvidia-smi: GTX 1070 on a 550-series driver" "$(head -1 <<<"$gpu")"; fi
 
 if agent_exec 'sudo -n true' >/dev/null 2>&1; then res pass 2 "$AGENT_USER has passwordless sudo"; else res fail 2 "$AGENT_USER has passwordless sudo"; fi
-am=$(agent_exec 'hermes config get approvals.mode' 2>/dev/null | tail -1 | tr -d "\"' [:space:]" || true)
-if [[ -z $am ]]; then res manual 2 "approval mode is ${APPROVAL_MODE:-off} (dashboard Config page)"
-elif [[ $am == "${APPROVAL_MODE:-off}" || ( $am == False && ${APPROVAL_MODE:-off} == off ) ]]; then res pass 2 "approval mode is ${APPROVAL_MODE:-off}"
-else res warn 2 "approval mode is '$am', the setting APPROVAL_MODE says '${APPROVAL_MODE:-off}'" "re-run ./setup.sh run 07, or change it on the dashboard's Config page"; fi
+# both profiles: the overnight jobs and their sub-agents run in 'local'. A failing 'config get' means "cannot tell" (manual).
+want=${APPROVAL_MODE:-off}
+for prof in default local; do
+  am=''
+  if out=$(agent_exec "hermes -p $prof config get approvals.mode" 2>/dev/null); then am=$(tail -1 <<<"$out" | tr -d "\"' [:space:]"); fi
+  am=${am,,}
+  [[ $am == false ]] && am=off   # a bare 'off' in YAML reads as false, which Hermes treats as off
+  if [[ -z $am ]]; then res manual 2 "approval mode is $want in the $prof profile (dashboard Config page)"
+  elif [[ $am == "$want" ]]; then res pass 2 "approval mode is $want in the $prof profile"
+  else res warn 2 "approval mode is '$am' in the $prof profile, the setting APPROVAL_MODE says '$want'" "re-run ./setup.sh run 07 (both profiles), or change it on the dashboard's Config page"; fi
+done
 res manual 3 "pushing to main and deleting a v* tag are rejected" "run: ./setup.sh tool github-smoke-test"
 
 if agent_exec 'hermes doctor' >/dev/null 2>&1; then res pass 4 "hermes doctor"; else res fail 4 "hermes doctor" "run it as $AGENT_USER to see the errors"; fi

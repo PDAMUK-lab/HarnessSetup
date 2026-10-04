@@ -311,5 +311,7 @@ check "flag: asks when unset and stores 0"       test "$(flagv 'n\n' '' y)" = 0
 check "flag: a command-line value is never overridden (and not asked)" test "$(flagv '' 0 y)" = 0
 check "text: Enter takes the default"             test "$(printf '\n' >"$T/t"; HS_INPUT="$T/t" bash -c 'source "$1/lib/common.sh"; ask_text X "Q" dflt >/dev/null 2>&1; printf "%s" "$X"' _ "$ROOT")" = dflt
 
+check "kwargs JSON: true/false and JSON numbers bare, a leading-zero number and words quoted" test "$(cfg_kwargs_json 'a=true,b=07,c=0,d=-1.5,e=medium')" = '{"a":true,"b":"07","c":0,"d":-1.5,"e":"medium"}'
+
 echo "config: $pass passed, $failn failed"
 [[ $failn -eq 0 ]]

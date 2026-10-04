@@ -14,7 +14,7 @@ Each slot is a handful of settings. Change them, then re-run that slot's install
 
 | Slot | Settings | Where | Then run |
 | --- | --- | --- | --- |
-| Laptop (sub-agents, last resort) | `LAPTOP_MODEL_FILE` `_URL` `_ALIAS` `LAPTOP_CHAT_KWARGS` `LAPTOP_SAMPLING` `LAPTOP_CTX` | laptop: `./setup.sh configure --defaults --set KEY=VALUE ...` | `./setup.sh run 10` |
+| Laptop (sub-agents, last resort) | `LAPTOP_MODEL_FILE` `_URL` `_ALIAS` `LAPTOP_CHAT_KWARGS` `LAPTOP_SAMPLING` `LAPTOP_CTX` | laptop: `./setup.sh configure --defaults --set KEY=VALUE ...` | `./setup.sh run 10`, then `./setup.sh run 11` if the alias or `LAPTOP_CTX` changed (Hermes's endpoints carry both) |
 | Desktop (day) | `DESKTOP_MODEL_FILE` `_URL` `_ALIAS` `DESKTOP_CHAT_KWARGS` `DESKTOP_SAMPLING` `DESKTOP_N_CPU_MOE` | desktop: `.\Configure.ps1 -Set 'KEY=VALUE','KEY=VALUE'` | `.\Install-Llama.ps1` |
 | Overnight | `NIGHT_MODEL_FILE` `_URL` `_ALIAS` `NIGHT_CHAT_KWARGS` `NIGHT_SAMPLING` `NIGHT_MTP` `NIGHT_NGL` | desktop | `.\Install-Overnight.ps1` |
 | V100 tier | `V100_MODEL_FILE` `_URL` `_ALIAS` `V100_CHAT_KWARGS` `V100_SAMPLING` `V100_MTP` `V100_QUANT` | desktop | `.\Install-V100.ps1` |
@@ -24,12 +24,17 @@ Each slot is a handful of settings. Change them, then re-run that slot's install
   JSON). `none` sends nothing; `auto` uses the kit's values for the Qwen model it ships.
 - **`*_SAMPLING`** are llama-server sampling flags, for example `--temp 1.0 --top-p 0.95 --top-k 64`. Use the model
   card's values. `none` leaves the server's defaults.
-- **`NIGHT_MTP` / `V100_MTP`**: say `0` for a model without a built-in MTP head, or the server will not start.
+- **`NIGHT_MTP` / `V100_MTP`**: say `0` for a model without a built-in MTP head, or the server will not start. Only the
+  Qwen3.8 files have one; `Install-Overnight.ps1` and `Install-V100.ps1` check the downloaded file and leave MTP off
+  (with a warning) when it has none.
 - **The alias** is the name Hermes uses. A drop-in of the same model can keep the old alias and nothing else
   changes. For a different model, give it its own alias on **both** machines (`DESKTOP_MODEL_ALIAS`,
-  `NIGHT_MODEL_ALIAS` and `V100_MODEL_ALIAS` are shared settings), then run `./setup.sh run 11` on the laptop so
-  Hermes's endpoints and fallback chain use the new name.
-- In PowerShell, quote a value that holds commas or spaces: `-Set 'DESKTOP_CHAT_KWARGS=enable_thinking=true,preserve_thinking=true'`.
+  `NIGHT_MODEL_ALIAS` and `V100_MODEL_ALIAS` are shared settings), then on the laptop run `./setup.sh run 11` (day and
+  laptop models, the V100 tier) or `./setup.sh tool overnight-laptop` (the overnight model) so Hermes's endpoints and
+  fallback chain use the new name. An overnight job keeps the model it was created with: change it on the dashboard's
+  Cron page, or delete the job and run `overnight-laptop --task ...` again.
+- Quote a value that holds spaces (or, in PowerShell, commas): `--set 'LAPTOP_SAMPLING=--temp 1.0 --top-p 0.95 --top-k 64'`
+  in bash, `-Set 'DESKTOP_CHAT_KWARGS=enable_thinking=true,preserve_thinking=true'` in PowerShell.
 
 ## Uncensored drop-ins (same model, refusals removed)
 
@@ -98,8 +103,8 @@ GLM-5.x and gpt-oss-120b (far too large), architectures not in llama.cpp (Xing4.
 | --- | --- | --- | --- |
 | Muse Glimmer 30B (Meta, dense, Apache-2.0) | `unsloth/Muse-Glimmer-30B-GGUF` / `Muse-Glimmer-30B-UD-Q4_K_XL.gguf` (15.88 GB); `UD-Q5_K_XL` (21.79 GB) for 2 x 16 GB V100 | `*_CHAT_KWARGS=reasoning_strength=high` (`xhigh` for maximum), `*_SAMPLING=--temp 1.0 --top-p 0.95 --top-k 64`, **`*_MTP=0`** (it uses a separate DFlash drafter, not MTP) | A complement, not a replacement: vendor SWE-bench Pro 51.2 against 61.7 for Qwen3.8-27B. Tiny context cache (about 1.7 GB at 128K), which suits the V100 cards. Needs llama.cpp b11246 or newer. Uncensored: `bartowski/darkc0de_Muse-Glimmer-30B-heretic-GGUF` `darkc0de_Muse-Glimmer-30B-heretic-Q5_K_M.gguf` (20.11 GB) |
 | Laguna S 2.1 (Poolside, 118B-A8B) | `unsloth/Laguna-S-2.1-GGUF` / `Laguna-S-2.1-UD-IQ3_XXS.gguf` (44.28 GB) | `V100_CHAT_KWARGS=enable_thinking=true`, `V100_SAMPLING=--temp 1.0 --top-k 20 --top-p 1.0`, `V100_MTP=0`, `V100_VRAM_GB=32` | **2 x 32 GB V100 only.** Vendor scores close to Qwen3.8-27B (Terminal-Bench 2.1 70.2 against 73.0) from a different family, and faster with 8B active, but a 3-bit file loses more than the 27B at Q6/Q8 on the same cards. Install-V100's fit estimate assumes a Qwen-class model; read the server log |
-| Laguna XS 2.1 / North Mini Code 1.0 | as in the desktop table | as in the desktop table | Fast MoE options for overnight if speed matters more than the 27B's quality |
-| Gemma 4 31B (Google, dense) | `unsloth/gemma-4-31B-it-GGUF` / `gemma-4-31B-it-UD-Q5_K_XL.gguf` (21.89 GB) | `*_CHAT_KWARGS=enable_thinking=true`, sampling as Gemma above | The weakest agentic coder here (SWE-bench Pro 36.9) and a large context cache; only for its mature tooling |
+| Laguna XS 2.1 / North Mini Code 1.0 | as in the desktop table | as in the desktop table with `NIGHT_` instead of `DESKTOP_`, plus **`NIGHT_MTP=0`** | Fast MoE options for overnight if speed matters more than the 27B's quality. The night script sets the GPU layers with `NIGHT_NGL`, not an expert split |
+| Gemma 4 31B (Google, dense) | `unsloth/gemma-4-31B-it-GGUF` / `gemma-4-31B-it-UD-Q5_K_XL.gguf` (21.89 GB) | `*_CHAT_KWARGS=enable_thinking=true`, sampling as Gemma above, **`*_MTP=0`** | The weakest agentic coder here (SWE-bench Pro 36.9) and a large context cache; only for its mature tooling |
 
 The 27B stays the overnight pick. Qwen fine-tunes of the 27B (Swift, Bonsai and others) were left out as not a new
 family. GLM-5.x, gpt-oss-120b and Qwen3-Coder-Next (80B) do not fit; Granite 4.2 30B and Nemotron are weaker.

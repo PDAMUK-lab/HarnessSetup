@@ -103,6 +103,8 @@ Quiet { Invoke-ConfigWizard -Path $f2 -Scope desktop -Defaults -Set 'DESKTOP_CHA
 Check '-Set keeps commas inside a value (a quoted list)' { (Get-Content $f2 -Raw) -match '(?m)^DESKTOP_CHAT_KWARGS=enable_thinking=true,preserve_thinking=true\s*$' }
 Quiet { Invoke-ConfigWizard -Path $f2 -Scope desktop -Defaults -Set 'DESKTOP_CHAT_KWARGS=enable_thinking=false', 'preserve_thinking=false', 'DESKTOP_N_CPU_MOE=36' }
 Check '-Set rejoins a value PowerShell split at its comma (unquoted -Set K=a=1,b=2)' { (Get-Content $f2 -Raw) -match '(?m)^DESKTOP_CHAT_KWARGS=enable_thinking=false,preserve_thinking=false\s*$' -and (Get-Content $f2 -Raw) -match '(?m)^DESKTOP_N_CPU_MOE=36' }
+Check '-Set: a mistyped setting after a switch list is refused, not swallowed' { Throws { Invoke-ConfigWizard -Path $f2 -Scope desktop -Defaults -Set 'DESKTOP_CHAT_KWARGS=enable_thinking=true', 'DESKTOP_N_CPU_MO=30' } }
+Check '-Set: commas in a URL do not swallow the next setting' { Throws { Invoke-ConfigWizard -Path $f2 -Scope desktop -Defaults -Set 'DESKTOP_MODEL_URL=https://huggingface.co/a/b/resolve/main/m.gguf', 'DESKTOP_MODEL_FILES=m.gguf' } }
 Check '-Set: sampling with spaces is saved quoted' { (Get-Content $f2 -Raw) -match "(?m)^DESKTOP_SAMPLING='--temp 1.0 --top-k 64'" }
 Check 'no terminal and no -Defaults: refuses instead of guessing' { Throws { Invoke-ConfigWizard -Path (Join-Path $Tmp 'never.env') -Scope desktop } }
 Use-Answers '9090'

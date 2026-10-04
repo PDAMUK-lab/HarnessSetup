@@ -43,7 +43,8 @@ if ($cfg['V100_ENABLED'] -ne '1') {
     if (Test-Interactive) { Invoke-ConfigWizard -Path $ConfigFile -Scope desktop -Only 'V100_COUNT', 'V100_VRAM_GB', 'V100_QUANT' }
 }
 $need = 'DESKTOP_IP', 'LLM_PORT', 'LAPTOP_IP', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR', 'V100_COUNT', 'V100_VRAM_GB', 'V100_QUANT',
-    'V100_MODEL_ALIAS', 'V100_MODEL_FILE', 'V100_MODEL_URL', 'V100_CTX', 'V100_PORT', 'V100_MTP', 'V100_SPLIT_MODE', 'V100_DRIVER_MODE', 'V100_POWER_LIMIT_W', 'V100_CUDA_DIR'
+    'V100_MODEL_ALIAS', 'V100_MODEL_FILE', 'V100_MODEL_URL', 'V100_CTX', 'V100_PORT', 'V100_MTP', 'V100_SPLIT_MODE', 'V100_DRIVER_MODE', 'V100_POWER_LIMIT_W', 'V100_CUDA_DIR',
+    'V100_CHAT_KWARGS', 'V100_SAMPLING', 'DESKTOP_CHAT_KWARGS', 'DESKTOP_SAMPLING'   # it rewrites the day (and night) start scripts too
 $cfg = Initialize-NodeConfig -Path $ConfigFile -Need $need
 Assert-Config $cfg $need
 if ($cfg['V100_PORT'] -eq $cfg['LLM_PORT']) { throw "V100_PORT and LLM_PORT are both $($cfg['LLM_PORT']): the two servers need different ports (.\Configure.ps1 -Only V100_PORT)" }

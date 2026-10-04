@@ -36,7 +36,7 @@ $script:HsAssumeYes = [bool]$Yes
 if (-not $ShowKey) { Assert-Admin }   # showing the key needs no elevation
 if (-not $ConfigFile) { $ConfigFile = Get-DefaultConfigPath }
 $need = 'LAPTOP_IP', 'DESKTOP_IP', 'LLM_PORT', 'DESKTOP_QUANT', 'DESKTOP_MODEL_FILE', 'DESKTOP_MODEL_URL', 'DESKTOP_MODEL_ALIAS',
-    'DESKTOP_CTX', 'DESKTOP_N_CPU_MOE', 'DESKTOP_CACHE_RAM_MB', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR'
+    'DESKTOP_CTX', 'DESKTOP_N_CPU_MOE', 'DESKTOP_CACHE_RAM_MB', 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR', 'DESKTOP_CHAT_KWARGS', 'DESKTOP_SAMPLING'
 # -ShowKey only needs to know where the key is: no unrelated questions
 $cfg = Initialize-NodeConfig -Path $ConfigFile -Need $(if ($ShowKey) { @('DESKTOP_LLAMA_DIR') } else { $need })
 if (-not $ShowKey) { Assert-Config $cfg $need }

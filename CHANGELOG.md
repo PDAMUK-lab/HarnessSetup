@@ -15,12 +15,16 @@ Other models, sub-agents that survive an outage, and a release workflow.
 - **Sub-agents** (checked against Hermes's source): a sub-agent pinned to a provider got no fallback, so an OpenRouter
   outage failed every sub-agent while the planner fell back; `lib/chain.sh` now writes `delegation.fallback_providers`
   for both profiles. The approval mode was a manual dashboard step, and under Hermes's default sub-agents and cron jobs
-  refuse risky commands; it is now the setting `APPROVAL_MODE` (default `off`), applied by stage 07 and checked by
-  `verify`. A sub-agent with no progress for 30 minutes is stopped.
+  refuse risky commands; it is now the setting `APPROVAL_MODE` (default `off`), applied to both profiles by stages 07 and 11
+  and checked by `verify`. A sub-agent with no progress for 30 minutes is stopped. Stage 11 also keeps the already-cloned
+  `local` profile's endpoints (aliases, context sizes) current.
 - **Guide findings applied:** the GitHub smoke test also proves that the agent cannot merge its own PR without your
   approval; `hermes-mode status` shows which model each endpoint actually serves; the laptop's CUDA build compiles the
   FlashAttention kernel for its f16/q8_0 context cache.
-- `Configure.ps1 -Set` keeps commas inside a value.
+- `Configure.ps1 -Set` keeps commas inside a switch list; the desktop installers validate the new settings before
+  writing start scripts, and `Install-Overnight.ps1` leaves MTP off for a model without an MTP head.
+- The smoke test tags its own throw-away commit (closing the PR switched the clone back to `main`, so a release
+  workflow would have published the smoke tag) and accepts the refused merge only when GitHub says an approval is missing.
 - **Releases:** `.github/workflows/release.yml` tags and publishes a release (notes from this file, `.tar.gz`/`.zip`
   of the kit, checksums) when a new `VERSION` lands on `main`.
 

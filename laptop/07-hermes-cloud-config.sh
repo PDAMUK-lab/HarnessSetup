@@ -30,6 +30,12 @@ if [[ $DRY_RUN == 1 ]]; then
 else
   python3 "$HS_ROOT/lib/merge_yaml.py" "$cfg" "$frag"
 fi
+# The local profile (stage 11) was cloned from this config once: give it the same approval mode, where the overnight jobs run
+pcfg=$HOME/.hermes/profiles/local/config.yaml
+if [[ -f $pcfg ]]; then
+  printf 'approvals:\n  mode: "%s"\n' "$APPROVAL_MODE" >"$frag"
+  if [[ $DRY_RUN == 1 ]]; then log "[dry-run] would set approvals.mode to $APPROVAL_MODE in $pcfg"; else python3 "$HS_ROOT/lib/merge_yaml.py" "$pcfg" "$frag"; fi
+fi
 rm -f "$frag"
 
 stage_end

@@ -4,6 +4,10 @@ delegation:
   model: @@LAPTOP_MODEL_ALIAS@@
   api_key: local
   max_concurrent_children: 1           # one slot per GPU; more would only queue
+  child_timeout_seconds: 1800          # stop a sub-agent that makes no progress for 30 minutes
+
+approvals:
+  mode: "@@APPROVAL_MODE@@"                  # the overnight cron jobs and their sub-agents run here
 
 auxiliary:
   review:      { provider: main }      # /review on the desktop model

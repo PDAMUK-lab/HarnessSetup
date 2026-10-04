@@ -16,12 +16,13 @@ case "${1:-} ${2:-}" in
     fi ;;
   "gateway status") echo "gateway: running" ;;
   "config get")
-    python3 - "$home/config.yaml" "${3:-}" <<'PY' 2>/dev/null || true
+    # like Hermes: booleans in lower case; a missing file or key is an error
+    python3 - "$home/config.yaml" "${3:-}" <<'PY' 2>/dev/null || exit 1
 import sys, yaml
 d = yaml.safe_load(open(sys.argv[1])) or {}
 for k in sys.argv[2].split("."):
     d = d[k]
-print(d)
+print(str(d).lower() if isinstance(d, bool) else d)
 PY
     ;;
   "fallback list")

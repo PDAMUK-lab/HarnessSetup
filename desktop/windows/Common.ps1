@@ -125,12 +125,25 @@ function Resolve-ModelSetting {
     return $Value
 }
 
+# Get-ModelSetting -Cfg $cfg -Key DESKTOP_SAMPLING -Type sampling -Auto '...'  - the validated, resolved value ('' = leave out).
+# The start scripts are built from the settings file's raw text, so check it here: a bad value would break the cmd file.
+function Get-ModelSetting {
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Cfg, [Parameter(Mandatory)][string]$Key,
+        [Parameter(Mandatory)][ValidateSet('kwargs', 'sampling')][string]$Type, [Parameter(Mandatory)][string]$Auto)
+    $raw = if ($Cfg.Contains($Key)) { [string]$Cfg[$Key] } else { '' }
+    if (-not $raw) { return $Auto }
+    $t = Test-SettingValue -Type $Type -Value $raw
+    if (-not $t.Ok) { throw "${Key}: $($t.Error) (got '$raw'). Fix it with .\Configure.ps1 -Only $Key" }
+    return (Resolve-ModelSetting $t.Norm $Auto)
+}
+
 # ConvertTo-CmdKwargs 'a=true,b=medium'  - the --chat-template-kwargs argument as a cmd file needs it: "{\"a\":true,\"b\":\"medium\"}"
 function ConvertTo-CmdKwargs {
     param([Parameter(Mandatory)][string]$Pairs)
     $parts = foreach ($kv in ($Pairs -split ',')) {
         $k, $val = $kv -split '=', 2
-        if ($val -cmatch '^(true|false|-?[0-9]+(\.[0-9]+)?)$') { '\"' + $k + '\":' + $val } else { '\"' + $k + '\":\"' + $val + '\"' }
+        # bare only for true/false and valid JSON numbers (no leading zeros); everything else is a string
+        if ($val -cmatch '^(true|false|-?(0|[1-9][0-9]*)(\.[0-9]+)?)$') { '\"' + $k + '\":' + $val } else { '\"' + $k + '\":\"' + $val + '\"' }
     }
     return '"{' + ($parts -join ',') + '}"'
 }
@@ -154,8 +167,8 @@ function New-LlamaStartScript {
     # *_CHAT_KWARGS / *_SAMPLING: 'auto' = the kit's values for the Qwen model it ships (docs/MODELS.md for other families)
     if ($Tier -eq 'Day') {
         $file = $Cfg['DESKTOP_MODEL_FILE']; $alias = $Cfg['DESKTOP_MODEL_ALIAS']
-        $kw = Resolve-ModelSetting $Cfg['DESKTOP_CHAT_KWARGS'] 'preserve_thinking=true'
-        $smp = Resolve-ModelSetting $Cfg['DESKTOP_SAMPLING'] '--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0'
+        $kw = Get-ModelSetting -Cfg $Cfg -Key DESKTOP_CHAT_KWARGS -Type kwargs -Auto 'preserve_thinking=true'
+        $smp = Get-ModelSetting -Cfg $Cfg -Key DESKTOP_SAMPLING -Type sampling -Auto '--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0'
         $tail = @(
             "  --jinja -ngl 99 --n-cpu-moe $($Cfg['DESKTOP_N_CPU_MOE']) -fa on -np 1 -c $($Cfg['DESKTOP_CTX']) -ctk f16 -ctv q8_0",
             "  --cache-ram $($Cfg['DESKTOP_CACHE_RAM_MB'])$(if ($kw) { ' --chat-template-kwargs ' + (ConvertTo-CmdKwargs $kw) })",
@@ -163,9 +176,10 @@ function New-LlamaStartScript {
         )
     } else {
         $file = $Cfg['NIGHT_MODEL_FILE']; $alias = $Cfg['NIGHT_MODEL_ALIAS']
-        $kw = Resolve-ModelSetting $Cfg['NIGHT_CHAT_KWARGS'] 'reasoning_effort=medium'
-        $smp = Resolve-ModelSetting $Cfg['NIGHT_SAMPLING'] '--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0'
-        $mtp = -not ($Cfg.Contains('NIGHT_MTP') -and $Cfg['NIGHT_MTP'] -eq '0')
+        $kw = Get-ModelSetting -Cfg $Cfg -Key NIGHT_CHAT_KWARGS -Type kwargs -Auto 'reasoning_effort=medium'
+        $smp = Get-ModelSetting -Cfg $Cfg -Key NIGHT_SAMPLING -Type sampling -Auto '--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0'
+        # missing = on (older settings files); any bool01 spelling of no (0, n, no, false, off) = off
+        $mtp = -not ($Cfg.Contains('NIGHT_MTP') -and [string]$Cfg['NIGHT_MTP'] -and (Test-SettingValue -Type bool01 -Value ([string]$Cfg['NIGHT_MTP'])).Norm -eq '0')
         $tail = @(
             "  --jinja -ngl $($Cfg['NIGHT_NGL']) -fa on -np 1 -c $($Cfg['DESKTOP_CTX']) -ctk f16 -ctv q8_0 --cache-ram $($Cfg['DESKTOP_CACHE_RAM_MB'])",
             $(if ($kw) { '  --chat-template-kwargs ' + (ConvertTo-CmdKwargs $kw) }),
@@ -399,11 +413,10 @@ function Test-SettingValue {
             if ($v -match ',,' -or $v.StartsWith(',') -or $v.EndsWith(',')) { return & $r $false $v 'empty pair (two commas, or a comma at the start or end)' }
             $pairs = @($v -split ',')
             if ($pairs.Count -lt 1 -or $pairs.Count -gt 8) { return & $r $false $v 'expected 1 to 8 key=value pairs separated by commas, or none / auto' }
-            $seen = @{}
+            $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)   # template keys are case-sensitive (as in bash)
             foreach ($w in $pairs) {
                 if ($w -cnotmatch '^([A-Za-z_][A-Za-z0-9_]*)=[A-Za-z0-9._-]+$') { return & $r $false $v "'$w' is not key=value (letters, digits, . _ - only; no spaces)" }
-                if ($seen.ContainsKey($Matches[1])) { return & $r $false $v "'$($Matches[1])' is given twice" }
-                $seen[$Matches[1]] = 1
+                if (-not $seen.Add($Matches[1])) { return & $r $false $v "'$($Matches[1])' is given twice" }
             }
             return & $r $true $v ''
         }
@@ -665,9 +678,13 @@ function Invoke-ConfigWizard {
     $keyAlt = ($schema | ForEach-Object { [regex]::Escape($_.Key) }) -join '|'
     # A value may itself hold commas (DESKTOP_CHAT_KWARGS=a=1,b=2), and PowerShell splits an unquoted -Set A=a=1,b=2 into
     # ('A=a=1','b=2'): a piece that does not start with a known KEY= belongs to the value before it.
+    # Only a kwargs value takes commas, and only a piece that does not look like a setting name (upper case) is joined back,
+    # so a mistyped setting still reaches the 'unknown setting' check.
     $merged = [System.Collections.Generic.List[string]]::new()
-    foreach ($p in @($Set | ForEach-Object { $_ -split ",(?=(?:$keyAlt)=)" } | Where-Object { $_ })) {
-        if ($merged.Count -gt 0 -and $p -cnotmatch "^(?:$keyAlt)=") { $merged[$merged.Count - 1] += ",$p" } else { $merged.Add($p) }
+    foreach ($p in @($Set | ForEach-Object { $_ -csplit ",(?=(?:$keyAlt)=)" } | Where-Object { $_ })) {
+        $prevKey = if ($merged.Count -gt 0) { ($merged[$merged.Count - 1] -split '=', 2)[0] } else { '' }
+        $prevKwargs = $prevKey -and $byKey.ContainsKey($prevKey) -and $byKey[$prevKey].Type -eq 'kwargs'
+        if ($prevKwargs -and $p -cnotmatch '^[A-Z][A-Z0-9_]*=') { $merged[$merged.Count - 1] += ",$p" } else { $merged.Add($p) }
     }
     $Set = @($merged)
     $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
@@ -1175,8 +1192,8 @@ function New-V100StartScript {
     }
     $lines += "cd /d $dir"
     $moe = ((Get-V100Family -ModelFile $file) -eq '35B')
-    $kw = Resolve-ModelSetting $Cfg['V100_CHAT_KWARGS'] $(if ($moe) { 'preserve_thinking=true' } else { 'reasoning_effort=medium' })
-    $sampling = Resolve-ModelSetting $Cfg['V100_SAMPLING'] $(if ($moe) { '--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0' } else { '--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0' })
+    $kw = Get-ModelSetting -Cfg $Cfg -Key V100_CHAT_KWARGS -Type kwargs -Auto $(if ($moe) { 'preserve_thinking=true' } else { 'reasoning_effort=medium' })
+    $sampling = Get-ModelSetting -Cfg $Cfg -Key V100_SAMPLING -Type sampling -Auto $(if ($moe) { '--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0' } else { '--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0' })
     $segments = @(
         "$dir\llama-server.exe -m $models\$file --alias $($Cfg['V100_MODEL_ALIAS'])",
         "  --host $($Cfg['DESKTOP_IP']) --port $($Cfg['V100_PORT']) --api-key-file $day\api-key.txt",

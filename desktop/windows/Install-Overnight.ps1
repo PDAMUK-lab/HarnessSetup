@@ -36,7 +36,7 @@ if ($cfg['NIGHT_ENABLED'] -ne '1') {
     if (Test-Interactive) { Invoke-ConfigWizard -Path $ConfigFile -Scope desktop -Only 'NIGHT_START', 'NIGHT_END' }
 }
 $cfg = Initialize-NodeConfig -Path $ConfigFile -Need 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR', 'NIGHT_MODEL_FILE', 'NIGHT_MODEL_URL',
-    'NIGHT_MODEL_ALIAS', 'NIGHT_NGL', 'NIGHT_START', 'NIGHT_END', 'LLM_PORT', 'DESKTOP_IP'
+    'NIGHT_MODEL_ALIAS', 'NIGHT_NGL', 'NIGHT_START', 'NIGHT_END', 'LLM_PORT', 'DESKTOP_IP', 'NIGHT_CHAT_KWARGS', 'NIGHT_SAMPLING', 'NIGHT_MTP'
 Assert-Config $cfg 'DESKTOP_LLAMA_DIR', 'DESKTOP_MODELS_DIR', 'NIGHT_MODEL_FILE', 'NIGHT_MODEL_URL', 'NIGHT_MODEL_ALIAS',
     'NIGHT_NGL', 'NIGHT_START', 'NIGHT_END'
 foreach ($t in 'NIGHT_START', 'NIGHT_END') {
@@ -53,6 +53,12 @@ if (-not $SkipModelDownload) {
         if ($drive.Free -lt 24GB) { throw "Only $([math]::Round($drive.Free / 1GB)) GB free on $($drive.Name):, the 27B needs about 17 GB plus working space." }
     }
     Save-Model -Url $cfg['NIGHT_MODEL_URL'] -Dest "$models\$($cfg['NIGHT_MODEL_FILE'])"
+}
+# MTP needs a model with an MTP head (Qwen3.8's files have one); without it the server would not start
+$nightFile = "$models\$($cfg['NIGHT_MODEL_FILE'])"
+if ((Test-Path -LiteralPath $nightFile) -and (Test-SettingValue -Type bool01 -Value ([string]$cfg['NIGHT_MTP'])).Norm -ne '0' -and -not (Test-GgufMtp -Path $nightFile)) {
+    Write-Warn "this model file has no MTP head, so speculative decoding is left off. Set NIGHT_MTP=0 to silence this."
+    $cfg['NIGHT_MTP'] = '0'
 }
 Write-CmdFile -Path "$llama\start-llama-27b.cmd" -Lines (New-LlamaStartScript -Cfg $cfg -Tier Night)
 Write-Ok "wrote $llama\start-llama-27b.cmd (-ngl $($cfg['NIGHT_NGL']); raise it until dedicated GPU memory is about 7.3 GB)"

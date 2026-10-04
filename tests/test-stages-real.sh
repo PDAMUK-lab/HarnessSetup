@@ -120,6 +120,16 @@ check "11: local subagents run on the laptop (loopback base_url)" test "$(cfgget
 check "11: leftover 'provider: openrouter' removed from delegation" cfgmissing "$pc" delegation.provider
 check "11: cloud sub-agents fall back along the main chain" test "$(python3 -c "import yaml;print(','.join(e['provider'] for e in yaml.safe_load(open('$cfg'))['delegation']['fallback_providers']))")" = openrouter,custom:desktop,custom:laptop
 check "11: local sub-agents fall back to the desktop only (never the cloud)" test "$(python3 -c "import yaml;print(','.join(e['provider'] for e in yaml.safe_load(open('$pc'))['delegation']['fallback_providers']))")" = custom:desktop
+check "11: local profile gets the approval mode (its cron jobs and sub-agents run there)" test "$(cfgget "$pc" approvals.mode)" = off
+check "11: local profile stops stuck sub-agents" test "$(cfgget "$pc" delegation.child_timeout_seconds)" = 1800
+check "11: local profile carries the endpoints" test "$(cfgget "$pc" providers.laptop.context_length)" = 131072
+sed -i 's/^LAPTOP_CTX=.*/LAPTOP_CTX=65536/' "$NODE_ENV"; stage_with_key
+check "11 again: an existing local profile follows a changed laptop context" test "$(cfgget "$pc" providers.laptop.context_length)" = 65536
+sed -i 's/^LAPTOP_CTX=.*/LAPTOP_CTX=131072/' "$NODE_ENV"; stage_with_key
+sed -i 's/^APPROVAL_MODE=.*/APPROVAL_MODE=smart/' "$NODE_ENV"; stage 07
+check "07 again: APPROVAL_MODE reaches both profiles" test "$(cfgget "$cfg" approvals.mode),$(cfgget "$pc" approvals.mode)" = smart,smart
+sed -i 's/^APPROVAL_MODE=.*/APPROVAL_MODE=off/' "$NODE_ENV"; stage 07
+check "07 again: and back" test "$(cfgget "$cfg" approvals.mode),$(cfgget "$pc" approvals.mode)" = off,off
 check "11: review block uses the main model" test "$(cfgget "$pc" auxiliary.review.provider)" = main
 check "11: review block keeps no stale OpenRouter model" cfgmissing "$pc" auxiliary.review.model
 check "11: compression block keeps no stale OpenRouter model" cfgmissing "$pc" auxiliary.compression.model
@@ -219,8 +229,15 @@ check "smoke: passes when the rules hold" test $RC -eq 0
 check "smoke: reports seven PASS lines" test "$(grep -c 'PASS' <<<"$OUT")" -eq 7
 check "smoke: tries to merge its own PR (the approval rule)" grep -q "gh pr merge hermes/smoke-" "$T/smoke-gh.log"
 check "smoke: closes the PR and deletes its branch" grep -q "gh pr close hermes/smoke-.* --delete-branch" "$T/smoke-gh.log"
+smoke_tag_off_main() { local t; for t in $(git -C "$T/origin.git" tag -l 'v0.0.0-smoke.*'); do git -C "$T/origin.git" merge-base --is-ancestor "$t" main && return 1; done; [[ -n $(git -C "$T/origin.git" tag -l 'v0.0.0-smoke.*') ]]; }
+check "smoke: the pushed tag is on the throw-away commit, not on main (a release workflow must refuse it)" smoke_tag_off_main
 check "smoke: leaves the clone on main with no leftover branch" bash -c "cd '$HOME/repos/app' && test \"\$(git branch --show-current)\" = main && test \"\$(git branch | wc -l)\" -eq 1"
 check "smoke: leaves no local smoke tag" bash -c "cd '$HOME/repos/app' && test -z \"\$(git tag)\""
+OUT=$(FAKE_REVIEW_DECISION='' bash "$ROOT/tools/github-smoke-test.sh" --repo app --yes 2>&1); RC=$?
+check "smoke: a merge refused for another reason (no approval required) is a FAIL" bash -c "[[ $RC -ne 0 ]] && [[ \$(grep -c '  FAIL  ' <<<\"\$0\") -eq 1 ]] && grep -q 'does not require an approval' <<<\"\$0\"" "$OUT"
+# (earlier runs' tags come back with every fetch: the agent cannot delete them, by design)
+own_tag=$(grep -oE 'v0\.0\.0-smoke\.[0-9]+-[0-9]+' <<<"$OUT" | head -1)
+check "smoke: ...and deletes its own local tag again" bash -c "[[ -n '$own_tag' ]] && ! git -C '$HOME/repos/app' tag | grep -qx '$own_tag'"
 rm "$T/origin.git/hooks/pre-receive"
 OUT=$(FAKE_PR_MERGE=ok bash "$ROOT/tools/github-smoke-test.sh" --repo app --yes 2>&1); RC=$?
 check "smoke: FAILS when nothing is protected" test $RC -ne 0
