@@ -9,6 +9,8 @@
     .\Update-Llama.ps1 -Backend rocm   switch the day server to llama.cpp's ROCm build (after Compare-LlamaBackends.ps1
                                    showed it is faster); -Backend vulkan switches back. Without -Backend the update keeps
                                    the build in use (Vulkan unless switched). -ZipUrl takes a zip by hand.
+  The new build must list the card (ROCm0 or Vulkan0) and answer with a tool call, or the previous one is put back: a ROCm
+  build without hipBLAS/rocBLAS on the system PATH would otherwise run on the CPU without saying so.
   The start scripts, the API key and the models are not touched. The V100 tier's CUDA build is updated by
   re-running Install-V100.ps1.
 #>
@@ -27,6 +29,8 @@ $llama = $cfg['DESKTOP_LLAMA_DIR']
 $prev = "$llama\prev"
 $base = "http://$($cfg['DESKTOP_IP']):$($cfg['LLM_PORT'])"
 if (-not $Backend) { $Backend = Get-LlamaBackend -Dir $llama }
+$vkEnv = @{}
+if ($cfg.Contains('V100_ENABLED') -and $cfg['V100_ENABLED'] -eq '1') { $vkEnv['VK_LOADER_DRIVERS_DISABLE'] = '*nv*' }
 
 function Get-Binaries { @(Get-ChildItem -LiteralPath $llama -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll' }) }
 function Start-DayServer {
@@ -37,6 +41,17 @@ function Test-DayServer {
     $key = (Get-Content -LiteralPath "$llama\api-key.txt" -Raw).Trim()
     if (-not (Wait-Http -Url "$base/health" -Seconds 300 -Headers @{ Authorization = "Bearer $key" })) { return $false }
     return (Test-ToolCall -BaseUrl $base -Model $cfg['DESKTOP_MODEL_ALIAS'] -ApiKey $key)
+}
+# the new build lists the card under its backend's name (run in its own folder, with the day server's environment)
+function Test-BuildDevice {
+    $prefix = if ($Backend -eq 'rocm') { 'ROCm' } else { 'Vulkan' }
+    if ($script:HsDryRun) { Write-Host "[dry-run] $llama\llama-server.exe --list-devices must list $($prefix)0" -ForegroundColor DarkGray; return $true }
+    Push-Location -LiteralPath $llama
+    try { $listed = Get-LlamaDevices -Text (Get-LlamaDeviceList -Exe "$llama\llama-server.exe" -Env $(if ($Backend -eq 'vulkan') { $vkEnv } else { @{} })) }
+    finally { Pop-Location }
+    $dev = @($listed | Where-Object { $_.Name -cmatch "^$prefix[0-9]+$" })[0]
+    if ($dev) { Write-Ok "the new build sees $($dev.Name): $($dev.Description)"; return $true }
+    return $false
 }
 function Restore-Previous {
     if (-not $script:HsDryRun -and -not (Test-Path -LiteralPath "$prev\llama-server.exe")) { throw "no previous build in $prev" }
@@ -56,6 +71,13 @@ if ($Rollback) {
 }
 
 if (-not $script:HsDryRun -and -not (Test-Path -LiteralPath "$llama\llama-server.exe")) { throw "no llama-server.exe in $llama yet: run Install-Llama.ps1 first" }
+if ($Backend -eq 'rocm') {
+    $libs = Find-RocmLibraries
+    if (-not ($libs.HipBlas -and $libs.RocBlas)) {
+        Write-Warn $script:RocmLibraryHelp
+        if (-not (Read-YesNo -Question 'Install the ROCm build anyway? (it is put back if it does not see the card)' -Default $false)) { throw 'Stopped before changing anything.' }
+    }
+}
 Write-Step "keep the current build in $prev"
 Invoke-Action "copy the current .exe and .dll files to $prev" {
     if (Test-Path -LiteralPath $prev) { Remove-Item -LiteralPath $prev -Recurse -Force }
@@ -65,6 +87,12 @@ Invoke-Action "copy the current .exe and .dll files to $prev" {
 }
 Write-Step 'the newest build'
 Invoke-Action "download and extract the latest llama-*-bin-win-$Backend zip" { $null = Install-LlamaVulkanBuild -Dir $llama -Backend $Backend -ZipUrl $ZipUrl }
+if (-not (Test-BuildDevice)) {
+    Write-Warn "the new build does not list the card as a $Backend device: putting the previous one back"
+    Restore-Previous
+    if ($Backend -eq 'rocm') { throw "rolled back. The ROCm build cannot use the card: $($script:RocmLibraryHelp)" }
+    throw 'rolled back. The new build does not see the card: check the AMD driver (Check-Desktop.ps1)'
+}
 Start-DayServer
 Write-Step 'test it'
 if (Test-DayServer) {

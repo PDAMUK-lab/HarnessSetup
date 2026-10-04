@@ -18,9 +18,12 @@ Guard rails, backups and upkeep.
   or model in throw-away worktrees, checks each with your command and appends to `~/model-tests/results.csv`.
 - **llama.cpp updates with an undo.** `tools/update-llama.sh` and `Update-Llama.ps1` keep the current build, install the
   newest, test health, model name and a tool call, and put the old build back when that fails (`--rollback` / `-Rollback`
-  by hand). `Compare-LlamaBackends.ps1` benchmarks llama.cpp's ROCm build against the Vulkan build on the desktop's card
-  (C:\llama untouched; the advice is to switch only for 10% at every depth), and `Update-Llama.ps1 -Backend rocm|vulkan`
-  switches. The build installer clears old binaries first, so two backends' DLLs never load together.
+  by hand). `Compare-LlamaBackends.ps1` benchmarks llama.cpp's ROCm build (`win-rocm-10.0`, compiled for gfx1032)
+  against the Vulkan build on the desktop's card, each pinned to the card (C:\llama untouched; the advice is to switch only
+  for 10% at every depth), and `Update-Llama.ps1 -Backend rocm|vulkan` switches. The ROCm zip lacks hipBLAS/rocBLAS: both
+  scripts check for them on PATH and say how to install AMD's ROCm 10 libraries, and a switch that does not list the card
+  as a GPU is undone (it would otherwise run on the CPU). The build installer clears old binaries first, so two backends'
+  DLLs never load together.
 - **Automatic desktop away.** `Auto-Away.ps1 -Register` watches the GPU use of other programs and runs
   `Desktop-Mode.ps1 away` / `back` by itself (`AUTO_AWAY_GPU_PCT`, `AUTO_AWAY_AFTER_MIN`, `AUTO_BACK_AFTER_MIN`); a manual
   away is left alone. Stage 03 lets the admin user run `hermes-desktop` as the agent without a password, so telling the

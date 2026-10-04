@@ -349,13 +349,23 @@ Another model (the MiMo distill, Ornith, Gemma 4, an uncensored drop-in) is a se
 **Desktop (administrator PowerShell, during the day):** `.\desktop\windows\Update-Llama.ps1` does the same for the
 Vulkan build (`-Rollback` to go back); the start scripts, the key and the models are kept.
 
-**Vulkan or ROCm on the desktop?** `.\desktop\windows\Compare-LlamaBackends.ps1` downloads llama.cpp's ROCm (HIP)
-build into `C:\llama-rocm`, checks it sees the card, runs the same `llama-bench` line (the day model, its expert split,
-empty and 32K deep) on both builds and says which is faster. The day server is stopped for the ~15 minutes it takes and
-`C:\llama` is not changed. Switch only when ROCm generates more than 10% faster at every depth:
-`.\desktop\windows\Update-Llama.ps1 -Backend rocm` (tool-call test and automatic undo as above; `-Backend vulkan` goes
-back). The RX 6600 XT (gfx1032) is not on AMD's Windows ROCm list, so "the ROCm build does not see the card" is a likely
-and harmless answer.
+**Vulkan or ROCm on the desktop?** llama.cpp publishes a Windows ROCm build (`llama-bNNNN-bin-win-rocm-10.0-x64.zip`)
+compiled for the RX 6600 XT's gfx1032. It ships the HIP runtime but not hipBLAS/rocBLAS, which it needs: install AMD's
+ROCm 10 libraries once (the source llama.cpp's own build uses), in a Python virtual environment:
+
+```powershell
+pip install --index-url https://stable.repo.amd.com/rocm/whl-next/ "rocm[libraries]==10.0.0"
+rocm-sdk path --bin      # add the folder it prints to the SYSTEM PATH, then open a new PowerShell
+```
+
+Then `.\desktop\windows\Compare-LlamaBackends.ps1` downloads the ROCm build into `C:\llama-rocm`, checks both builds list
+the card (ROCm0, Vulkan0), runs the same `llama-bench` line on each (the day model, its expert split, empty and 32K deep,
+pinned to the card) and says which is faster. The day server is stopped for the ~15 minutes it takes; `C:\llama` is not
+changed (`-RocmLibDir <folder>` tries the libraries before they are on the system PATH). Switch only when ROCm generates
+more than 10% faster at every depth: `.\desktop\windows\Update-Llama.ps1 -Backend rocm`. It refuses without the libraries,
+and puts the Vulkan build back when the new one does not list the card or fails the tool-call test (without hipBLAS/rocBLAS
+a ROCm build would quietly run on the CPU). `-Backend vulkan` goes back. Untested on this card so far: the comparison is
+the test.
 
 
 **Measure with the test set runner** (as `hermes`): copy `config/model-tests.example` to `~/model-tests.txt` and write

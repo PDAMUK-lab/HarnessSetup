@@ -139,8 +139,21 @@ Check 'Select-LlamaRelease returns nothing when no release qualifies' { $null -e
 Check 'Select-LlamaRelease copes with an empty list' { $null -eq (Select-LlamaRelease -Releases @() -Patterns $vk) }
 Check 'the ROCm asset pattern finds the HIP Radeon build and not the Vulkan one' {
     $p = $script:LlamaAssetPatterns['rocm']
-    'llama-b6500-bin-win-hip-radeon-x64.zip' -cmatch $p -and 'llama-b6500-bin-win-hip-x64.zip' -cmatch $p -and
-    -not ('llama-b6500-bin-win-vulkan-x64.zip' -cmatch $p) -and -not ('llama-b6500-bin-ubuntu-rocm-x64.zip' -cmatch $p) }
+    'llama-b6500-bin-win-rocm-10.0-x64.zip' -cmatch $p -and 'llama-b6500-bin-win-hip-radeon-x64.zip' -cmatch $p -and
+    -not ('llama-b6500-bin-win-vulkan-x64.zip' -cmatch $p) -and -not ('llama-b6500-bin-ubuntu-rocm-10.0-x64.tar.gz' -cmatch $p) -and
+    -not ('llama-b6500-bin-win-rocm-10.0-arm64.zip' -cmatch $p) -and -not ('cudart-llama-bin-win-cuda-12.4-x64.zip' -cmatch $p) }
+Check 'Find-RocmLibraries: the folders holding hipBLAS and rocBLAS, $null for a missing one' {
+    $sep = [IO.Path]::PathSeparator
+    $a = Join-Path ([IO.Path]::GetTempPath()) "hs-rocm-a-$PID"; $b = Join-Path ([IO.Path]::GetTempPath()) "hs-rocm-b-$PID"
+    New-Item -ItemType Directory -Force -Path $a, $b | Out-Null
+    Set-Content -LiteralPath (Join-Path $a 'hipblas.dll') -Value x; Set-Content -LiteralPath (Join-Path $b 'rocblas.dll') -Value x
+    $both = Find-RocmLibraries -PathList "$a$sep$b"
+    $half = Find-RocmLibraries -PathList "nowhere$sep$a"
+    $none = Find-RocmLibraries -PathList ''
+    $viaDir = Find-RocmLibraries -PathList $a -Dir $b
+    Remove-Item -LiteralPath $a, $b -Recurse -Force
+    $both.HipBlas -eq $a -and $both.RocBlas -eq $b -and $half.HipBlas -eq $a -and $null -eq $half.RocBlas -and
+    $null -eq $none.HipBlas -and $viaDir.RocBlas -eq $b }
 $benchCsv = @(
     'load_backend: loaded ROCm backend from C:\llama-rocm\ggml-hip.dll, with commas',
     'build_commit,build_number,model_type,n_prompt,n_gen,n_depth,avg_ts,stddev_ts',

@@ -108,14 +108,19 @@ check "Update-Llama: then the newest Vulkan build, restart and the tool-call tes
 run_ps Update-Llama.ps1 -DryRun -Rollback
 check "Update-Llama -Rollback: puts the kept build back" has "put the build in C:\\llama\\prev back"
 run_ps Update-Llama.ps1 -DryRun -Backend rocm
+check "Update-Llama -Backend rocm without hipBLAS/rocBLAS on PATH: stops before changing anything" bash -c "[ $RC -ne 0 ] && grep -q 'Stopped before changing anything' <<<\"\$0\" && ! grep -q 'copy the current' <<<\"\$0\"" "$OUT"
+mkdir -p "$T/rocmlib" && touch "$T/rocmlib/hipblas.dll" "$T/rocmlib/rocblas.dll"
+PATH="$T/rocmlib:$PATH" run_ps Update-Llama.ps1 -DryRun -Backend rocm
 check "Update-Llama -Backend rocm: switches the day server to the ROCm build" has "latest llama-*-bin-win-rocm zip"
+check "Update-Llama -Backend rocm: the new build must list the card as ROCm0 before it is started" bash -c "grep -q 'llama-server.exe --list-devices must list ROCm0' <<<\"\$0\" && [ \"\$(grep -n 'must list ROCm0' <<<\"\$0\" | cut -d: -f1)\" -lt \"\$(grep -n \"start the day server (task\" <<<\"\$0\" | head -1 | cut -d: -f1)\" ]" "$OUT"
 
 # ---- Compare-LlamaBackends.ps1: ROCm vs Vulkan, C:\llama untouched
 run_ps Compare-LlamaBackends.ps1 -DryRun
 check "Compare-LlamaBackends -DryRun exits 0" test $RC -eq 0
-check "Compare-LlamaBackends: the ROCm build goes into its own folder" has "bin-win-hip zip into C:\\llama-rocm"
-check "Compare-LlamaBackends: checks the ROCm build sees the card" has "llama-cli.exe --list-devices in C:\\llama-rocm"
-check "Compare-LlamaBackends: the same bench line on both builds, with the day model's expert split" bash -c "grep -q 'C:.llama.llama-bench.exe -m C:.models.Qwen3.6-35B-A3B-.*-ncmoe 40 -fa 1 -ctk f16 -ctv q8_0 -p 2048 -n 128 -d 0,32768 -r 3 -o csv' <<<\"\$0\" && grep -q 'C:.llama-rocm.llama-bench.exe' <<<\"\$0\"" "$OUT"
+check "Compare-LlamaBackends: the ROCm build goes into its own folder" has "bin-win-rocm zip into C:\\llama-rocm"
+check "Compare-LlamaBackends: says hipBLAS/rocBLAS must be on PATH when they are not" has "hipBLAS/rocBLAS (ROCm 10) are not on PATH"
+check "Compare-LlamaBackends: checks both builds see the card" has "--list-devices in C:\\llama-rocm and in C:\\llama (the card must be ROCm0 and Vulkan0)"
+check "Compare-LlamaBackends: the same bench line on both builds, each pinned to the card" bash -c "grep -q 'C:.llama.llama-bench.exe -m C:.models.Qwen3.6-35B-A3B-.* -dev Vulkan0 -ngl 99 -ncmoe 40 -fa 1 -ctk f16 -ctv q8_0 -p 2048 -n 128 -d 0,32768 -r 3 -o csv' <<<\"\$0\" && grep -q 'C:.llama-rocm.llama-bench.exe .* -dev ROCm0 ' <<<\"\$0\"" "$OUT"
 check "Compare-LlamaBackends: the day server is started again and the ROCm folder removed" bash -c "grep -q \"start the day server again\" <<<\"\$0\" && grep -q 'remove C:.llama-rocm' <<<\"\$0\"" "$OUT"
 
 # ---- Backup-Laptop.ps1: copy the laptop's newest backup here

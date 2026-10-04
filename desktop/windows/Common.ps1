@@ -201,8 +201,9 @@ function New-LlamaStartScript {
 # The release asset names of the two Windows builds for an AMD card
 $script:LlamaAssetPatterns = @{
     vulkan = '^llama-.+-bin-win-vulkan-x64\.zip$'
-    # the HIP (ROCm) build, e.g. llama-bNNNN-bin-win-hip-radeon-x64.zip. Whether it supports the RX 6600 XT (gfx1032) is
-    # checked by Compare-LlamaBackends.ps1 with --list-devices, not assumed.
+    # the ROCm build: llama-bNNNN-bin-win-rocm-10.0-x64.zip (llama.cpp's release.yml / release-publish.yml; older
+    # releases said win-hip-radeon). It is compiled for gfx1032 (RX 6600 XT) among others, and it holds the full program
+    # set plus ggml-hip.dll and its HIP runtime - but NOT hipBLAS/rocBLAS, which must be on PATH (Find-RocmLibraries).
     rocm   = '^llama-.+-bin-win-(hip|rocm)[a-z0-9.-]*-x64\.zip$'
 }
 
@@ -226,8 +227,9 @@ function Install-LlamaVulkanBuild {
     & curl.exe -L --fail -o $zip $url
     if ($LASTEXITCODE -ne 0) { throw 'download of the llama.cpp zip failed' }
     Stop-LlamaServer -Dir $Dir
-    # the old programs and backend DLLs go first: a leftover ggml-vulkan.dll next to a ROCm build (or the other way round)
-    # would be loaded too, and the server would see the card twice. Start scripts, the key and prev\ stay.
+    # the old programs and backend DLLs go first: llama.cpp loads every ggml-<backend>.dll beside the program, so a leftover
+    # ggml-hip.dll next to a Vulkan build (or the other way round) would list the card twice (ROCm0 and Vulkan0) and, with
+    # ROCm loaded first, take over a "Vulkan" server. Start scripts, the key and prev\ stay.
     Get-ChildItem -LiteralPath $Dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll' } | Remove-Item -Force
     Expand-Archive -Path $zip -DestinationPath $Dir -Force
     Remove-Item $zip
@@ -237,6 +239,26 @@ function Install-LlamaVulkanBuild {
     Set-Content -LiteralPath "$Dir\llama-backend.txt" -Value $Backend -Encoding ascii
     return $tag
 }
+
+# Find-RocmLibraries [-PathList $env:PATH] [-Dir C:\llama-rocm]  - { HipBlas; RocBlas }: the first folder holding
+# *hipblas*.dll / *rocblas*.dll ($null when none). llama.cpp's ROCm zip leaves them out (its release.yml: they "resolve via
+# PATH"), yet ggml-hip.dll links both: without them it does not load, and the build runs on the CPU without saying so.
+function Find-RocmLibraries {
+    param([AllowEmptyString()][string]$PathList = $env:PATH, [string]$Dir = '')
+    $dirs = @(@($Dir) + @($PathList -split [regex]::Escape([IO.Path]::PathSeparator)) | Where-Object { $_ })
+    $found = [ordered]@{ HipBlas = $null; RocBlas = $null }
+    foreach ($d in $dirs) {
+        foreach ($k in 'HipBlas', 'RocBlas') {
+            if (-not $found[$k] -and (Get-ChildItem -LiteralPath $d -Filter "*$($k.ToLowerInvariant())*.dll" -File -ErrorAction SilentlyContinue)) { $found[$k] = $d }
+        }
+    }
+    return [pscustomobject]$found
+}
+
+# How to get them: AMD's ROCm 10 libraries for Windows, the version llama.cpp's release is built against
+$script:RocmLibraryHelp = 'hipBLAS/rocBLAS (ROCm 10) are not on PATH; the ROCm build needs them. In a Python venv: ' +
+    'pip install --index-url https://stable.repo.amd.com/rocm/whl-next/ "rocm[libraries]==10.0.0", then add the folder ' +
+    'that "rocm-sdk path --bin" prints to the SYSTEM PATH (the server task reads it) and open a new PowerShell.'
 
 # Get-LlamaBackend -Dir C:\llama  - vulkan or rocm: the build Install-LlamaVulkanBuild last put there (vulkan when unknown)
 function Get-LlamaBackend {
