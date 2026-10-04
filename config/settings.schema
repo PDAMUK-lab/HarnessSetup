@@ -44,6 +44,7 @@ APPROVAL_DENY|laptop|advanced|bool01|1||Block destructive commands even with app
 WORKER_EFFORT|laptop|advanced|choice:inherit,low,medium,high,xhigh|inherit||Sub-agent reasoning effort|inherit: sub-agents think as hard as the planner (REASONING_EFFORT). medium saves OpenRouter spend on routine pieces of work; high and above cost more.
 AGENT_SUDO|laptop|advanced|choice:full,limited,none|full||What the agent may run as root|full (the guide's design): passwordless sudo for everything. limited: passwordless only apt, apt-get, systemctl and journalctl (installing packages and managing services); this reduces accidents but is not a security boundary, since a package install runs scripts as root. none: no sudo at all. Stage 03 applies it.
 JOURNAL_MAX_MB|laptop|advanced|int:100-20000|500||System log size limit (MB)|The laptop's system log (all services: the model server, Hermes's gateway and dashboard) is capped at this size and a month of history, so an always-on node never fills its disk with logs. Hermes rotates its own log files.
+SPEND_WARN_PCT|laptop|advanced|int:10-100|80||Warn at this share of the OpenRouter credit limit (%)|./setup.sh tool spend and verify warn when the key has used this much of its limit, and say so when the key has no limit or a limit that never resets.
 
 #> Laptop model: Qwen3.5-9B on the GTX 1070 (guide Step 18)
 LAPTOP_QUANT|laptop|basic|choice:UD-Q5_K_XL,UD-Q4_K_XL|UD-Q5_K_XL||Laptop model quantization|UD-Q5_K_XL is the guide's pick (6.7GB, higher quality). Choose UD-Q4_K_XL (6.0GB) if Q5 runs out of VRAM.

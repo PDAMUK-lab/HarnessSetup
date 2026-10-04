@@ -150,6 +150,9 @@ model from a **different family** than the planner; copy the exact IDs from the 
 ./setup.sh run 07      # asks for those three, then merges the roles into ~/.hermes/config.yaml (a timestamped backup is kept)
 ```
 
+Check the credit any time with `./setup.sh tool spend` (as `hermes`): it warns at `SPEND_WARN_PCT` (80%) of the key's
+limit, and when the key has no limit or a limit that never resets. `verify` shows the same line.
+
 **MANUAL (Step 12).** In a test repo ask Hermes to use two subagents in parallel (add a `--version` flag; add a
 config-loader test), merge them into `hermes/demo` and push; press Ctrl+T to watch; then `/review`. Expect two
 `hermes-subagent/...` branches, the main checkout clean, `hermes/demo` on GitHub and nothing on `main`.

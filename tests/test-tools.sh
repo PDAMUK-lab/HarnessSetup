@@ -244,6 +244,24 @@ check "adopt: refuses a carriage return in a command (it could inject workflow s
 OUT=$("$ROOT/setup.sh" tool adopt-repo "$T/proj2" --install x --test y --package z 2>&1); RC=$?
 check "setup.sh tool adopt-repo works through the dispatcher" test $RC -eq 0
 
+# ---- OpenRouter credit (tools/spend.sh, verify check 4, lib/common.sh or_spend)
+spend_level() { ( source "$ROOT/lib/common.sh"; or_spend "$1" | cut -d'|' -f1 ); }
+check "spend: 20% of a monthly limit is fine" test "$(spend_level '{"data":{"limit":50,"limit_remaining":40,"limit_reset":"monthly"}}')" = ok
+check "spend: 85% warns (SPEND_WARN_PCT 80)" test "$(spend_level '{"data":{"limit":50,"limit_remaining":7.5,"limit_reset":"monthly"}}')" = warn
+check "spend: a used-up limit fails" test "$(spend_level '{"data":{"limit":50,"limit_remaining":0,"limit_reset":"monthly"}}')" = fail
+check "spend: no limit at all warns" test "$(spend_level '{"data":{"limit":null,"usage":3}}')" = warn
+check "spend: a limit that never resets warns" test "$(spend_level '{"data":{"limit":50,"limit_remaining":45,"limit_reset":null}}')" = warn
+check "spend: an unreadable answer is unknown" test "$(spend_level 'not json')" = unknown
+mkdir -p "$HOME/.hermes"; cp "$HOME/.hermes/.env" "$T/env.keep" 2>/dev/null || : >"$T/env.keep"
+echo 'OPENROUTER_API_KEY=sk-or-test' >>"$HOME/.hermes/.env"
+OUT=$(bash "$ROOT/tools/spend.sh" 2>&1); RC=$?
+check "spend tool: reports the month's spend and exits 0" bash -c "[[ $RC -eq 0 ]] && grep -qF 'spent \$10.00 of \$50.00 this month (20%)' <<<\"\$0\"" "$OUT"
+OUT=$(FAKE_OR_KEY='{"data":{"limit":50,"limit_remaining":5,"limit_reset":"monthly"}}' bash "$ROOT/tools/spend.sh" 2>&1); RC=$?
+check "spend tool: exits 1 near the limit" test $RC -eq 1
+OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: shows the OpenRouter credit (check 4)" bash -c "grep -qE 'PASS.*#4 +OpenRouter credit: spent' <<<\"\$0\"" "$OUT"
+cp "$T/env.keep" "$HOME/.hermes/.env"
+
 # ---- the kit's own release (.github/workflows/release.yml uses these)
 check "release notes: the VERSION file's section exists in CHANGELOG.md" bash -c "[[ -n \$(bash '$ROOT/.github/scripts/release-notes.sh') ]]"
 check "release notes: a section stops at the next heading" bash -c "! bash '$ROOT/.github/scripts/release-notes.sh' 0.3.1 | grep -q '^## '"

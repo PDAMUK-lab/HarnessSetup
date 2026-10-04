@@ -123,6 +123,37 @@ load_config() {
   export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG LAPTOP_KWARGS_FLAG LAPTOP_SAMPLING_FLAGS APPROVAL_DENY_YAML WORKER_EFFORT_VALUE CRON_REPO
 }
 
+# or_spend JSON  - "LEVEL|message" about an OpenRouter key from its /api/v1/key answer (LEVEL ok, warn, fail or unknown);
+# SPEND_WARN_PCT is the warning threshold. Used by tools/spend.sh and tools/verify.sh.
+or_spend() {
+  python3 - "$1" "${SPEND_WARN_PCT:-80}" <<'PY'
+import json, sys
+try:
+    d = json.loads(sys.argv[1])["data"]
+except Exception:
+    print("unknown|OpenRouter did not return the key's details (wrong key, or no internet)")
+    sys.exit()
+warn = float(sys.argv[2])
+limit, left, reset = d.get("limit"), d.get("limit_remaining"), d.get("limit_reset")
+used = d.get("usage_monthly") if reset == "monthly" and d.get("usage_monthly") is not None else d.get("usage")
+if not limit:
+    print(f"warn|the key has no credit limit (spent ${used or 0:.2f}): set one on openrouter.ai, it is the hard stop for a runaway loop")
+    sys.exit()
+spent = limit - left if left is not None else (used or 0)
+pct = 100 * spent / limit
+period = "this month" if reset == "monthly" else "in total"
+msg = f"spent ${spent:.2f} of ${limit:.2f} {period} ({pct:.0f}%)"
+if "limit_reset" in d and reset != "monthly":
+    print(f"warn|{msg}; the limit never resets, so the key stops for good when it is used up: set Reset limit to Monthly on openrouter.ai")
+elif pct >= 100:
+    print(f"fail|{msg}: the key has stopped working until the limit resets or is raised")
+elif pct >= warn:
+    print(f"warn|{msg}: above the {warn:.0f}% warning (SPEND_WARN_PCT)")
+else:
+    print(f"ok|{msg}")
+PY
+}
+
 # ---- templates --------------------------------------------------------------
 
 # render_template SRC  - expand @@VAR@@ tokens from the environment into $RENDERED.
