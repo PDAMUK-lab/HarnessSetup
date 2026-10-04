@@ -43,6 +43,8 @@ check "01: masks sleep targets" has "mask sleep.target suspend.target hibernate.
 check "01: sets up zram" has "systemd-zram-generator"
 check "01: starts the zram swap unit (the setup service only creates the device)" has "start /dev/zram0"
 check "01: no zram setup-service start (it never turns the swap on)" lacks "start systemd-zram-setup@zram0.service"
+OUT=$(DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 01 --skip-nvidia --dry-run --yes 2>&1)
+check "01: caps the system log (JOURNAL_MAX_MB, a month of history)" bash -c "grep -qF 'SystemMaxUse=500M' <<<\"\$0\" && grep -qF 'MaxRetentionSec=1month' <<<\"\$0\" && grep -qF 'restart systemd-journald' <<<\"\$0\"" "$OUT"
 check "01: lid and sleep come before the package upgrade (a closed lid must not break Steps 2-3)" bash -c "[[ $(line_of lid.conf) -gt 0 && $(line_of lid.conf) -lt $(line_of full-upgrade) ]]"
 check "01: --skip-nvidia installs no NVIDIA package" bash -c "! grep -q nvidia-driver <<<'$OUT'"
 dry 01 --nvidia
