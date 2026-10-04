@@ -224,5 +224,21 @@ check "adopt: refuses a carriage return in a command (it could inject workflow s
 OUT=$("$ROOT/setup.sh" tool adopt-repo "$T/proj2" --install x --test y --package z 2>&1); RC=$?
 check "setup.sh tool adopt-repo works through the dispatcher" test $RC -eq 0
 
+# ---- the kit's own release (.github/workflows/release.yml uses these)
+check "release notes: the VERSION file's section exists in CHANGELOG.md" bash -c "[[ -n \$(bash '$ROOT/.github/scripts/release-notes.sh') ]]"
+check "release notes: a section stops at the next heading" bash -c "! bash '$ROOT/.github/scripts/release-notes.sh' 0.3.1 | grep -q '^## '"
+check "release notes: an unknown version fails" bash -c "! bash '$ROOT/.github/scripts/release-notes.sh' 9.9.9 2>/dev/null"
+check "release notes: a malformed version fails" bash -c "! bash '$ROOT/.github/scripts/release-notes.sh' v1 2>/dev/null"
+check "release workflow: valid YAML that tags only an untagged VERSION and publishes the notes" python3 -c "
+import yaml,sys
+w=yaml.safe_load(open('$ROOT/.github/workflows/release.yml'))
+on=w[True] if True in w else w['on']
+assert on['push']['branches']==['main'] and on['push']['paths']==['VERSION']
+steps=w['jobs']['release']['steps']; run='\n'.join(s.get('run','') for s in steps)
+assert 'release-notes.sh' in run and 'gh release create' in run and '--target' in run and 'already released' in run
+assert w['permissions']['contents']=='write'
+"
+check "VERSION is X.Y.Z" grep -qxE '[0-9]+\.[0-9]+\.[0-9]+' "$ROOT/VERSION"
+
 echo "tools: $pass passed, $failn failed"
 [[ $failn -eq 0 ]]

@@ -1,0 +1,47 @@
+# Publishes a release when a new VERSION lands on main: tag vX.Y.Z on that commit, the CHANGELOG section as notes,
+# and the kit as .tar.gz (laptop) and .zip (desktop). A version that is already tagged is skipped.
+name: release
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Version and notes
+        id: v
+        run: |
+          v=$(tr -d '[:space:]' < VERSION)
+          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+            echo "v$v is already released"; echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          bash .github/scripts/release-notes.sh "$v" > "$RUNNER_TEMP/notes.md"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Tests
+        if: steps.v.outputs.skip != '1'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck jq python3-yaml
+          STRICT=1 bash tests/run-tests.sh
+      - name: Package
+        if: steps.v.outputs.skip != '1'
+        run: |
+          v=${{ steps.v.outputs.version }}
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="HarnessSetup-$v/" -o "dist/HarnessSetup-$v.tar.gz" HEAD
+          git archive --format=zip --prefix="HarnessSetup-$v/" -o "dist/HarnessSetup-$v.zip" HEAD
+          (cd dist && sha256sum HarnessSetup-* > SHA256SUMS)
+      - name: Publish
+        if: steps.v.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=${{ steps.v.outputs.version }}
+          gh release create "v$v" dist/* --target "$GITHUB_SHA" --title "HarnessSetup v$v" --notes-file "$RUNNER_TEMP/notes.md"
