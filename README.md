@@ -27,6 +27,27 @@ git clone https://github.com/PDAMUK/HarnessSetup.git ~/HarnessSetup && cd ~/Harn
 
 The [runbook](docs/RUNBOOK.md) gives the exact order and the manual steps between stages.
 
+### Manual steps the quick start depends on
+
+Some steps need you (a router, the GitHub web UI, a key). They gate the stages as follows:
+
+| When | Manual step | Why it cannot wait |
+| --- | --- | --- |
+| **Before anything** ([runbook §0](docs/RUNBOOK.md#0-before-the-stages-manual)) | Router: DHCP reservations for the laptop and the desktop | The settings, the SSH lock-down (stage 02) and the firewall use these addresses |
+| | Laptop firmware: Secure Boot off | Otherwise the NVIDIA module needs a key enrolled at the laptop's own screen during stage 01 |
+| | Debian 13 netinst: root password **empty**, user `ai-node`, only *SSH server* + *standard system utilities*; keep the lid open until stage 01 has run | An empty root password is what installs `sudo` for your user, and every stage uses `sudo`. Stage 01 is what makes a closed lid harmless |
+| | `sudo apt install -y git` on the laptop | A minimal Debian has no git, so the `git clone` above would fail |
+| | Desktop: Windows with the current AMD Adrenalin driver; an administrator PowerShell with `Set-ExecutionPolicy -Scope Process Bypass` | The desktop's model server runs on the AMD driver; the scripts need to run |
+| | Have ready: the laptop, desktop and router addresses and the admin account name | The first stage's settings questions ask for them |
+| **After stage 01, before stage 02** ([§1](docs/RUNBOOK.md#1-laptop-operating-system-steps-2-5)) | Reboot the laptop and check `nvidia-smi`; on the desktop run `Setup-LaptopAccess.ps1` and confirm a password-free login from a new window | Stage 02 turns password logins off and refuses to run without a working key |
+| **Before stage 05** ([§2](docs/RUNBOOK.md#github-on-the-web-manual-step-8)) | GitHub: machine account as an organization member with Write on the repos; `main` ruleset **Active** with 1 required approval; `v*` tag ruleset; fine-grained token owned by the organization (approved if your organization requires it); the machine account's noreply address | Stage 05 asks for the token. Afterwards run `./setup.sh tool github-smoke-test` and stop if any push or merge that should be refused succeeds |
+| **Before stage 07** ([§3](docs/RUNBOOK.md#3-hermes-on-openrouter-steps-9-12)) | openrouter.ai: a key with a monthly-reset credit limit; then as `hermes` (`sudo machinectl shell hermes@`) run `hermes model`, pick OpenRouter, paste the key and choose the planner | Stage 07 needs that config and key, and asks for the worker, reviewer and summariser model IDs |
+| **Before stage 11** ([§5](docs/RUNBOOK.md#5-local-models-steps-16-20)) | Run `Install-Llama.ps1` on the desktop (the second desktop command above) | Stage 11 asks for the API key it prints (`Install-Llama.ps1 -ShowKey` shows it again) |
+| **After stage 12, before the scheduled jobs work** ([§7](docs/RUNBOOK.md#7-build-test-and-release-steps-24-27)) | As `hermes`: `hermes tools` → **cron** platform → enable file, terminal and delegation; then test and resume `nightly-tests`. Before resuming `release-watcher`, add `AGENTS.md` and the CI workflows to each repo through a PR with your own account (`tools/adopt-repo.sh`) and make `test` a required check | Cron jobs cannot use their tools until then, and the release watcher acts on `release.yml` |
+
+Recommended but not blocking: prove sub-agents and `/review` (guide Step 12), trim the `local` profile's toolsets
+(`hermes -p local tools`), tune the desktop's expert split, and run stage 13 (the firewall) last, from the desktop.
+
 ## Everything is asked, nothing needs editing
 
 - **Settings** (IP addresses, accounts, GitHub org and repos, OpenRouter model IDs, quantizations, overnight times ...)
