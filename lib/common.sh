@@ -109,10 +109,18 @@ load_config() {
   LAPTOP_SAMPLING_FLAGS=${LAPTOP_SAMPLING:-auto}
   [[ $LAPTOP_SAMPLING_FLAGS == auto ]] && LAPTOP_SAMPLING_FLAGS='--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 0'
   [[ $LAPTOP_SAMPLING_FLAGS == none ]] && LAPTOP_SAMPLING_FLAGS=''
+  # Hermes approvals.deny: fnmatch patterns refused in every approval mode (sub-agents and cron included)
+  APPROVAL_DENY_YAML='[]'
+  if [[ ${APPROVAL_DENY:-1} == 1 ]]; then
+    # shellcheck disable=SC2089  # YAML text for the templates, never word-split by this shell
+    APPROVAL_DENY_YAML='["*gh repo delete*", "*gh repo archive*", "*mkfs*", "*wipefs*", "*dd *of=/dev/sd*", "*dd *of=/dev/nvme*", "*rm -rf ~/.hermes*", "*rm -rf /home/*/.hermes*", "*rm -rf ~/repos*", "*rm -rf /home/*/repos*", "*ufw disable*", "*ufw --force reset*"]'
+  fi
+  WORKER_EFFORT_VALUE=${WORKER_EFFORT:-inherit}
+  [[ $WORKER_EFFORT_VALUE == inherit ]] && WORKER_EFFORT_VALUE=''   # Hermes: empty = the planner's effort
   CRON_REPO=${GITHUB_REPOS:-}
   CRON_REPO=${CRON_REPO%% *}
   # shellcheck disable=SC2090  # see above
-  export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG LAPTOP_KWARGS_FLAG LAPTOP_SAMPLING_FLAGS CRON_REPO
+  export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG LAPTOP_KWARGS_FLAG LAPTOP_SAMPLING_FLAGS APPROVAL_DENY_YAML WORKER_EFFORT_VALUE CRON_REPO
 }
 
 # ---- templates --------------------------------------------------------------

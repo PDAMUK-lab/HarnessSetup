@@ -50,6 +50,14 @@ OUT=$(bash "$ROOT/tools/verify.sh" --no-models 2>&1)
 check "verify: a different approval mode in the local profile is a WARN naming both" has "approval mode is 'smart' in the local profile, the setting APPROVAL_MODE says 'off'"
 if [[ -f $T/cfg.keep ]]; then cp "$T/cfg.keep" "$HOME/.hermes/config.yaml"; else rm -f "$HOME/.hermes/config.yaml"; fi
 cp "$T/pc.keep" "$pc"
+sed 's/^AGENT_SUDO=.*/AGENT_SUDO=limited/' "$NODE_ENV" >"$T/lim.env"
+OUT=$(NODE_ENV="$T/lim.env" FAKE_SUDO_MODE=limited bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: AGENT_SUDO=limited passes when only the allowed commands work" bash -c "grep -qE 'PASS.*#2 +hermes has limited sudo' <<<\"\$0\"" "$OUT"
+OUT=$(NODE_ENV="$T/lim.env" bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: AGENT_SUDO=limited fails when the agent can still run everything" bash -c "grep -qE 'FAIL.*#2 +hermes has only limited sudo' <<<\"\$0\"" "$OUT"
+sed 's/^AGENT_SUDO=.*/AGENT_SUDO=none/' "$NODE_ENV" >"$T/none.env"
+OUT=$(NODE_ENV="$T/none.env" FAKE_SUDO_MODE=none bash "$ROOT/tools/verify.sh" --no-models 2>&1)
+check "verify: AGENT_SUDO=none passes without sudo" bash -c "grep -qE 'PASS.*#2 +hermes has no sudo' <<<\"\$0\"" "$OUT"
 OUT=$(FAKE_NVIDIA=missing bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: a missing GPU fails the run" test $RC -eq 1
 check "verify: ...and names check 1" has "#1"

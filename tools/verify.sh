@@ -2,7 +2,7 @@
 # TITLE: Final checks (the guide's Step 33 table, automated where a machine can judge)
 # RUN-AS: admin
 # GUIDE: Step 33
-# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS APPROVAL_MODE
+# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS APPROVAL_MODE AGENT_SUDO
 # Options (asked when not given): --models | --no-models (the two tool-call smoke tests can take a few minutes)
 # Prints PASS / FAIL / WARN / MANUAL per check. Exit status is 1 if anything FAILED.
 set -Euo pipefail
@@ -46,7 +46,13 @@ echo "== Laptop"
 gpu=$(nvidia-smi 2>&1 || true)
 if grep -q 'GTX 1070' <<<"$gpu" && grep -qE 'Driver Version: 550\.' <<<"$gpu"; then res pass 1 "nvidia-smi: GTX 1070 on a 550-series driver"; else res fail 1 "nvidia-smi: GTX 1070 on a 550-series driver" "$(head -1 <<<"$gpu")"; fi
 
-if agent_exec 'sudo -n true' >/dev/null 2>&1; then res pass 2 "$AGENT_USER has passwordless sudo"; else res fail 2 "$AGENT_USER has passwordless sudo"; fi
+case ${AGENT_SUDO:-full} in
+  full) if agent_exec 'sudo -n true' >/dev/null 2>&1; then res pass 2 "$AGENT_USER has passwordless sudo"; else res fail 2 "$AGENT_USER has passwordless sudo"; fi ;;
+  limited) if agent_exec 'sudo -n true' >/dev/null 2>&1; then res fail 2 "$AGENT_USER has only limited sudo (AGENT_SUDO=limited)" "it can run everything: re-run stage 03"
+    elif agent_exec 'sudo -n -l /usr/bin/apt-get' >/dev/null 2>&1; then res pass 2 "$AGENT_USER has limited sudo (apt, systemctl, journalctl)"
+    else res fail 2 "$AGENT_USER has limited sudo (apt, systemctl, journalctl)"; fi ;;
+  none) if agent_exec 'sudo -n true' >/dev/null 2>&1; then res fail 2 "$AGENT_USER has no sudo (AGENT_SUDO=none)" "it still has sudo: re-run stage 03"; else res pass 2 "$AGENT_USER has no sudo"; fi ;;
+esac
 # both profiles: the overnight jobs and their sub-agents run in 'local'. A failing 'config get' means "cannot tell" (manual).
 want=${APPROVAL_MODE:-off}
 for prof in default local; do

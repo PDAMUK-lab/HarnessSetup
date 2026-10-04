@@ -8,6 +8,7 @@ delegation:
 
 approvals:
   mode: "@@APPROVAL_MODE@@"                  # the overnight cron jobs and their sub-agents run here
+  deny: @@APPROVAL_DENY_YAML@@
 
 auxiliary:
   review:      { provider: main }      # /review on the desktop model

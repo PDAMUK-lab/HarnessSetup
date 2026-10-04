@@ -75,11 +75,18 @@ Then on the laptop (keep your session open):
 ## 2. Agent user, tools, GitHub (Steps 6-8)
 
 ```bash
-./setup.sh run 03        # user 'hermes' with passwordless sudo (asks first), linger, copies the kit to /opt/harness-setup
+./setup.sh run 03        # user 'hermes' with passwordless sudo (asks first; AGENT_SUDO=limited|none for less), linger, copies the kit to /opt/harness-setup
 ./setup.sh run 04        # build tools, Node 22, gh.   Add --docker if your projects build in containers.
 ```
 
 Install the toolchains your projects need (language runtimes, compilers, test databases) now.
+
+How much the agent may do is three advanced settings (`./setup.sh configure --only KEY`): `AGENT_SUDO` (`full`, the
+guide's design; `limited` = passwordless `apt`, `apt-get`, `systemctl`, `journalctl` only, which stops accidents but is
+no security boundary; `none`), `APPROVAL_MODE` (default `off`) and `APPROVAL_DENY` (default on: Hermes refuses a few
+destructive command patterns in every mode, sub-agents and cron included: `gh repo delete`/`archive`, `mkfs`, `wipefs`,
+`dd` onto a disk, `rm -rf` of `~/.hermes` or `~/repos`, `ufw disable` or `ufw --force reset`). Re-run stage 03, or 07 and
+11, after changing them.
 From here on, enter the agent's account with `sudo machinectl shell hermes@`, never `sudo -iu hermes`.
 
 ### GitHub on the web (MANUAL, Step 8)

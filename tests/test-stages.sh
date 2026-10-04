@@ -66,6 +66,13 @@ check "03: exits 0" test "$RC" -eq 0
 check "03: creates the agent user" has "adduser --disabled-password --comment '' hermes"
 check "03: enables linger" has "enable-linger hermes"
 check "03: writes the sudoers file mode 440" has "90-hermes (mode 440"
+sed 's/^AGENT_SUDO=.*/AGENT_SUDO=limited/' "$NODE_ENV" >"$T/limited.env"; sed 's/^AGENT_SUDO=.*/AGENT_SUDO=none/' "$NODE_ENV" >"$T/none.env"
+OUT=$(DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 03 --dry-run --yes 2>&1)
+check "03: AGENT_SUDO=full (default) gives passwordless sudo for everything" has "hermes ALL=(ALL:ALL) NOPASSWD: ALL"
+OUT=$(NODE_ENV="$T/limited.env" DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 03 --dry-run --yes 2>&1)
+check "03: AGENT_SUDO=limited allows only apt, apt-get, systemctl, journalctl" bash -c "grep -qF 'hermes ALL=(root) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/systemctl, /usr/bin/journalctl' <<<\"\$0\" && ! grep -qF 'NOPASSWD: ALL' <<<\"\$0\"" "$OUT"
+OUT=$(NODE_ENV="$T/none.env" DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 03 --dry-run --yes 2>&1)
+check "03: AGENT_SUDO=none removes the sudoers file" bash -c "grep -qF 'rm -f /etc/sudoers.d/90-hermes' <<<\"\$0\" && ! grep -qF 'NOPASSWD' <<<\"\$0\"" "$OUT"
 
 # ---- stage 04
 dry 04
