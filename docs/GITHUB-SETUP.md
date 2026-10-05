@@ -58,6 +58,8 @@ Open `github.com/organizations/<name>/settings`.
 
 Each repo needs at least one commit on `main` (a README is enough). Rulesets protect the default branch, so it must exist.
 
+**Do this step before step 5:** a team can only be given repos the organization already owns.
+
 ## 4. Create the machine account (window B)
 
 The machine account is an ordinary second GitHub user account for the agent. GitHub's terms allow one per person, for automation.
@@ -82,6 +84,13 @@ The machine account is an ordinary second GitHub user account for the agent. Git
    - **Create team**, then **Members** → **Add a member** → the machine account. It shows as pending until step 3 below.
 3. The `agents` team → **Repositories** → **Add repository** → each repo the agent should work on, with role **Write**.
    - Write lets it push branches and open PRs. **Never Maintain or Admin:** those could change the rules.
+   - **"No repositories found"?** This search lists only repos that **the organization owns**. Repos still under your
+     personal account (`github.com/<you>/<repo>`) never appear here. Check `github.com/<org>?tab=repositories`:
+     - **Empty:** do step 3 first (create or transfer the repos), then come back. A transfer can take a minute to show.
+     - **Not empty:** make sure you are on the team page of the right organization (the organization name is at the top
+       left), and type part of the repo's name: the box searches, it does not list everything.
+   - **The other way round** gives the same result: open the repo → **Settings** → **Collaborators and teams** →
+     **Add teams** → `agents` → role **Write**.
 
 **Window B (machine account):**
 
