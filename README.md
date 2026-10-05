@@ -48,7 +48,8 @@ every change it makes is visibly its own in the history.
 How to make one: sign out of GitHub (or use a private browser window), sign up with a **different email address** (a
 `you+hermes@example.com` alias works with most mail providers) and a name such as `yourname-hermes`, turn on two-factor
 authentication, then from your own account invite it to the organization as a **member** and give it Write on the repos
-([runbook §2](docs/RUNBOOK.md#github-on-the-web-manual-step-8) has the exact clicks, the rulesets and the token).
+([docs/GITHUB-SETUP.md](docs/GITHUB-SETUP.md) has every click, from the organization to the token, and what to write
+down for the installer).
 
 ### Manual steps the quick start depends on
 
