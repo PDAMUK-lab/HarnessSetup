@@ -434,6 +434,32 @@ checks 5, 11 and 16.
   `.\Install-Llama.ps1 -UpdateLlama` (and `.\Install-V100.ps1 -UpdateLlama` for the V100 tier). The installers pick the newest
   release that really has the zip: GitHub's "latest" release is a source-only tag.
 - **Change a model:** `./setup.sh configure --only LAPTOP_QUANT` (or `.\Configure.ps1 -Only DESKTOP_QUANT`), then re-run stage 10 (laptop) or `Install-Llama.ps1` (desktop).
+- **Upgrade the kit (or finish a half-installed node):** `git pull`, `./setup.sh configure` (the new settings get their
+  defaults), then re-run the stages the [changelog](../CHANGELOG.md) names for your version. A half-finished install
+  continues with `./setup.sh next` — re-run stage 08 if it had already completed (the dashboard changes land there).
+
+## 11b. Working offline (no internet)
+
+The node needs the internet once, to install (Debian packages, Hermes, llama.cpp and the models: about 40GB). After
+that it can run with none at all. Set `OFFLINE` (`./setup.sh configure --only OFFLINE`, answer yes) and re-run the
+stages that change because of it:
+
+```bash
+./setup.sh run 13      # the firewall keeps 80 and 443 closed (DNS, NTP, the desktop and the SMB share stay allowed)
+./setup.sh run 11      # the fallback chain keeps no OpenRouter entry, and the node ends in the local profile
+```
+
+With `OFFLINE=1` the dispatcher skips stages 05 (GitHub), 07 (OpenRouter) and 12 (cron/release) by itself and logs
+that it did; `./setup.sh list` marks them `[skipped: offline]`, and `./setup.sh run 05` (or 07, 12) refuses and says
+why. The wizard hides the settings only those stages use.
+
+**What works offline:** the agent and its scheduled jobs, the local models (desktop and laptop), the dashboard, and
+anything that does not need GitHub or OpenRouter. Finished work goes to the SMB share (`SMB_SHARE`).
+**What does not:** cloning and pushing to GitHub, the cloud planner, `/release`, the release watcher, and the nightly
+jobs that reach GitHub. `./setup.sh tool verify` says once that it skipped the GitHub, OpenRouter and cloud-profile
+checks, and expects the local-only fallback chain.
+
+**To go back online:** set `OFFLINE=0` and re-run stages 05, 07, 11, 12 and 13.
 
 ## If something goes wrong
 
