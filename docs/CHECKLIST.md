@@ -8,7 +8,7 @@ skipped or change — `verify` says so once, and the notes in the rows below say
 | --- | --- | --- | --- |
 | 1 | `nvidia-smi` on the laptop | GTX 1070, 550-series driver | verify |
 | 2 | `sudo -u hermes sudo -n true` | works without a password; approval mode **off** (stage 07 sets `APPROVAL_MODE`; the dashboard's Config page shows it) | verify + manual |
-| 3 | As `hermes`: push to `main`, merge its own PR without approval, delete a `v*` tag, change `.github/workflows` | all rejected | `./setup.sh tool github-smoke-test` |
+| 3 | As `hermes`: push to `main`, merge its own PR without approval, delete a `v*` tag (the smoke test also reports `.github/workflows` changes: rejected, or allowed when the token carries Workflows) | all rejected | `./setup.sh tool github-smoke-test` |
 | 4 | `hermes doctor` and `hermes -p local doctor` | no errors | verify |
 | 5 | Tunnel, then `http://localhost:9119` | dashboard loads, gateway running | verify (laptop side) + manual (browser) |
 | 6 | Dashboard URL from a phone using the laptop's IP | `DASHBOARD_FROM=none`: does **not** load. Set: the login page loads from listed devices only | verify (bind + login) + manual (phone) |

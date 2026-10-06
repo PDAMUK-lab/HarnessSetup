@@ -125,7 +125,7 @@ Step by step, with every click and the reason for each choice: [GITHUB-SETUP.md]
 
 ```bash
 ./setup.sh run 05                  # asks for the token (hidden), sets git identity, clones your repos
-./setup.sh tool github-smoke-test  # branch push and PR work; push to main, unapproved merge, tag delete and workflow edits are REJECTED
+./setup.sh tool github-smoke-test  # branch push and PR work; push to main, unapproved merge and tag delete are REJECTED; a workflow edit is reported (allowed with a granted Workflows token)
 ```
 
 Then delete the smoke branch and tag in the GitHub web UI. **If a push that should fail succeeds, stop** and fix the
