@@ -304,6 +304,21 @@ release appears with the artifacts from `dist/`.
 Run stage 13 from the desktop (the only address SSH is allowed from afterwards). The agent has root and can change
 the firewall: for a boundary it cannot remove, put the laptop on a guest network or VLAN at the router.
 
+### Finished work on a network share (SMB_SHARE)
+
+Send finished work (reports, builds, exported artifacts) to a NAS or a Windows share instead of the laptop's disk:
+
+1. **Set the share** (`./setup.sh configure --only SMB_SHARE`), like `//192.168.1.20/work`. `none` (the default) keeps
+   everything local.
+2. `./setup.sh tool smb-share` — asks for the share's user name and password (kept root-only in `/etc/hermes-smb.cred`),
+   mounts it at `/srv/share` (systemd automount, owned by the agent, `nofail` so a share that is off never blocks the
+   boot) and, when the firewall is already on, lets the laptop reach port 445.
+3. `./setup.sh run 13` if the firewall was not on yet (same rule), then `./setup.sh run 11` — stage 11 tells the agent
+   itself, through Hermes's `agent.coding_instructions`, to save finished results to `/srv/share/<project>/`.
+
+**Verify:** `./setup.sh tool verify` — with `SMB_SHARE` set, check 17 writes a test file to `/srv/share` as the agent (a
+warning, not a failure, when the NAS is off).
+
 ## 8b. Backups of the agent's state
 
 The agent has root and can damage its own setup. Back up its state (Hermes's config, memory, sessions, cron jobs,

@@ -73,6 +73,11 @@ check "verify: DASHBOARD_FROM: a LAN dashboard without a login fails the run" te
 check "verify: ...and names the missing login" has "dashboard requires a login"
 OUT=$(NODE_ENV="$T/lan.env" FAKE_SS_ADDR=127.0.0.1:9119 FAKE_AUTH_REQ=true bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: DASHBOARD_FROM: a dashboard still on loopback fails the run" test $RC -eq 1
+# SMB_SHARE (finished work): an unreachable share is a WARN, never a FAIL
+sed 's|^SMB_SHARE=.*|SMB_SHARE=//192.168.1.20/work|' "$NODE_ENV" >"$T/smbv.env"
+OUT=$(NODE_ENV="$T/smbv.env" bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
+check "verify: SMB_SHARE unavailable is a warning, not a failure" test $RC -eq 0
+check "verify: ...and names the share and the fix" bash -c "grep -qE 'WARN.*#17' <<<\"\$0\" && grep -q 'is not writable at /srv/share' <<<\"\$0\" && grep -q 'smb-share' <<<\"\$0\"" "$OUT"
 OUT=$(FAKE_MODEL_ID=something-else bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: wrong model alias fails the run" test $RC -eq 1
 

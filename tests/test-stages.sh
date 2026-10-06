@@ -118,6 +118,10 @@ check "11: exits 0" test "$RC" -eq 0
 check "11: shows the fallback chain it would write" has "fallback_providers"
 check "11: creates the local profile from a clone" has "hermes profile create local --clone"
 check "11: clears stale cloud keys from the profile" has "after deleting delegation.provider"
+check "11: no share guidance when SMB_SHARE is none" lacks "coding_instructions"
+sed 's|^SMB_SHARE=.*|SMB_SHARE=//192.168.1.20/work|' "$NODE_ENV" >"$T/smb.env"
+OUT=$(NODE_ENV="$T/smb.env" "$ROOT/setup.sh" run 11 --dry-run --yes 2>&1); RC=$?
+check "11: SMB_SHARE: tells the agent where finished work goes" has "save finished work to /srv/share/<project>/"
 dry 12
 check "12: exits 0" test "$RC" -eq 0
 check "12: creates nightly-tests paused" has "--name nightly-tests --paused"

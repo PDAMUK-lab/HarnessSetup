@@ -2,7 +2,7 @@
 # TITLE: Final checks (the guide's Step 33 table, automated where a machine can judge)
 # RUN-AS: admin
 # GUIDE: Step 33
-# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DASHBOARD_FROM DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS APPROVAL_MODE AGENT_SUDO SPEND_WARN_PCT
+# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DASHBOARD_FROM SMB_SHARE DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS APPROVAL_MODE AGENT_SUDO SPEND_WARN_PCT
 # Options (asked when not given): --models | --no-models (the two tool-call smoke tests can take a few minutes)
 # Prints PASS / FAIL / WARN / MANUAL per check. Exit status is 1 if anything FAILED.
 set -Euo pipefail
@@ -158,6 +158,14 @@ is_eq "$dcode" 200 17 "desktop model port reachable" warn
 if timeout 3 bash -c "(exec 3<>/dev/tcp/$DESKTOP_IP/445)" 2>/dev/null; then res fail 17 "desktop port 445 is BLOCKED"; else res pass 17 "desktop port 445 is BLOCKED"; fi
 check 17 "DNS resolves (deb.debian.org)" getent hosts deb.debian.org
 is_eq "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" yes 17 "NTP synchronized"
+# the SMB share for finished work: a warning, not a failure, when the NAS is off
+if [[ ${SMB_SHARE:-none} != none ]]; then
+  if agent_exec "touch /srv/share/.hermes-verify && rm -f /srv/share/.hermes-verify" >/dev/null 2>&1; then
+    res pass 17 "$SMB_SHARE is mounted at /srv/share and $AGENT_USER can write there"
+  else
+    res warn 17 "$SMB_SHARE is not writable at /srv/share (is the NAS off?)" "run: ./setup.sh tool smb-share"
+  fi
+fi
 
 echo "== Ready to come back after a reboot (check 18 itself needs a real reboot)"
 check 18 "llama-server is enabled at boot" "${SUDO[@]}" systemctl is-enabled llama-server
