@@ -2,7 +2,7 @@
 # TITLE: Final checks (the guide's Step 33 table, automated where a machine can judge)
 # RUN-AS: admin
 # GUIDE: Step 33
-# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS APPROVAL_MODE AGENT_SUDO SPEND_WARN_PCT
+# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DASHBOARD_FROM DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS APPROVAL_MODE AGENT_SUDO SPEND_WARN_PCT
 # Options (asked when not given): --models | --no-models (the two tool-call smoke tests can take a few minutes)
 # Prints PASS / FAIL / WARN / MANUAL per check. Exit status is 1 if anything FAILED.
 set -Euo pipefail
@@ -86,8 +86,16 @@ if [[ -n $st ]]; then res pass 5 "dashboard answers on 127.0.0.1:$DASHBOARD_PORT
 gw=$(agent_exec 'hermes gateway status' 2>&1 || true)
 if grep -qi running <<<"$gw"; then res pass 5 "gateway running"; else res fail 5 "gateway running"; fi
 binds=$(ss -tln 2>/dev/null | awk -v p=":$DASHBOARD_PORT" '$4 ~ p"$" {print $4}')
-if [[ -n $binds ]] && ! grep -qvE '^127\.0\.0\.1:' <<<"$binds"; then res pass 6 "dashboard listens on loopback only ($binds)"; else res fail 6 "dashboard listens on loopback only" "${binds:-not listening}"; fi
-res manual 6 "http://$LAPTOP_IP:$DASHBOARD_PORT from a phone must NOT load"
+if [[ ${DASHBOARD_FROM:-none} == none ]]; then
+  if [[ -n $binds ]] && ! grep -qvE '^127\.0\.0\.1:' <<<"$binds"; then res pass 6 "dashboard listens on loopback only ($binds)"; else res fail 6 "dashboard listens on loopback only" "${binds:-not listening}"; fi
+  res manual 6 "http://$LAPTOP_IP:$DASHBOARD_PORT from a phone must NOT load"
+else
+  # DASHBOARD_FROM lets browsers on the LAN in: it must listen on the LAN, and Hermes must demand a login first
+  authn=$(curl -s -m 5 "http://127.0.0.1:$DASHBOARD_PORT/api/status" 2>/dev/null | jq -r '.auth_required' 2>/dev/null || true)
+  if [[ $authn == true ]]; then res pass 6 "dashboard requires a login (DASHBOARD_FROM=$DASHBOARD_FROM)"; else res fail 6 "dashboard requires a login" "auth_required is '${authn:-unknown}': run ./setup.sh run 08"; fi
+  if [[ -n $binds ]] && grep -qE '^0\.0\.0\.0:' <<<"$binds"; then res pass 6 "dashboard listens on the LAN ($binds)"; else res fail 6 "dashboard listens on the LAN" "${binds:-not listening}: run ./setup.sh run 08"; fi
+  res manual 6 "http://$LAPTOP_IP:$DASHBOARD_PORT from a listed device loads the login page"
+fi
 res manual 7 "parallel subagent task leaves the main checkout clean" "guide Step 12"
 res manual 8 "an agent PR body has test output and the review summary"
 

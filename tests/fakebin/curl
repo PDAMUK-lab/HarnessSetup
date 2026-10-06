@@ -2,7 +2,7 @@
 # Test stub for curl: only the URLs the stages and tools use in a real run
 [[ -n ${FAKE_CURL_REAL:-} ]] && exec /usr/bin/curl "$@"
 case "$*" in
-  *api/status*) echo '{"auth_required": false}' ;;
+  *api/status*) echo "{\"auth_required\": ${FAKE_AUTH_REQ:-false}}" ;;
   *hermes-agent*install.sh*) printf 'printf "%%s\\n" "$*" >"$HOME/.hermes-install-args"\nmkdir -p "$HOME/.local/bin"\ncp "%s" "$HOME/.local/bin/hermes"\n' "${FAKE_HERMES_SRC:-$(dirname "$0")/hermes}" ;;
   *http_code*) printf '%s' "${FAKE_HTTP_CODE:-200}" ;;
   *openrouter.ai/api/v1/key*)

@@ -127,6 +127,7 @@ Recommended but not blocking: prove sub-agents and `/review` (guide Step 12), tr
 | extra: OpenRouter credit check | `./setup.sh tool spend` (also in `verify`; warns at `SPEND_WARN_PCT`) | script |
 | extra: compare models on your own tasks | `./setup.sh tool model-test` with `config/model-tests.example` | script |
 | extra: update llama.cpp with an automatic undo; Vulkan or ROCm on the desktop | `./setup.sh tool update-llama`, `Update-Llama.ps1`, `Compare-LlamaBackends.ps1` | script |
+| extra: the dashboard from a phone or another laptop (`DASHBOARD_FROM`) | `./setup.sh configure --only DASHBOARD_FROM`, `./setup.sh tool dashboard-login`, re-run stages 08 and 13 ([RUNBOOK §4](docs/RUNBOOK.md)) | settings + script |
 | 33 final checks | `tools/verify.sh`, [checklist](docs/CHECKLIST.md) | script + manual |
 
 ## How it behaves

@@ -175,6 +175,27 @@ page shows it. Browse to `localhost` or `127.0.0.1` only (the dashboard rejects 
 **Verify:** Status shows the gateway running; Chat opens a session in `~/repos/yourrepo`; from a phone,
 `http://192.168.1.150:9119` does **not** load.
 
+### The dashboard from a phone or another laptop
+
+Out of the box the dashboard listens on loopback only and you reach it from the desktop through the SSH tunnel. To open
+it from a phone or another laptop on the LAN:
+
+1. **Router.** Give each device a DHCP reservation so its address does not change.
+2. **Set the addresses** (`./setup.sh configure --only DASHBOARD_FROM`), comma-separated, addresses or `/prefix`
+   networks: for example `192.168.1.40,192.168.1.64/28`. `none` (the default) keeps the dashboard local-only.
+3. **Re-run stages 08 and 13.** Stage 08 sets a dashboard login if there is none (or run `./setup.sh tool
+   dashboard-login` to choose the user name and password yourself) and restarts the dashboard on the LAN; stage 13 lets
+   only the listed devices reach `DASHBOARD_PORT`.
+4. Browse to `http://192.168.1.150:9119` from one of those devices.
+
+This is **plain HTTP on the LAN**, so anyone who can read that traffic can read the password: use a strong, unique
+password (12 characters or more), and keep the device list short. The dashboard demands the login from every caller and
+stage 13 blocks the devices you did not list. To go back to loopback-only, set `DASHBOARD_FROM=none` and re-run stages 08
+and 13.
+
+**Verify:** `./setup.sh tool verify` — with `DASHBOARD_FROM` set, check 6 checks the login and the LAN bind instead of
+loopback-only.
+
 ## 5. Local models (Steps 16-20)
 
 ```bash

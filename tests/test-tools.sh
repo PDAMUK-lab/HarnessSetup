@@ -63,6 +63,16 @@ check "verify: a missing GPU fails the run" test $RC -eq 1
 check "verify: ...and names check 1" has "#1"
 OUT=$(FAKE_SS_ADDR=0.0.0.0:9119 bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: a dashboard on 0.0.0.0 fails the run" test $RC -eq 1
+# DASHBOARD_FROM (browsers on the LAN): the dashboard must listen on the LAN behind a login, not loopback-only
+sed 's/^DASHBOARD_FROM=.*/DASHBOARD_FROM=192.168.1.40/' "$NODE_ENV" >"$T/lan.env"
+OUT=$(NODE_ENV="$T/lan.env" FAKE_SS_ADDR=0.0.0.0:9119 FAKE_AUTH_REQ=true bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
+check "verify: DASHBOARD_FROM: a LAN dashboard behind a login passes (exit 0)" test $RC -eq 0
+check "verify: ...and check 6 passes both the login and the LAN bind" bash -c "grep -qE 'PASS.*#6 +dashboard requires a login' <<<\"\$0\" && grep -qE 'PASS.*#6 +dashboard listens on the LAN' <<<\"\$0\"" "$OUT"
+OUT=$(NODE_ENV="$T/lan.env" FAKE_SS_ADDR=0.0.0.0:9119 FAKE_AUTH_REQ=false bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
+check "verify: DASHBOARD_FROM: a LAN dashboard without a login fails the run" test $RC -eq 1
+check "verify: ...and names the missing login" has "dashboard requires a login"
+OUT=$(NODE_ENV="$T/lan.env" FAKE_SS_ADDR=127.0.0.1:9119 FAKE_AUTH_REQ=true bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
+check "verify: DASHBOARD_FROM: a dashboard still on loopback fails the run" test $RC -eq 1
 OUT=$(FAKE_MODEL_ID=something-else bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: wrong model alias fails the run" test $RC -eq 1
 
