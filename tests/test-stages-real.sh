@@ -99,6 +99,25 @@ check "08: FAILS if the dashboard listens beyond loopback" rc_nz_and_has "non-lo
 OUT=$(XDG_RUNTIME_DIR='' HS_RUN_USER_DIR="$T/no-run-user" bash "$ROOT"/laptop/08-*.sh 2>&1); RC=$?
 check "08: refuses without a user session" rc_nz_and_has machinectl
 
+# a re-run must apply browser access to the node that is already there: the login, the unit's bind, and the running dashboard
+sed 's|^DASHBOARD_FROM=.*|DASHBOARD_FROM=192.168.1.40|' "$T/node.env" >"$T/dash.env"
+OUT=$(printf 'me\ncorrect horse battery\ncorrect horse battery\n' | NODE_ENV="$T/dash.env" FAKE_AUTH_REQ=true bash "$ROOT"/laptop/08-*.sh 2>&1); RC=$?
+check "08: DASHBOARD_FROM with no login asks for one" test $RC -eq 0
+check "08: ...and the stage reports that" grep -qF 'needs a user name and password' <<<"$OUT"
+check "08: ...the login is written" test "$(cfgget "$cfg" dashboard.basic_auth.username)" = me
+check "08: ...the unit now listens on all addresses" grep -qxF "ExecStart=$HOME/.local/bin/hermes dashboard --host 0.0.0.0 --port 9119 --no-open" "$unit"
+: >"$FAKE_LOG"
+OUT=$(NODE_ENV="$T/dash.env" FAKE_AUTH_REQ=true bash "$ROOT"/laptop/08-*.sh 2>&1); RC=$?
+check "08 again: exits 0" test $RC -eq 0
+check "08 again: no login asked again when one is set" bash -c "! grep -q 'needs a user name and password' <<<\"\$0\"" "$OUT"
+check "08 again: the dashboard is restarted, so the changed unit applies" logged "systemctl --user restart hermes-dashboard"
+sed 's|^DASHBOARD_FROM=.*|DASHBOARD_FROM=none|' "$T/node.env" >"$T/loop.env"
+: >"$FAKE_LOG"
+OUT=$(NODE_ENV="$T/loop.env" bash "$ROOT"/laptop/08-*.sh 2>&1); RC=$?
+check "08 again: back to loopback-only, exits 0" test $RC -eq 0
+check "08 again: ...the unit is loopback-only again" grep -qxF "ExecStart=$HOME/.local/bin/hermes dashboard --host 127.0.0.1 --port 9119 --no-open" "$unit"
+check "08 again: ...and the dashboard was restarted for it" logged "systemctl --user restart hermes-dashboard"
+
 # ---- 11 local endpoints, fallback chain, local profile, hermes-mode
 : >"$FAKE_LOG"
 OUT=$(DESKTOP_LLM_KEY='key with space' bash "$ROOT"/laptop/11-*.sh 2>&1); RC=$?
