@@ -175,6 +175,27 @@ page shows it. Browse to `localhost` or `127.0.0.1` only (the dashboard rejects 
 **Verify:** Status shows the gateway running; Chat opens a session in `~/repos/yourrepo`; from a phone,
 `http://192.168.1.150:9119` does **not** load.
 
+### The dashboard from a phone or another laptop
+
+Out of the box the dashboard listens on loopback only and you reach it from the desktop through the SSH tunnel. To open
+it from a phone or another laptop on the LAN:
+
+1. **Router.** Give each device a DHCP reservation so its address does not change.
+2. **Set the addresses** (`./setup.sh configure --only DASHBOARD_FROM`), comma-separated, addresses or `/prefix`
+   networks: for example `192.168.1.40,192.168.1.64/28`. `none` (the default) keeps the dashboard local-only.
+3. **Re-run stages 08 and 13.** Stage 08 sets a dashboard login if there is none (or run `./setup.sh tool
+   dashboard-login` to choose the user name and password yourself) and restarts the dashboard on the LAN; stage 13 lets
+   only the listed devices reach `DASHBOARD_PORT`.
+4. Browse to `http://192.168.1.150:9119` from one of those devices.
+
+This is **plain HTTP on the LAN**, so anyone who can read that traffic can read the password: use a strong, unique
+password (12 characters or more), and keep the device list short. The dashboard demands the login from every caller and
+stage 13 blocks the devices you did not list. To go back to loopback-only, set `DASHBOARD_FROM=none` and re-run stages 08
+and 13.
+
+**Verify:** `./setup.sh tool verify` — with `DASHBOARD_FROM` set, check 6 checks the login and the LAN bind instead of
+loopback-only.
+
 ## 5. Local models (Steps 16-20)
 
 ```bash
@@ -282,6 +303,21 @@ release appears with the artifacts from `dist/`.
 
 Run stage 13 from the desktop (the only address SSH is allowed from afterwards). The agent has root and can change
 the firewall: for a boundary it cannot remove, put the laptop on a guest network or VLAN at the router.
+
+### Finished work on a network share (SMB_SHARE)
+
+Send finished work (reports, builds, exported artifacts) to a NAS or a Windows share instead of the laptop's disk:
+
+1. **Set the share** (`./setup.sh configure --only SMB_SHARE`), like `//192.168.1.20/work`. `none` (the default) keeps
+   everything local.
+2. `./setup.sh tool smb-share` — asks for the share's user name and password (kept root-only in `/etc/hermes-smb.cred`),
+   mounts it at `/srv/share` (systemd automount, owned by the agent, `nofail` so a share that is off never blocks the
+   boot) and, when the firewall is already on, lets the laptop reach port 445.
+3. `./setup.sh run 13` if the firewall was not on yet (same rule), then `./setup.sh run 11` — stage 11 tells the agent
+   itself, through Hermes's `agent.coding_instructions`, to save finished results to `/srv/share/<project>/`.
+
+**Verify:** `./setup.sh tool verify` — with `SMB_SHARE` set, check 17 writes a test file to `/srv/share` as the agent (a
+warning, not a failure, when the NAS is off).
 
 ## 8b. Backups of the agent's state
 

@@ -127,7 +127,28 @@ Recommended but not blocking: prove sub-agents and `/review` (guide Step 12), tr
 | extra: OpenRouter credit check | `./setup.sh tool spend` (also in `verify`; warns at `SPEND_WARN_PCT`) | script |
 | extra: compare models on your own tasks | `./setup.sh tool model-test` with `config/model-tests.example` | script |
 | extra: update llama.cpp with an automatic undo; Vulkan or ROCm on the desktop | `./setup.sh tool update-llama`, `Update-Llama.ps1`, `Compare-LlamaBackends.ps1` | script |
+| extra: the dashboard from a phone or another laptop (`DASHBOARD_FROM`) | `./setup.sh configure --only DASHBOARD_FROM`, `./setup.sh tool dashboard-login`, re-run stages 08 and 13 ([RUNBOOK §4](docs/RUNBOOK.md)) | settings + script |
+| extra: finished work on a network share (`SMB_SHARE`) | `./setup.sh configure --only SMB_SHARE`, `./setup.sh tool smb-share`, re-run stages 13 and 11 ([RUNBOOK §8](docs/RUNBOOK.md)) | settings + script |
+| extra: work without the internet (`OFFLINE`) | `./setup.sh configure --only OFFLINE`, re-run stages 11 and 13 ([Working offline](#working-offline)) | settings |
 | 33 final checks | `tools/verify.sh`, [checklist](docs/CHECKLIST.md) | script + manual |
+
+## Working offline
+
+The node needs the internet once, to install (Debian packages, Hermes, llama.cpp and the model files: about 40GB).
+Afterwards it can run with none at all:
+
+1. `./setup.sh configure --only OFFLINE` and answer yes.
+2. Re-run the stages that change because of it: `./setup.sh run 13` (the firewall keeps 80 and 443 closed) and
+   `./setup.sh run 11` (the fallback chain and the default profile point at the local models, and the node ends in the
+   `local` profile). With `./setup.sh next`, the dispatcher skips stages 05, 07 and 12 by itself and logs that it did;
+   `./setup.sh list` marks them `[skipped: offline]`; `./setup.sh run 05` (and 07, 12) refuses and says why.
+
+**What works offline:** the agent and its scheduled jobs, the local models (desktop and laptop), the dashboard, and
+anything that does not need GitHub or OpenRouter. Finished work goes to the SMB share (`SMB_SHARE`).
+**What does not:** cloning and pushing to GitHub, the cloud planner, `/release`, the release watcher, and the nightly
+jobs that reach GitHub. The wizard hides the cloud-only settings while `OFFLINE=1`.
+
+**To go back online:** set `OFFLINE=0` and re-run stages 05, 07, 11, 12 and 13.
 
 ## How it behaves
 
@@ -158,7 +179,7 @@ config/settings.schema   every setting: what to ask, how to explain it, how to v
 config/node.env.example  a reference copy of the settings file (the wizard writes the real one)
 laptop/NN-*.sh           stages, run as the admin user or (via machinectl) as the agent user
 tools/                   verify, github-smoke-test, fallback-test, overnight-laptop, v100-laptop, desktop-loop, adopt-repo,
-                         backup/restore, spend, model-test, update-llama
+                         backup/restore, spend, model-test, update-llama, dashboard-login, smb-share
 desktop/windows/         PowerShell for the desktop (llama.cpp server and its updates, SSH, overnight swap, V100 tier,
                          desktop away by hand or automatically, backup copies, Vulkan/ROCm comparison, status)
 templates/               systemd units, Hermes config fragments, hermes-mode, release skill, AGENTS.md, workflows

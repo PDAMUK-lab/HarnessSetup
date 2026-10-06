@@ -16,7 +16,7 @@ export NODE_ENV=$f
 
 # answers for a complete first run (see tests/test-config.sh for the question order), then Enters for any option prompts
 first_run() {
-  printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 '' james acme 'api web' '' 42+acme-hermes@users.noreply.github.com \
+  printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 '' james acme 'api web' '' 42+acme-hermes@users.noreply.github.com \
     vendor-a/worker vendor-b/reviewer vendor-a/mid vendor-c/fallback '' '' n n n ''
   yes '' | head -40
 }
@@ -90,7 +90,7 @@ check "DRY_RUN=1 in the environment keeps a hermes stage from running for real" 
 # ---- scripted answers are shared with the stage the dispatcher starts (fd inheritance, f43)
 rm -f "$f"
 { first_run; } >"$T/a-share"
-printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 '' james acme 'api web' '' 42+acme-hermes@users.noreply.github.com \
+printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 '' james acme 'api web' '' 42+acme-hermes@users.noreply.github.com \
   vendor-a/worker vendor-b/reviewer vendor-a/mid vendor-c/fallback '' '' n n n '' y >"$T/a-share"   # ...wizard answers, then Docker? y
 OUT=$(HS_INPUT="$T/a-share" "$ROOT/setup.sh" run 04 --dry-run 2>&1 </dev/null); RC=$?
 check "the wizard and the stage read ONE answer stream (stage 04's Docker question got the 'y')" bash -c "[[ $RC -eq 0 ]] && grep -q 'usermod -aG docker' <<<\"\$0\"" "$OUT"
@@ -144,7 +144,7 @@ check "check: ...and lists what will be asked later" has "not set yet: GITHUB_OR
 
 # ---- first-run: settings that cannot be known yet may be left for later (f32)
 rm -f "$f"
-printf '%s\n' 10.0.0.20 10.0.0.30 10.0.0.1 '' james '' '' '' '' '' '' '' '' '' '' n n n '' >"$T/a-later"
+printf '%s\n' '' 10.0.0.20 10.0.0.30 10.0.0.1 '' james '' '' '' '' '' '' '' '' '' '' n n n '' >"$T/a-later"
 OUT=$(NODE_ENV="$f" "$ROOT/setup.sh" configure --answers "$T/a-later" 2>&1); RC=$?
 check "wizard: Enter leaves GitHub and model settings for later" test $RC -eq 0
 check "wizard: ...it says so" has "left for later"
@@ -176,6 +176,19 @@ check "custom overnight window: the printed rules follow it" has "jobs run 03:45
 mkdir -p "$HOME/repos/app/.git"
 OUT=$("$ROOT/setup.sh" tool github-smoke-test --dry-run --yes --repo ../../etc 2>&1 </dev/null); RC=$?
 check "smoke test: a repo that is not configured is refused" bash -c "[[ $RC -ne 0 ]] && grep -q 'not one of your repositories' <<<\"\$0\"" "$OUT"
+
+# ---- OFFLINE: the dispatcher skips the internet-only stages (05/07/12) in next and list, and refuses to run them (f65)
+printf 'LAPTOP_IP=10.0.0.20\nDESKTOP_IP=10.0.0.30\nADMIN_USER=james\nOFFLINE=1\n' >"$f"
+OUT=$("$ROOT/setup.sh" list 2>&1 </dev/null); RC=$?
+check "offline: list marks 05, 07 and 12 as skipped" bash -c "for s in 05 07 12; do grep -qE \"^\$s .*\\[skipped: offline\\]\" <<<\"\$0\" || exit 1; done" "$OUT"
+check "offline: list leaves an internet-free stage unmarked" bash -c "! grep -qE '^01 .*offline' <<<\"\$0\"" "$OUT"
+OUT=$("$ROOT/setup.sh" run 05 --dry-run --yes 2>&1 </dev/null); RC=$?
+check "offline: run 05 refuses and names OFFLINE" bash -c "[[ $RC -ne 0 ]] && grep -q 'OFFLINE=1' <<<\"\$0\"" "$OUT"
+OUT=$("$ROOT/setup.sh" run 12 --dry-run --yes 2>&1 </dev/null); RC=$?
+check "offline: run 12 refuses too" test $RC -ne 0
+for n in 01 02 03 04; do mkdir -p "$DESTDIR/var/lib/harness-setup/done"; echo x >"$DESTDIR/var/lib/harness-setup/done/$n"; done
+OUT=$("$ROOT/setup.sh" next --dry-run --yes 2>&1 </dev/null); RC=$?
+check "offline: next skips 05 and moves on to 06" bash -c "grep -q 'skipping stage 05' <<<\"\$0\" && grep -q 'next stage: 06' <<<\"\$0\"" "$OUT"
 
 echo "dispatcher config: $pass passed, $failn failed"
 [[ $failn -eq 0 ]]

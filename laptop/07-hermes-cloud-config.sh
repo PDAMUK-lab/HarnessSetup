@@ -2,6 +2,7 @@
 # TITLE: Roles on OpenRouter: workers, reviewer, compression, worktree isolation
 # RUN-AS: hermes
 # GUIDE: Step 11
+# ONLINE: yes
 # NEEDS: OR_WORKER_MODEL OR_REVIEW_MODEL OR_COMPRESSION_MODEL REASONING_EFFORT MAX_CONCURRENT_CHILDREN MAX_ITERATIONS APPROVAL_MODE APPROVAL_DENY WORKER_EFFORT
 # Needs `hermes model` done (planner + OpenRouter key). The worker, reviewer and summariser model IDs are asked for.
 set -Eeuo pipefail

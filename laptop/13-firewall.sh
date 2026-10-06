@@ -2,7 +2,7 @@
 # TITLE: Firewall and file permissions
 # RUN-AS: admin
 # GUIDE: Step 28
-# NEEDS: ROUTER_IP LAN_CIDR DESKTOP_IP SSH_ALLOWED_FROM LLM_PORT V100_ENABLED V100_PORT DASHBOARD_FROM DASHBOARD_PORT SMB_SHARE
+# NEEDS: ROUTER_IP LAN_CIDR DESKTOP_IP SSH_ALLOWED_FROM LLM_PORT V100_ENABLED V100_PORT DASHBOARD_FROM DASHBOARD_PORT SMB_SHARE OFFLINE
 # Options: --force (apply even if this SSH session does not come from SSH_ALLOWED_FROM)
 # NOTE: the agent has root, so it can change these rules. They guard against mistakes, not against the agent.
 set -Eeuo pipefail
@@ -63,8 +63,13 @@ if [[ ${SMB_SHARE:-none} != none ]]; then
   else warn "cannot resolve $smb_host: no firewall rule for the SMB share (use its IP address in SMB_SHARE)"; fi
 fi
 sudo_run ufw deny out to "$LAN_CIDR" comment 'nothing else on the LAN'
-sudo_run ufw allow out 80/tcp
-sudo_run ufw allow out 443/tcp
+if [[ ${OFFLINE:-0} == 1 ]]; then
+  # no internet: keep 80/443 closed. DNS, NTP, the desktop and the SMB share stay allowed.
+  log "OFFLINE=1: not allowing 80/443 out (the node works without the internet)"
+else
+  sudo_run ufw allow out 80/tcp
+  sudo_run ufw allow out 443/tcp
+fi
 sudo_run ufw --force enable
 sudo_run ufw status numbered
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.6.0
+
+Browser access, a share for finished work, and an offline mode.
+
+- **The dashboard from a phone or another laptop.** `DASHBOARD_FROM` (type `iplist`, default `none`) lists the devices
+  whose browsers may reach the dashboard. When set, stage 08 binds the dashboard to the LAN behind Hermes's own login
+  (setting one with `./setup.sh tool dashboard-login` when there is none) and stage 13 admits only those devices;
+  `verify`'s check 6 then checks the login and the LAN bind instead of loopback-only. `none` keeps the loopback-only
+  behaviour, reached from the desktop through the SSH tunnel.
+- **Finished work on a network share.** `SMB_SHARE` (type `smbpath`, default `none`) is a share like
+  `//192.168.1.20/work`. `./setup.sh tool smb-share` mounts it at `/srv/share` for the agent (systemd automount,
+  credentials root-only) and lets the laptop reach port 445; stage 11 tells the agent itself, through Hermes's
+  `agent.coding_instructions`, to save finished results to `/srv/share/<project>/`; `verify` writes a test file there
+  (a warning, not a failure, when the NAS is off).
+- **Working offline.** `OFFLINE` (basic, default no): the node still needs the internet once to install, then runs with
+  none. Stages 05 (GitHub), 07 (OpenRouter) and 12 (cron/release) are marked `# ONLINE: yes`; with `OFFLINE=1` the
+  dispatcher skips them in `next`, marks them `[skipped: offline]` in `list` and refuses to run them, the wizard hides
+  their settings, the fallback chain keeps no OpenRouter entry and the node ends in the local profile, stage 13 keeps
+  80/443 closed, and `verify` skips the cloud checks (said once). See the README's "Working offline".
+- **Fixes.** `Install-Llama.ps1` searches up to 200 llama.cpp releases (following the API's pagination) so a run of
+  newer releases without a Windows build cannot hide the newest usable one, and takes a by-hand `-ZipUrl`;
+  `Common.ps1`'s `iplist` validator parses again (a braced loop body); the SMB firewall rule takes an address
+  `SMB_SHARE` host as it is instead of resolving it.
+
+Upgrading from 0.5.0: run `./setup.sh configure` (the new settings get their defaults), then re-run stages 08, 11 and 13.
+A node that stays online is unchanged otherwise.
+
 ## 0.5.0
 
 Guard rails, backups and upkeep.

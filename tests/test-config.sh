@@ -79,6 +79,7 @@ check "cfg_net /20"               test "$(cfg_net 172.16.37.9/20)" = 172.16.32.0
 
 # =============================== the wizard, fed like a user typing
 printf '%s\n' \
+  '' \
   300.1.1.1 10.0.0.20 \
   10.0.0.30 \
   10.0.0.1 \
@@ -125,7 +126,7 @@ check "load_config: desktop model derived from its quant" test "$(loaded DESKTOP
 
 # edit session: Enter keeps everything; changing the quant re-derives
 # 13 Enters (ip x3, lan, admin, org, repos, machine, noreply, 4 models), then quant=1, Enters for desktop quant/overnight/start/end/V100, n, save
-printf '%s\n' '' '' '' '' '' '' '' '' '' '' '' '' '' 1 '' '' '' '' '' n '' >"$T/ans2"
+printf '%s\n' '' '' '' '' '' '' '' '' '' '' '' '' '' '' 1 '' '' '' '' '' n '' >"$T/ans2"
 cp "$f" "$T/before.env"
 OUT=$(NODE_ENV="$f" "$ROOT/setup.sh" configure --answers "$T/ans2" 2>&1); RC=$?
 check "edit: exits 0" test $RC -eq 0
@@ -162,7 +163,7 @@ check "print: shows the result without saving" bash -c "[[ $RC -eq 0 ]] && [[ ! 
 check "print: contains the settings" has "LAPTOP_IP="
 
 # --advanced and --only
-printf '%s\n' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' >"$T/blank"
+printf '%s\n' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' >"$T/blank"
 cp "$T/d.env" "$T/adv.env"
 OUT=$(NODE_ENV="$T/adv.env" "$ROOT/setup.sh" configure --answers "$T/blank" --advanced --set OR_WORKER_MODEL=a/b --set OR_REVIEW_MODEL=a/c --set OR_COMPRESSION_MODEL=a/d --set OR_FALLBACK_MODEL=a/e --set GITHUB_REPOS=app --set GITHUB_NOREPLY_EMAIL=1+acme-hermes@users.noreply.github.com 2>&1); RC=$?
 check "advanced: exits 0" test $RC -eq 0
@@ -171,6 +172,11 @@ check "advanced: asks about the context size" has "Laptop context size"
 check "advanced: asks for the laptop cache size" has "Laptop prompt cache"
 check "advanced: leaves the desktop-only questions to the desktop wizard" lacks "Expert layers kept in RAM"
 check "advanced: is not offered the overnight-only settings while the tier is off" lacks "GPU layers for the 27B"
+# OFFLINE=1: the wizard hides the cloud-only settings (WHEN=OFFLINE=0), so they are never asked
+printf 'LAPTOP_IP=10.0.0.20\nDESKTOP_IP=10.0.0.30\nROUTER_IP=10.0.0.1\nADMIN_USER=james\nOFFLINE=1\n' >"$T/offwiz.env"
+OUT=$(NODE_ENV="$T/offwiz.env" "$ROOT/setup.sh" configure --answers /dev/null --print 2>&1); RC=$?
+check "offline: the wizard still asks for OFFLINE itself" has "Work without the internet"
+check "offline: the wizard hides the cloud-only settings" bash -c "! grep -q 'Worker model' <<<\"\$0\" && ! grep -q 'Machine account username' <<<\"\$0\" && ! grep -q 'Planner reasoning effort' <<<\"\$0\"" "$OUT"
 printf '9090\n' >"$T/p9090"
 OUT=$(NODE_ENV="$T/adv.env" "$ROOT/setup.sh" configure --only LLM_PORT --answers "$T/p9090" 2>&1); RC=$?
 check "only: exits 0" test $RC -eq 0
