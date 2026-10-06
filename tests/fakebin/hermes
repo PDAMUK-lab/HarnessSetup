@@ -39,8 +39,26 @@ PY
   "profile list") echo default; ls "$HOME/.hermes/profiles" 2>/dev/null ;;
   "cron list") cat "$home/fake-cron" 2>/dev/null ;;
   "cron create")
-    name=''; prev=''
-    for a in "$@"; do [[ $prev == --name ]] && name=$a; prev=$a; done
+    name=''; prev=''; script=''
+    for a in "$@"; do
+      [[ $prev == --name ]] && name=$a
+      [[ $prev == --script ]] && script=$a
+      prev=$a
+    done
+    # like the real CLI: without -p the ACTIVE profile decides where scripts live (hermes_constants'
+    # HERMES_HOME), and --script must exist there; an absolute path is refused by design, so the kit
+    # has to install the script into the profile the agent actually runs on
+    if [[ -n $script ]]; then
+      shome=$home
+      if [[ -z $profile && -f $HOME/.hermes/active_profile ]]; then
+        ap=$(cat "$HOME/.hermes/active_profile")
+        [[ -n $ap && $ap != default ]] && shome="$HOME/.hermes/profiles/$ap"
+      fi
+      if [[ ! -f "$shome/scripts/$script" ]]; then
+        echo "Script file not found: $shome/scripts/$script. Create it in $shome/scripts/ first." >&2
+        exit 1
+      fi
+    fi
     mkdir -p "$home"; echo "$name" >>"$home/fake-cron" ;;
 esac
 exit 0

@@ -185,6 +185,8 @@ check "hermes-mode status probes all three endpoints" bash -c "grep -q laptop <<
 "$hm" bogus >/dev/null 2>&1; check "hermes-mode rejects unknown modes (exit 2)" test $? -eq 2
 
 # ---- 12 skills and cron
+echo local >"$HOME/.hermes/active_profile"   # the node's normal state: the agent runs on the local profile, and
+                                             # the cron CLI resolves --script under the active profile's scripts dir
 : >"$FAKE_LOG"
 stage 12
 check "12: exits 0" test $RC -eq 0
@@ -194,6 +196,8 @@ check "12: skill front matter intact" grep -q '^name: release$' "$HOME/.hermes/s
 check "12: cron clone exists" test -d "$HOME/repos-cron/app/.git"
 check "12: cron clone excludes worktrees" grep -qxF '.worktrees/' "$HOME/repos-cron/app/.git/info/exclude"
 check "12: release-pending.sh is executable" test -x "$HOME/.hermes/scripts/release-pending.sh"
+check "12: release-pending.sh for the active (local) profile too" test -x "$HOME/.hermes/profiles/local/scripts/release-pending.sh"
+check "12: both copies are identical" cmp -s "$HOME/.hermes/scripts/release-pending.sh" "$HOME/.hermes/profiles/local/scripts/release-pending.sh"
 check "12: release-pending.sh points at the cron clone" grep -q "cd $HOME/repos-cron/app" "$HOME/.hermes/scripts/release-pending.sh"
 check "12: nightly-tests created paused" bash -c "grep 'cron create' '$FAKE_LOG' | grep 'nightly-tests' | grep -q -- '--paused'"
 check "12: release-watcher created paused by default" bash -c "grep 'cron create' '$FAKE_LOG' | grep 'release-watcher' | grep -q -- '--paused'"

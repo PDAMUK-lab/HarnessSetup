@@ -43,7 +43,12 @@ if [[ $DRY_RUN != 1 ]]; then
     echo '.worktrees/' >>"$HOME/repos-cron/$repo/.git/info/exclude"
 fi
 
-install_template "$HS_ROOT/templates/scripts/release-pending.sh.tpl" "$HOME/.hermes/scripts/release-pending.sh" 755 self
+# The cron CLI resolves --script names under the ACTIVE profile's scripts dir (HERMES_HOME) and refuses absolute
+# paths by design. With the local profile active (this node's normal state) that is profiles/local/scripts, so
+# install for both profiles, like the skill above - the release-watcher must be creatable whichever is active.
+for dest in "$HOME/.hermes/scripts" "$HOME/.hermes/profiles/local/scripts"; do
+  install_template "$HS_ROOT/templates/scripts/release-pending.sh.tpl" "$dest/release-pending.sh" 755 self
+done
 
 have_job() { hermes cron list 2>/dev/null | grep -qw -- "$1"; }
 workdir=$HOME/repos-cron/$repo
