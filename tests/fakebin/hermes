@@ -28,8 +28,13 @@ print(str(d).lower() if isinstance(d, bool) else d)
 PY
     ;;
   "fallback list")
-    # with the desktop out of the loop (hermes-desktop off) the chain has no desktop entry
-    if [[ -e $HOME/.hermes/desktop-away ]]; then printf '1. openrouter\n2. custom:laptop\n'
+    # like the real chain: offline has no openrouter entry; with the desktop out of the loop (hermes-desktop off) no desktop entry
+    offline=0
+    if [[ -n ${NODE_ENV:-} && -f ${NODE_ENV:-} ]] && grep -q '^OFFLINE=1' "$NODE_ENV" 2>/dev/null; then offline=1; fi
+    if ((offline)); then
+      if [[ -e $HOME/.hermes/desktop-away ]]; then printf '1. custom:laptop\n'
+      else printf '1. custom:desktop\n2. custom:laptop\n'; fi
+    elif [[ -e $HOME/.hermes/desktop-away ]]; then printf '1. openrouter\n2. custom:laptop\n'
     else printf '1. openrouter\n2. custom:desktop\n3. custom:laptop\n'; fi ;;
   "profile list") echo default; ls "$HOME/.hermes/profiles" 2>/dev/null ;;
   "cron list") cat "$home/fake-cron" 2>/dev/null ;;

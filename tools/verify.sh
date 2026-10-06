@@ -135,7 +135,11 @@ fb=$(agent_exec 'hermes fallback list' 2>&1 || true)
 o=$(grep -n openrouter <<<"$fb" | head -1 | cut -d: -f1); d=$(grep -n desktop <<<"$fb" | head -1 | cut -d: -f1); l=$(grep -n laptop <<<"$fb" | head -1 | cut -d: -f1)
 away=0
 if agent_exec "test -e \"\$HOME/.hermes/desktop-away\"" >/dev/null 2>&1; then away=1; fi
-if ((away)); then
+if [[ ${OFFLINE:-0} == 1 ]]; then
+  # offline: the chain is the local endpoints only - an OpenRouter entry means stage 11 has not been re-run since OFFLINE=1
+  if [[ -z $o && -n $l && ( -z $d || $d -lt $l ) ]]; then res pass 10 "fallback chain: the local endpoints only (offline)"
+  else res fail 10 "fallback chain offline: the local endpoints only, no OpenRouter entry" "re-run ./setup.sh run 11"; fi
+elif ((away)); then
   # the desktop was taken out of the loop on purpose (hermes-desktop off): the chain must then be OpenRouter, laptop
   if [[ -n $o && -n $l && -z $d && $o -lt $l ]]; then res warn 10 "fallback chain: the desktop is OUT of the loop (OpenRouter, then laptop)" "hermes-desktop on puts it back"
   else res fail 10 "fallback chain while the desktop is away: OpenRouter, then laptop only"; fi
