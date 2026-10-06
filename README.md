@@ -179,7 +179,7 @@ config/settings.schema   every setting: what to ask, how to explain it, how to v
 config/node.env.example  a reference copy of the settings file (the wizard writes the real one)
 laptop/NN-*.sh           stages, run as the admin user or (via machinectl) as the agent user
 tools/                   verify, github-smoke-test, fallback-test, overnight-laptop, v100-laptop, desktop-loop, adopt-repo,
-                         backup/restore, spend, model-test, update-llama
+                         backup/restore, spend, model-test, update-llama, dashboard-login, smb-share
 desktop/windows/         PowerShell for the desktop (llama.cpp server and its updates, SSH, overnight swap, V100 tier,
                          desktop away by hand or automatically, backup copies, Vulkan/ROCm comparison, status)
 templates/               systemd units, Hermes config fragments, hermes-mode, release skill, AGENTS.md, workflows
