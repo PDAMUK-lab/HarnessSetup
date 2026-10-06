@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.5
+
+Stage 12 now works on a node whose active profile is `local` — what `hermes-mode local` (and offline setups) run on.
+
+- **The release-watcher job gets created whatever profile is active.** Hermes resolves a cron job's `--script`
+  under the active profile's `scripts/` dir, and absolute paths are refused by design. Stage 12 only installed
+  `release-pending.sh` into the default profile's dir, so on a node running the `local` profile the job creation
+  failed with `Script file not found: .../profiles/local/scripts/release-pending.sh` and the stage stopped
+  unfinished. The script is now installed for both profiles, like the `/release` skill beside it.
+
+Upgrading from 0.6.4: `git pull`; if stage 12 has not completed on your node, re-run it (`./setup.sh run 12`) —
+nothing else moves.
+
 ## 0.6.4
 
 The smoke test now reports where `.github/workflows` changes stand, and CI runs the desktop scripts' tests in real Windows PowerShell 5.1.
