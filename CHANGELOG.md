@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.4
+
+The smoke test now reports where `.github/workflows` changes stand, and CI runs the desktop scripts' tests in real Windows PowerShell 5.1.
+
+- **The GitHub smoke test and granted Workflows.** `./setup.sh tool github-smoke-test` no longer expects a
+  `.github/workflows` change to be rejected: it reports the outcome — `rejected` on the hardened token stage 05 sets
+  up, `allowed (the token carries Workflows)` when one has been deliberately granted (§8's exception). The rails
+  that must hold are unchanged — a push to `main`, an unapproved merge and deleting a `v*` tag are still rejected —
+  and the RUNBOOK and CHECKLIST now say so.
+- **Desktop tests in real Windows PowerShell 5.1.** CI runs a `windows-latest` job that parses every `.ps1` with
+  5.1's parser and runs the helper and settings unit tests in `powershell.exe` — the edition the desktop machine
+  actually has, and the one the 0.6.3 release-search bug lived in — with the same fake `scp`, llama-servers and
+  GitHub API the Linux job uses.
+
+Upgrading from 0.6.3: `git pull` — nothing needs re-running; run the smoke test again if you want the new report.
+
 ## 0.6.3
 
 The `Install-Llama.ps1` fix for Windows PowerShell 5.1.
