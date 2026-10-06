@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.3
+
+The `Install-Llama.ps1` fix for Windows PowerShell 5.1.
+
+- **`Install-Llama.ps1` stopped at Step 19.2 (HTTP 422) on Windows PowerShell 5.1.** `Get-LlamaReleases`
+  collected each API page with `@($resp.Content | ConvertFrom-Json)`. Windows PowerShell 5.1's
+  `ConvertFrom-Json` writes a JSON array to the pipeline as ONE object (pwsh 7 enumerates its elements), so each
+  page added a single item — the whole page. The count was a page count, never reached the 200-release cap, and
+  the search followed GitHub's `rel="next"` links to page 11, where anonymous callers get
+  `{"message":"Only the first 1000 results are available.", ... "status":"422"}`. Each page is now unrolled with
+  `foreach` — one item per release in both editions — and `Update-Llama.ps1`, `Compare-LlamaBackends.ps1` and
+  `Install-V100.ps1`, which search through the same function, are fixed with it. The helper tests run the search
+  against a fake GitHub API (paging, the Link header, the 422 past result 1000) with both editions'
+  `ConvertFrom-Json`, so the 5.1 behaviour stays covered.
+
+Upgrading from 0.6.2: `git pull` on the laptop; on the desktop, unpack the new zip (or replace
+`desktop/windows/Common.ps1`) — nothing needs re-running; the fix applies the next time `Install-Llama.ps1` runs.
+
 ## 0.6.2
 
 Fixes found while re-running stages on an existing node (updating it from 0.5.0 to 0.6.1).
