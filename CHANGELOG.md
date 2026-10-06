@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.1
+
+Fixes found while making 0.6.0's changes apply to existing nodes, and the documents to match.
+
+- **Stage 08 on an existing node.** Re-running it (how `DASHBOARD_FROM` and a dashboard login are applied) only
+  rewrote the unit file: `enable --now` leaves a running service alone, so the dashboard kept its old bind, and the
+  stage's checks then failed against the stale process. It now restarts the dashboard — the pattern stage 10 uses for
+  llama-server — so a changed bind, a new login and a switch back to `none` all take effect on a re-run.
+- **`verify` on an offline node.** Check 10 expected "OpenRouter, then desktop, then laptop", so with `OFFLINE=1`
+  (whose chain is the local endpoints only, by design) it failed and `./setup.sh tool verify` exited 1. It now expects
+  the local endpoints only when offline, and points at `./setup.sh run 11` when the chain still has an OpenRouter entry.
+- **Docs.** The README gains an upgrade note and links its offline section to the runbook, and lists the new modes
+  under "What this kit could not verify"; the RUNBOOK gains "11b. Working offline (no internet)" and an upkeep bullet
+  for upgrading the kit or finishing a half-installed node; the CHECKLIST's dashboard, fallback, hermes-mode and
+  firewall rows carry their offline expectations, and its Extras table gains the browser-access, SMB-share and offline
+  checks.
+
+Upgrading from 0.6.0: `git pull` — nothing needs re-running; stage 08's fix applies the next time you run it, and
+`verify` is the fixed tool itself.
+
 ## 0.6.0
 
 Browser access, a share for finished work, and an offline mode.
