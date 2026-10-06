@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.2
+
+Fixes found while re-running stages on an existing node (updating it from 0.5.0 to 0.6.1).
+
+- **Stage 02 through sudo.** The lockout guard read `$HOME/.ssh/authorized_keys`, and a re-run through sudo has
+  `HOME=/root`: a node whose admin user has the key — the one SSH from the desktop uses — was told
+  `/root/.ssh/authorized_keys is empty ... you would lock yourself out` and the stage refused. The guard now resolves
+  the admin user's home (`ADMIN_USER`, `getent`) and checks the key there.
+- **The offline chain could die of SIGPIPE.** `chain_main_yaml` read the first local endpoint through `head -1`:
+  head exits after the line, the producer's next write hits the closed pipe (SIGPIPE, rc 141), and `pipefail` +
+  `set -e` killed the run — about one offline run in ten (also the occasional `11: OFFLINE=1` flake in the suite).
+  It now reads the line without closing the pipe early.
+- **`restore` died at the backup listing.** An empty listing (`--dry-run` runs no tar) made `grep -v '^$'` exit 1,
+  and a real backup (more than 20 unique paths) made `head` SIGPIPE the pipeline — either way the restore stopped
+  before it asked anything. The listing can no longer fail the tool.
+
+Upgrading from 0.6.1: `git pull` — nothing needs re-running; the fixes apply the next time the stage or tool runs.
+
 ## 0.6.1
 
 Fixes found while making 0.6.0's changes apply to existing nodes, and the documents to match.
