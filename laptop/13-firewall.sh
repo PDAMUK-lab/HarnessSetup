@@ -56,7 +56,9 @@ if [[ ${DASHBOARD_FROM:-none} != none ]]; then
 fi
 if [[ ${SMB_SHARE:-none} != none ]]; then
   smb_host=${SMB_SHARE#//}; smb_host=${smb_host%%/*}
-  smb_ip=$(getent ahostsv4 "$smb_host" 2>/dev/null | awk 'NR == 1 {print $1}' || true)   # ufw takes addresses only
+  # ufw takes addresses only: an address is used as is, a name is resolved (and the share host is usually an address)
+  if cfg_valid_ip "$smb_host"; then smb_ip=$smb_host
+  else smb_ip=$(getent ahostsv4 "$smb_host" 2>/dev/null | awk 'NR == 1 {print $1}' || true); fi
   if [[ -n $smb_ip ]]; then sudo_run ufw allow out to "$smb_ip" port 445 proto tcp comment 'SMB share for finished work'
   else warn "cannot resolve $smb_host: no firewall rule for the SMB share (use its IP address in SMB_SHARE)"; fi
 fi
