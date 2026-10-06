@@ -252,15 +252,21 @@ smoke_tag_off_main() { local t; for t in $(git -C "$T/origin.git" tag -l 'v0.0.0
 check "smoke: the pushed tag is on the throw-away commit, not on main (a release workflow must refuse it)" smoke_tag_off_main
 check "smoke: leaves the clone on main with no leftover branch" bash -c "cd '$HOME/repos/app' && test \"\$(git branch --show-current)\" = main && test \"\$(git branch | wc -l)\" -eq 1"
 check "smoke: leaves no local smoke tag" bash -c "cd '$HOME/repos/app' && test -z \"\$(git tag)\""
+check "smoke: reports the workflow change as rejected (hardened token)" grep -q 'changing .github/workflows is rejected' <<<"$OUT"
 OUT=$(FAKE_REVIEW_DECISION='' bash "$ROOT/tools/github-smoke-test.sh" --repo app --yes 2>&1); RC=$?
 check "smoke: a merge refused for another reason (no approval required) is a FAIL" bash -c "[[ $RC -ne 0 ]] && [[ \$(grep -c '  FAIL  ' <<<\"\$0\") -eq 1 ]] && grep -q 'does not require an approval' <<<\"\$0\"" "$OUT"
 # (earlier runs' tags come back with every fetch: the agent cannot delete them, by design)
 own_tag=$(grep -oE 'v0\.0\.0-smoke\.[0-9]+-[0-9]+' <<<"$OUT" | head -1)
 check "smoke: ...and deletes its own local tag again" bash -c "[[ -n '$own_tag' ]] && ! git -C '$HOME/repos/app' tag | grep -qx '$own_tag'"
+# with Workflows granted to the token, a workflow push is not a guard-rail failure: the check reports the posture
+grep -v 'refusing to allow a workflow change' "$T/origin.git/hooks/pre-receive" >"$T/hook-granted" && mv "$T/hook-granted" "$T/origin.git/hooks/pre-receive" && chmod +x "$T/origin.git/hooks/pre-receive"
+OUT=$(FAKE_LOG="$T/smoke-gh.log" bash "$ROOT/tools/github-smoke-test.sh" --repo app --yes 2>&1); RC=$?
+check "smoke: a granted-Workflows token gets all seven checks passed" test $RC -eq 0
+check "smoke: ...and the workflow check says it was allowed, not rejected" grep -q 'changing .github/workflows is allowed (the token carries Workflows)' <<<"$OUT"
 rm "$T/origin.git/hooks/pre-receive"
 OUT=$(FAKE_PR_MERGE=ok bash "$ROOT/tools/github-smoke-test.sh" --repo app --yes 2>&1); RC=$?
 check "smoke: FAILS when nothing is protected" test $RC -ne 0
-check "smoke: flags exactly the four unprotected checks (incl. the unapproved merge)" test "$(grep -c '  FAIL  ' <<<"$OUT")" -eq 4
+check "smoke: flags exactly the three unprotected checks (incl. the unapproved merge)" test "$(grep -c '  FAIL  ' <<<"$OUT")" -eq 3
 
 echo "real-run stages: $pass passed, $failn failed"
 [[ $failn -eq 0 ]]
