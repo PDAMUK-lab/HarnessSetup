@@ -61,6 +61,19 @@ dry 02
 check "02: refuses (warns in dry run) without an authorized key" has "authorized_keys is empty"
 check "02: writes the hardening drop-in" has "10-hardening.conf"
 check "02: reloads ssh" has "reload ssh"
+# The guard is about the account that logs in: SSH from the desktop uses ADMIN_USER, while a re-run
+# through sudo has HOME=/root. It must check the admin user's keys, not the launcher's home.
+mkdir -p "$T/adm-keys/.ssh" "$T/adm-nokeys" "$T/nohome"
+echo 'ssh-ed25519 AAAATEST admin@desktop' >"$T/adm-keys/.ssh/authorized_keys"
+sed 's/^ADMIN_USER=.*/ADMIN_USER=demo-admin/' "$T/node.env" >"$T/admin-keys.env"
+sed 's/^ADMIN_USER=.*/ADMIN_USER=demo-nokeys/' "$T/node.env" >"$T/admin-nokeys.env"
+OUT=$(HOME="$T/nohome" NODE_ENV="$T/admin-keys.env" FAKE_PASSWD_USER=demo-admin FAKE_PASSWD_HOME="$T/adm-keys" \
+  "$ROOT/setup.sh" run 02 --dry-run --yes 2>&1); RC=$?
+check "02: a re-run via sudo passes on the admin user's key (not HOME=/root)" bash -c "[[ $RC -eq 0 ]] && ! grep -qF 'authorized_keys is empty' <<<\"\$0\" && grep -qF '10-hardening.conf' <<<\"\$0\"" "$OUT"
+OUT=$(HOME="$T/nohome" NODE_ENV="$T/admin-nokeys.env" FAKE_PASSWD_USER=demo-nokeys FAKE_PASSWD_HOME="$T/adm-nokeys" \
+  "$ROOT/setup.sh" run 02 --dry-run --yes 2>&1); RC=$?
+check "02: without an admin key it still warns, naming the admin user's path" has "$T/adm-nokeys/.ssh/authorized_keys"
+check "02: ...and not the home it was launched from" lacks "$T/nohome/.ssh/authorized_keys"
 
 # ---- stage 03
 dry 03

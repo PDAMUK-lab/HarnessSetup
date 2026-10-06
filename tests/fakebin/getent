@@ -1,2 +1,13 @@
 #!/usr/bin/env bash
-echo "151.101.66.132  deb.debian.org"
+# Test stub for getent. Host lookups answer with a fixed address (offline determinism); a passwd
+# lookup for FAKE_PASSWD_USER answers with FAKE_PASSWD_HOME, so a test can plant an
+# authorized_keys file for a made-up admin user (stage 02 checks it for the lockout guard).
+case ${1:-} in
+  passwd)
+    if [[ -n ${FAKE_PASSWD_USER:-} && ${2:-} == "$FAKE_PASSWD_USER" ]]; then
+      echo "$FAKE_PASSWD_USER:x:4242:4242::$FAKE_PASSWD_HOME:/bin/bash"
+      exit 0
+    fi
+    exit 2 ;;
+  *) echo "151.101.66.132  deb.debian.org" ;;
+esac
