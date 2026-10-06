@@ -21,7 +21,9 @@ jobs:
   windows-powershell:
     # The desktop scripts run in Windows PowerShell 5.1, the one every Windows has; the job above has pwsh 7 only, and 5.1
     # differs (its ConvertFrom-Json writes a JSON array as ONE object; no ?? or ternary). Parse every script with 5.1's
-    # parser and run the helper and settings unit tests in it, on LF files as in the release zip.
+    # parser and run the helper and settings unit tests in it, on LF files as in the release zip. The settings tests'
+    # SSH-import cases stub scp through PATH (test-powershell.sh puts tests/fakebin first on the Linux run), so this job
+    # prepends it too and scp.cmd shadows the real C:\Windows\System32\OpenSSH\scp.exe.
     runs-on: windows-latest
     steps:
       - run: git config --global core.autocrlf false
@@ -32,6 +34,8 @@ jobs:
           if ($PSVersionTable.PSEdition -ne 'Desktop') { throw "not Windows PowerShell: $($PSVersionTable.PSVersion)" }
           Write-Host "Windows PowerShell $($PSVersionTable.PSVersion)"
           $root = $PWD.Path; $tmp = Join-Path $env:RUNNER_TEMP 'hs'; New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+          # the same PATH stub the Linux run gets from test-powershell.sh: scp.cmd shadows the real scp.exe
+          $env:PATH = "$root\tests\fakebin;$env:PATH"
           $failed = @()
           powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests\powershell\Parse-All.ps1 "$root\desktop,$root\tests\powershell"
           if ($LASTEXITCODE) { $failed += 'parse' }
