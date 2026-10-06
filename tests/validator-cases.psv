@@ -121,3 +121,15 @@ sampling|--temp hot|bad||sampling: not a number
 sampling|--model x.gguf|bad||sampling: not an allowed flag
 sampling|--temp 0.6;rm|bad||sampling: injection attempt
 sampling|-t 0.6|bad||sampling: short flag
+iplist|none|ok|none|iplist: none
+iplist|192.168.1.40|ok|192.168.1.40|iplist: one address
+iplist|192.168.1.40, 192.168.1.77/28|ok|192.168.1.40,192.168.1.64/28|iplist: list, networks normalised
+iplist|192.168.1.40,|ok|192.168.1.40|iplist: trailing comma
+iplist|192.168.1.300|bad||iplist: bad address
+iplist|192.168.1.40,,192.168.1.41|bad||iplist: empty item
+iplist|phone|bad||iplist: a name
+smbpath|none|ok|none|smbpath: none
+smbpath|//192.168.1.20/work|ok|//192.168.1.20/work|smbpath: host and share
+smbpath|//nas.local/work/hermes|ok|//nas.local/work/hermes|smbpath: with a folder
+smbpath|//nas/my share|bad||smbpath: space
+smbpath|192.168.1.20/work|bad||smbpath: no leading //

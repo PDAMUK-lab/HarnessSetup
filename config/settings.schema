@@ -21,6 +21,8 @@ LAN_CIDR|laptop|basic|cidr|auto:lan_cidr=192.168.1.0/24||LAN network (CIDR)|Your
 ADMIN_USER|both|basic|unixuser|auto:admin_user=ai-node||Laptop admin account|The account you created in the Debian installer on the laptop (it has sudo). SSH from the desktop uses it.
 AGENT_USER|laptop|advanced|unixuser|hermes||Agent account name|The dedicated account the agent runs as. It gets passwordless sudo (guide Step 6).
 SSH_ALLOWED_FROM|laptop|advanced|ip|{DESKTOP_IP}||SSH allowed only from|Once the firewall is on, only this address may SSH into the laptop. Normally the desktop.
+DASHBOARD_FROM|laptop|advanced|iplist|none||Devices that may open the dashboard in a browser (phone, another laptop)|none keeps the dashboard local-only (the desktop reaches it through the SSH tunnel). Otherwise their addresses / networks separated by commas (give them DHCP reservations): the dashboard then listens on the LAN with a password (stage 08 asks for it) and stage 13 lets only these devices in.
+SMB_SHARE|laptop|advanced|smbpath|none||Network share for finished work|none, or a share like //192.168.1.20/work. ./setup.sh tool smb-share mounts it for the agent at /srv/share (it asks for the share's user and password) and stage 13 lets the laptop reach it.
 DASHBOARD_PORT|both|advanced|port|9119||Dashboard port|Port of the Hermes dashboard. It is used on BOTH ends of the SSH tunnel, because the dashboard rejects other Host headers.
 LLM_PORT|both|advanced|port|8080||Model server port|Port the llama.cpp servers listen on (laptop: loopback only; desktop: LAN, reachable from the laptop only).
 

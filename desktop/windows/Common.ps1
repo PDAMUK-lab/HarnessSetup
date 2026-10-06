@@ -207,6 +207,13 @@ $script:LlamaAssetPatterns = @{
     rocm   = '^llama-.+-bin-win-(hip|rocm)[a-z0-9.-]*-x64\.zip$'
 }
 
+# Get-ZipName URL  - the file name a zip URL ends in, without any ?query or #fragment ('' when the URL has none).
+# Used for -ZipUrl, where the asset name is not taken from the release's asset list.
+function Get-ZipName {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Url)
+    return (($Url -split '[?#]')[0] -split '/')[-1]
+}
+
 # Install-LlamaVulkanBuild -Dir C:\llama [-Backend vulkan|rocm] [-ZipUrl URL]  - download the newest llama.cpp Windows build
 # for the backend and unpack it into Dir (stops the server running from Dir first). Used by Install-Llama.ps1,
 # Update-Llama.ps1 and Compare-LlamaBackends.ps1. -ZipUrl takes a zip by hand (e.g. when a release renames its assets).
@@ -214,12 +221,15 @@ function Install-LlamaVulkanBuild {
     param([Parameter(Mandatory)][string]$Dir, [ValidateSet('vulkan', 'rocm')][string]$Backend = 'vulkan', [string]$ZipUrl = '')
     $Backend = $Backend.ToLowerInvariant()   # ValidateSet lets 'ROCm' through as typed
     if ($ZipUrl) {
-        $name = ($ZipUrl -split '/')[-1]; $url = $ZipUrl; $tag = 'given by hand'
+        if ($ZipUrl -notmatch '^https?://') { throw "-ZipUrl must be an http(s) URL (got '$ZipUrl')." }
+        $name = Get-ZipName $ZipUrl
+        if (-not $name) { throw "-ZipUrl has no file name to save the download as: $ZipUrl" }
+        $url = $ZipUrl; $tag = 'given by hand'
     } else {
         # not /releases/latest: that is a source-only tag; the builds are pre-releases
         $pattern = $script:LlamaAssetPatterns[$Backend]
         $rel = Select-LlamaRelease -Releases (Get-LlamaReleases) -Patterns $pattern
-        if (-not $rel) { throw "None of the ten newest llama.cpp releases has a Windows $Backend zip. Download it from https://github.com/ggml-org/llama.cpp/releases and pass -ZipUrl." }
+        if (-not $rel) { throw "None of the newest llama.cpp releases has a Windows $Backend zip. Download it from https://github.com/ggml-org/llama.cpp/releases and pass -ZipUrl." }
         $asset = if ($Backend -eq 'vulkan') { Select-VulkanAsset $rel.assets } else { $rel.assets | Where-Object { $_.name -match $pattern } | Select-Object -First 1 }
         $name = $asset.name; $url = $asset.browser_download_url; $tag = $rel.tag_name
     }
@@ -441,6 +451,23 @@ function Test-SettingValue {
                 return & $r $true (Get-NetworkAddress $v) ''
             }
             return & $r $false $v 'expected a network like 192.168.1.0/24 (prefix 8 to 30)'
+        }
+        '^iplist$' {
+            if ($v -ceq 'none') { return & $r $true 'none' '' }
+            $bad = 'expected none, or addresses / networks separated by commas, like 192.168.1.40,192.168.1.64/28'
+            $out = @()
+            foreach ($item in (($v -replace ' ', '' -replace ',$', '') -split ',')) {   # one trailing comma is fine, as in bash
+                if ($item -cmatch '^([0-9.]+)/([0-9]{1,2})$') {
+                    if ((Test-IPv4 $Matches[1]) -and [int]$Matches[2] -ge 8 -and [int]$Matches[2] -le 30) { $out += (Get-NetworkAddress $item); continue }
+                } elseif ($item -and (Test-IPv4 $item)) { $out += $item; continue }
+                return & $r $false $v $bad
+            }
+            return & $r $true ($out -join ',') ''
+        }
+        '^smbpath$' {
+            if ($v -ceq 'none') { return & $r $true 'none' '' }
+            if ($v -cmatch '^//[A-Za-z0-9.-]+/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$') { return & $r $true $v '' }
+            return & $r $false $v 'expected none or a share like //192.168.1.20/work (forward slashes, no spaces)'
         }
         '^port$' {
             if ($v -cmatch '^[1-9][0-9]{0,4}$' -and [int]$v -le 65535) { return & $r $true $v '' }
@@ -1004,10 +1031,23 @@ function Select-LlamaRelease {
     return $null
 }
 
-# Get-LlamaReleases  - the ten newest llama.cpp releases (pre-releases included), newest first
+# Get-LlamaReleases [-Max 200]  - the newest llama.cpp releases (pre-releases included), newest first, at most Max.
+# The API serves at most 100 per page, so this follows the Link header instead of trusting a fixed small window: a run of
+# newer releases can carry no Windows build at all (a tag listed before its zips are uploaded, or a failed build job), and
+# the newest release that does qualify must not be pushed out of the window by them.
 function Get-LlamaReleases {
+    param([int]$Max = 200)
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    return , @(Invoke-RestMethod -Uri 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10' -Headers @{ 'User-Agent' = 'HarnessSetup' })
+    $next = 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=100'
+    $all = @()
+    while ($next -and $all.Count -lt $Max) {
+        $resp = Invoke-WebRequest -Uri $next -Headers @{ 'User-Agent' = 'HarnessSetup' } -UseBasicParsing
+        $all += @($resp.Content | ConvertFrom-Json)
+        $next = $null
+        $link = $resp.Headers['Link']
+        if ($link) { foreach ($part in @($link -split ',')) { if ($part -match '<([^>]+)>\s*;\s*rel="next"') { $next = $Matches[1] } } }
+    }
+    return , $all
 }
 
 # Get-LlamaServerProcess -Dir C:\llama  - the llama-server processes that run from that folder and no other (the V100 server has

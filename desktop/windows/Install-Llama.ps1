@@ -16,11 +16,13 @@
   .\Install-Llama.ps1
   .\Install-Llama.ps1 -DryRun           # show what would happen, change nothing
   .\Install-Llama.ps1 -UpdateLlama      # replace C:\llama with the newest build
+  .\Install-Llama.ps1 -ZipUrl https://github.com/ggml-org/llama.cpp/releases/download/b12345/llama-b12345-bin-win-vulkan-x64.zip   # install that zip instead of searching the releases
   .\Install-Llama.ps1 -NeverSleepOnAC   # Windows never sleeps while on mains power
 #>
 [CmdletBinding()]
 param(
     [string]$ConfigFile,
+    [string]$ZipUrl = '',
     [switch]$SkipModelDownload,
     [switch]$UpdateLlama,
     [switch]$NeverSleepOnAC,
@@ -54,7 +56,8 @@ if ($ShowKey) {
 }
 
 # options not given on the command line are asked
-if ((Test-Path "$llama\llama-server.exe") -and -not $PSBoundParameters.ContainsKey('UpdateLlama')) {
+if ($ZipUrl) { $UpdateLlama = $true }   # an explicit zip means: (re)install from it, no question about it
+if ((Test-Path "$llama\llama-server.exe") -and -not $UpdateLlama -and -not $PSBoundParameters.ContainsKey('UpdateLlama')) {
     $UpdateLlama = Read-YesNo -Question 'llama-server.exe is already installed. Replace it with the newest build?' -Default $false
 }
 $NeverSleepOnAC = Resolve-Option -Bound $PSBoundParameters -Name NeverSleepOnAC -Current ([bool]$NeverSleepOnAC) -Default $false `
@@ -71,7 +74,9 @@ if ((Test-Path "$llama\llama-server.exe") -and -not $UpdateLlama) {
 } else {
     # keep the backend in use (Update-Llama.ps1 -Backend rocm switches it; vulkan unless switched)
     $backend = Get-LlamaBackend -Dir $llama
-    Invoke-Action "download and extract the latest llama-*-bin-win-$(if ($backend -eq 'rocm') { 'rocm-*' } else { 'vulkan' })-x64.zip" { Install-LlamaVulkanBuild -Dir $llama -Backend $backend }
+    if ($ZipUrl) { $what = "download and extract the given zip ($(Get-ZipName $ZipUrl))" }
+    else { $what = "download and extract the latest llama-*-bin-win-$(if ($backend -eq 'rocm') { 'rocm-*' } else { 'vulkan' })-x64.zip" }
+    Invoke-Action $what { Install-LlamaVulkanBuild -Dir $llama -Backend $backend -ZipUrl $ZipUrl }
 }
 Invoke-Action 'llama-cli.exe --list-devices (the RX 6600 XT must be listed)' {
     $devices = Invoke-NativeText { & "$llama\llama-cli.exe" --list-devices }

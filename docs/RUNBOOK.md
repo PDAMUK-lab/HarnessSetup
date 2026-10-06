@@ -91,8 +91,12 @@ From here on, enter the agent's account with `sudo machinectl shell hermes@`, ne
 
 ### GitHub on the web (MANUAL, Step 8)
 
+Step by step, with every click and the reason for each choice: [GITHUB-SETUP.md](GITHUB-SETUP.md). In short:
+
 0. Rulesets are enforced on public repos (GitHub Free); private repos need a Pro or Team plan, otherwise steps 2 and 3 protect nothing.
-1. **Machine account** (for example `yourorg-hermes`, own email). Put the repos in a GitHub **organization** (free is enough), invite
+1. **Machine account**: a second, ordinary GitHub user account for the agent (sign up signed out, with a different email such
+   as a `you+hermes@...` alias, for example `yourorg-hermes`; turn on 2FA). It is what lets you approve the agent's PRs: no
+   account may approve its own. See the README's "Before you start". Put the repos in a GitHub **organization** (free is enough), invite
    the machine account as an org **member** (not an outside collaborator: fine-grained tokens do not work for those), give it
    **Write** on each repo (via a team, org base permission None), sign in as it and accept the invitation.
 2. **Protect `main`:** Settings > Rules > Rulesets > New branch ruleset, **Enforcement status: Active** (new rulesets start as

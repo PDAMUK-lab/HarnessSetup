@@ -219,6 +219,30 @@ cfg_validate() {
         return 1
       fi
       ;;
+    iplist)
+      # none, or addresses / networks separated by commas (the extra devices that may SSH in)
+      if [[ $v == none ]]; then CFG_NORM=none; return 0; fi
+      local item norm=''
+      IFS=',' read -ra words <<<"${v// /}"   # one trailing comma is dropped by read
+      for item in "${words[@]}"; do
+        if [[ $item =~ ^([0-9.]+)/([0-9]{1,2})$ ]]; then
+          lo=${BASH_REMATCH[1]} hi=${BASH_REMATCH[2]}
+          if cfg_valid_ip "$lo" && ((10#$hi >= 8 && 10#$hi <= 30)); then norm+=",$(cfg_net "$item")"; continue; fi
+        elif [[ -n $item ]] && cfg_valid_ip "$item"; then
+          norm+=",$item"; continue
+        fi
+        CFG_ERR='expected none, or addresses / networks separated by commas, like 192.168.1.40,192.168.1.64/28'
+        return 1
+      done
+      [[ -n $norm ]] || { CFG_ERR='expected none, or addresses / networks separated by commas'; return 1; }
+      CFG_NORM=${norm#,}
+      ;;
+    smbpath)
+      # none, or //host/share[/folder] (forward slashes, no spaces)
+      if [[ $v == none ]]; then CFG_NORM=none; return 0; fi
+      [[ $v =~ ^//[A-Za-z0-9.-]+/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] ||
+        { CFG_ERR='expected none or a share like //192.168.1.20/work (forward slashes, no spaces)'; return 1; }
+      ;;
     port)
       if ! { [[ $v =~ ^[1-9][0-9]{0,4}$ ]] && ((v <= 65535)); }; then CFG_ERR='expected a port number from 1 to 65535'; return 1; fi
       ;;

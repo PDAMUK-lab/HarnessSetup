@@ -139,6 +139,17 @@ check "13: default-deny incoming is set" has "default deny incoming"
 check "13: only the desktop may SSH in" has "allow in from 192.168.1.100 to any port 22"
 check "13: 443 allowed out" has "allow out 443/tcp"
 check "13: env files locked to 600" has "chmod 600 /home/hermes/.hermes/.env"
+OUT=$("$ROOT/setup.sh" run 13 --dry-run --yes 2>&1)
+check "13: no dashboard or SMB rules by default" bash -c "! grep -qE 'dashboard from a browser|SMB share' <<<\"\$0\"" "$OUT"
+sed -e 's|^DASHBOARD_FROM=.*|DASHBOARD_FROM=192.168.1.40,192.168.1.64/28|' -e 's|^SMB_SHARE=.*|SMB_SHARE=//192.168.1.20/work|' "$NODE_ENV" >"$T/lan.env"
+OUT=$(NODE_ENV="$T/lan.env" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1); OUT=${OUT//\\/}
+deny=$(lineno 'deny out to 192.168.1.0/24')
+check "13: DASHBOARD_FROM lets exactly those devices reach the dashboard" bash -c "grep -q 'allow in from 192.168.1.40 to any port 9119' <<<\"\$0\" && grep -q 'allow in from 192.168.1.64/28 to any port 9119' <<<\"\$0\"" "$OUT"
+check "13: SMB_SHARE: the share's port 445 is allowed before the LAN deny" test "$(lineno 'allow out to 192.168.1.20 port 445')" -lt "$deny"
+OUT=$(NODE_ENV="$T/lan.env" DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 08 --dry-run --yes 2>&1)
+check "08: DASHBOARD_FROM: the dashboard listens on all addresses (behind its login)" has "dashboard --host 0.0.0.0 --port 9119"
+OUT=$(DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 08 --dry-run --yes 2>&1)
+check "08: by default the dashboard stays on loopback" has "dashboard --host 127.0.0.1 --port 9119"
 OUT=$(SSH_CLIENT="10.9.9.9 5555 22" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1)
 check "13: warns before cutting off an SSH session from another address" has "would cut you off"
 OUT=$(SSH_CLIENT="192.168.1.100 5555 22" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1)

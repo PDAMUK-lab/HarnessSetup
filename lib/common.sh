@@ -119,8 +119,12 @@ load_config() {
   [[ $WORKER_EFFORT_VALUE == inherit ]] && WORKER_EFFORT_VALUE=''   # Hermes: empty = the planner's effort
   CRON_REPO=${GITHUB_REPOS:-}
   CRON_REPO=${CRON_REPO%% *}
+  # DASHBOARD_FROM lists browsers on the LAN: then the dashboard listens on all addresses, behind Hermes's password
+  # login, and the firewall admits only those devices; otherwise loopback only (the desktop's SSH tunnel)
+  DASHBOARD_BIND=127.0.0.1
+  [[ ${DASHBOARD_FROM:-none} != none ]] && DASHBOARD_BIND=0.0.0.0
   # shellcheck disable=SC2090  # see above
-  export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG LAPTOP_KWARGS_FLAG LAPTOP_SAMPLING_FLAGS APPROVAL_DENY_YAML WORKER_EFFORT_VALUE CRON_REPO
+  export AGENT_HOME HERMES_BIN_DIR HERMES_BIN LAPTOP_NKVO_FLAG LAPTOP_KWARGS_FLAG LAPTOP_SAMPLING_FLAGS APPROVAL_DENY_YAML WORKER_EFFORT_VALUE CRON_REPO DASHBOARD_BIND
 }
 
 # or_spend JSON  - "LEVEL|message" about an OpenRouter key from its /api/v1/key answer (LEVEL ok, warn, fail or unknown);
