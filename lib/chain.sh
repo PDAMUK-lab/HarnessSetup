@@ -25,7 +25,9 @@ chain_main_yaml() {
   local p m list first=''
   if [[ ${OFFLINE:-0} == 1 ]]; then
     # no internet: the cloud is nowhere in the chain, and the default profile itself runs on the first local endpoint
-    first=$(chain_entries | head -1)
+    # sed -n 1p, not head -1: head closes the pipe after the first line, which SIGPIPEs chain_entries'
+    # second print under pipefail and set -e kills the run (~1 in 10, measured)
+    first=$(chain_entries | sed -n 1p)
     list=$(while IFS='|' read -r p m; do printf '  - provider: %s\n    model: %s\n' "$p" "$m"; done < <(chain_entries))
     printf 'model:\n  provider: %s\n  default: %s\n\n' "${first%%|*}" "${first#*|}"
     printf 'fallback_providers:\n%s\n' "$list"
