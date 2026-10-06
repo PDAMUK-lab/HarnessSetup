@@ -23,13 +23,18 @@ for a in "$@"; do
   esac
 done
 
-load_agent_user() {
-  AGENT_USER=hermes
-  if [[ -f ${NODE_ENV:-$HS_ROOT/config/node.env} ]]; then
-    AGENT_USER=$(
-      # shellcheck disable=SC1090
-      source <(sed 's/\r$//' "${NODE_ENV:-$HS_ROOT/config/node.env}") && printf '%s' "${AGENT_USER:-hermes}")
+node_env_value() { # node_env_value KEY DEFAULT  - one setting from the file the dispatcher uses
+  local file=${NODE_ENV:-$HS_ROOT/config/node.env} v=''
+  if [[ -f $file ]]; then
+    # shellcheck disable=SC1090
+    v=$(source <(sed 's/\r$//' "$file") && printf '%s' "${!1:-${2:-}}")
   fi
+  if [[ -n $v ]]; then printf '%s' "$v"; else printf '%s' "${2:-}"; fi
+}
+
+load_agent_user() {
+  AGENT_USER=$(node_env_value AGENT_USER hermes)
+  OFFLINE=$(node_env_value OFFLINE 0)
 }
 load_agent_user
 
@@ -60,6 +65,9 @@ need_settings() {
 }
 
 meta() { sed -n "s/^# $2: *//p" "$1" | head -1; }
+
+# a stage marked "# ONLINE: yes" needs the internet; with OFFLINE=1 the dispatcher skips it (next, list) and refuses to run it
+offline_blocked() { [[ ${OFFLINE:-0} == 1 && $(meta "$1" ONLINE) == yes ]]; }
 
 stages() { find "$HS_ROOT/laptop" -maxdepth 1 -name '[0-9][0-9]-*.sh' | sort; }
 
@@ -96,7 +104,9 @@ cmd_list() {
   for f in $(stages); do
     id=$(basename "$f" | cut -d- -f1); who=$(meta "$f" RUN-AS)
     mark=''
-    if is_done "$id" "$who"; then mark='[done]'; fi
+    if is_done "$id" "$who"; then mark='[done]'
+    elif offline_blocked "$f"; then mark='[skipped: offline]'
+    fi
     printf '%-3s %-7s %-13s %s %s\n' "$id" "$who" "$(meta "$f" GUIDE)" "$(meta "$f" TITLE)" "$mark"
   done
   echo
@@ -135,6 +145,9 @@ case $cmd in
     [[ $# -ge 1 ]] || die "usage: ./setup.sh run <id> [options]"
     id=$1; shift
     script=$(find_script stage "$id")
+    if offline_blocked "$script"; then
+      die "stage $id needs the internet (GitHub / OpenRouter) and OFFLINE=1 is set. Set OFFLINE=0 (./setup.sh configure --only OFFLINE) to run it, or leave it out while offline."
+    fi
     need_settings "$(meta "$script" NEEDS)"
     run_script "$script" "$@"
     ;;
@@ -142,6 +155,10 @@ case $cmd in
     for f in $(stages); do
       id=$(basename "$f" | cut -d- -f1)
       if ! is_done "$id" "$(meta "$f" RUN-AS)"; then
+        if offline_blocked "$f"; then
+          log "skipping stage $id: it needs the internet and OFFLINE=1 is set"
+          continue
+        fi
         log "next stage: $id"
         need_settings "$(meta "$f" NEEDS)"
         run_script "$f" "$@"

@@ -2,7 +2,7 @@
 # TITLE: Local endpoints, fallback chain, the `local` profile, hermes-mode
 # RUN-AS: hermes
 # GUIDE: Steps 21-23
-# NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT DESKTOP_MODEL_ALIAS DESKTOP_CTX LAPTOP_CTX LAPTOP_MODEL_ALIAS V100_ENABLED V100_PRIMARY V100_MODEL_ALIAS V100_CTX V100_PORT APPROVAL_MODE APPROVAL_DENY SMB_SHARE
+# NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT DESKTOP_MODEL_ALIAS DESKTOP_CTX LAPTOP_CTX LAPTOP_MODEL_ALIAS V100_ENABLED V100_PRIMARY V100_MODEL_ALIAS V100_CTX V100_PORT APPROVAL_MODE APPROVAL_DENY SMB_SHARE OFFLINE
 # Needs the desktop API key printed by Install-Llama.ps1 (prompted, or set DESKTOP_LLM_KEY in the environment).
 set -Eeuo pipefail
 HS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -88,6 +88,12 @@ fi
 install_template "$HS_ROOT/templates/bin/hermes-mode.tpl" "$HOME/.local/bin/hermes-mode" 755 self
 install_template "$HS_ROOT/templates/bin/hermes-desktop.tpl" "$HOME/.local/bin/hermes-desktop" 755 self
 chain_probes
+
+# no internet (OFFLINE=1): run on the local profile, never the cloud one
+if [[ ${OFFLINE:-0} == 1 ]]; then
+  log "OFFLINE=1: ending in the local profile (its own models only)"
+  run hermes profile use local
+fi
 
 if [[ $DRY_RUN != 1 ]]; then
   hermes fallback list || warn "'hermes fallback list' failed - check the fallback_providers block in $cfg"

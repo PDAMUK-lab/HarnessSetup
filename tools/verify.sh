@@ -2,7 +2,7 @@
 # TITLE: Final checks (the guide's Step 33 table, automated where a machine can judge)
 # RUN-AS: admin
 # GUIDE: Step 33
-# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DASHBOARD_FROM SMB_SHARE DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS APPROVAL_MODE AGENT_SUDO SPEND_WARN_PCT
+# NEEDS: LAPTOP_IP DESKTOP_IP AGENT_USER DASHBOARD_PORT DASHBOARD_FROM SMB_SHARE OFFLINE DESKTOP_MODEL_ALIAS LAPTOP_MODEL_ALIAS LLM_PORT NIGHT_ENABLED V100_ENABLED V100_PORT V100_MODEL_ALIAS APPROVAL_MODE AGENT_SUDO SPEND_WARN_PCT
 # Options (asked when not given): --models | --no-models (the two tool-call smoke tests can take a few minutes)
 # Prints PASS / FAIL / WARN / MANUAL per check. Exit status is 1 if anything FAILED.
 set -Euo pipefail
@@ -42,6 +42,11 @@ is_eq() { # is_eq ACTUAL EXPECTED N "label" [failtag] [detail]  - equal passes, 
 }
 http_code() { curl -s -m 8 -o /dev/null -w '%{http_code}' "$@" || true; }
 
+# offline (OFFLINE=1): no GitHub, no OpenRouter, no cloud profile to check. Say so once.
+if [[ ${OFFLINE:-0} == 1 ]]; then
+  res warn 0 "offline mode (OFFLINE=1): GitHub, OpenRouter and the cloud (default) profile are not checked" "set OFFLINE=0 and re-run stages 05, 07, 11, 12 and 13 to work online again"
+fi
+
 echo "== Laptop"
 gpu=$(nvidia-smi 2>&1 || true)
 if grep -q 'GTX 1070' <<<"$gpu" && grep -qE 'Driver Version: 550\.' <<<"$gpu"; then res pass 1 "nvidia-smi: GTX 1070 on a 550-series driver"; else res fail 1 "nvidia-smi: GTX 1070 on a 550-series driver" "$(head -1 <<<"$gpu")"; fi
@@ -56,6 +61,7 @@ esac
 # both profiles: the overnight jobs and their sub-agents run in 'local'. A failing 'config get' means "cannot tell" (manual).
 want=${APPROVAL_MODE:-off}
 for prof in default local; do
+  [[ $OFFLINE == 1 && $prof == default ]] && continue   # the cloud profile is not used offline
   am=''
   if out=$(agent_exec "hermes -p $prof config get approvals.mode" 2>/dev/null); then am=$(tail -1 <<<"$out" | tr -d "\"' [:space:]"); fi
   am=${am,,}
@@ -64,9 +70,12 @@ for prof in default local; do
   elif [[ $am == "$want" ]]; then res pass 2 "approval mode is $want in the $prof profile"
   else res warn 2 "approval mode is '$am' in the $prof profile, the setting APPROVAL_MODE says '$want'" "re-run ./setup.sh run 07 (both profiles), or change it on the dashboard's Config page"; fi
 done
-res manual 3 "pushing to main and deleting a v* tag are rejected" "run: ./setup.sh tool github-smoke-test"
+[[ $OFFLINE == 1 ]] || res manual 3 "pushing to main and deleting a v* tag are rejected" "run: ./setup.sh tool github-smoke-test"
 
-if agent_exec 'hermes doctor' >/dev/null 2>&1; then res pass 4 "hermes doctor"; else res fail 4 "hermes doctor" "run it as $AGENT_USER to see the errors"; fi
+if [[ $OFFLINE != 1 ]]; then
+  if agent_exec 'hermes doctor' >/dev/null 2>&1; then res pass 4 "hermes doctor"; else res fail 4 "hermes doctor" "run it as $AGENT_USER to see the errors"; fi
+fi
+if [[ $OFFLINE != 1 ]]; then
 orkey=$(agent_exec "grep -m1 '^OPENROUTER_API_KEY=' ~/.hermes/.env | cut -d= -f2-" 2>/dev/null | tail -1 | tr -d "'\" \r" || true)
 if [[ -z $orkey ]]; then res manual 4 "OpenRouter credit limit set and resetting monthly" "no OPENROUTER_API_KEY in the agent's ~/.hermes/.env yet"
 else
@@ -79,6 +88,7 @@ else
   esac
 fi
 unset orkey
+fi
 if agent_exec 'hermes -p local doctor' >/dev/null 2>&1; then res pass 4 "local profile doctor"; else res fail 4 "local profile doctor"; fi
 
 st=$(curl -fsS -m 5 "http://127.0.0.1:$DASHBOARD_PORT/api/status" 2>/dev/null || true)
@@ -140,7 +150,7 @@ is_eq "$(code_of laptop)" 200 11 "hermes-mode: laptop 200"
 if [[ -n $(served_of laptop) ]]; then is_eq "$(served_of laptop)" "$LAPTOP_MODEL_ALIAS" 11 "hermes-mode: the laptop serves $LAPTOP_MODEL_ALIAS"; fi
 is_eq "$(code_of desktop)" 200 11 "hermes-mode: desktop 200" warn "fine if the desktop is off"
 if [[ ${V100_ENABLED:-0} == 1 ]]; then is_eq "$(code_of desktop-v100)" 200 11 "hermes-mode: desktop-v100 200" warn "fine if the desktop is off"; fi
-is_eq "$(code_of openrouter)" 200 11 "hermes-mode: openrouter 200"
+[[ $OFFLINE == 1 ]] || is_eq "$(code_of openrouter)" 200 11 "hermes-mode: openrouter 200"
 res manual 12 "hermes-mode local / cloud round trip" "answer from $DESKTOP_MODEL_ALIAS, then cloud restored"
 res manual 13 "/model custom:laptop:$LAPTOP_MODEL_ALIAS mid-session"
 res manual 14 "internet-off fallback" "run: ./setup.sh tool fallback-test"
@@ -153,7 +163,7 @@ if [[ ${NIGHT_ENABLED:-0} == 1 ]]; then
 fi
 
 echo "== Firewall"
-is_eq "$(http_code https://openrouter.ai/api/v1/models)" 200 17 "outbound 443 works (OpenRouter 200)"
+[[ $OFFLINE == 1 ]] || is_eq "$(http_code https://openrouter.ai/api/v1/models)" 200 17 "outbound 443 works (OpenRouter 200)"
 is_eq "$dcode" 200 17 "desktop model port reachable" warn
 if timeout 3 bash -c "(exec 3<>/dev/tcp/$DESKTOP_IP/445)" 2>/dev/null; then res fail 17 "desktop port 445 is BLOCKED"; else res pass 17 "desktop port 445 is BLOCKED"; fi
 check 17 "DNS resolves (deb.debian.org)" getent hosts deb.debian.org

@@ -2,6 +2,7 @@
 # TITLE: GitHub access for the agent (token login, git identity, clone repos)
 # RUN-AS: hermes
 # GUIDE: Step 8
+# ONLINE: yes
 # NEEDS: GITHUB_ORG GITHUB_REPOS GITHUB_MACHINE_USER GITHUB_NOREPLY_EMAIL
 # Needs the machine account, rulesets and fine-grained token from docs/RUNBOOK.md (GitHub web steps).
 # Options: --reauth (log in again even if gh is already logged in)

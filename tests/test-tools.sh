@@ -78,6 +78,13 @@ sed 's|^SMB_SHARE=.*|SMB_SHARE=//192.168.1.20/work|' "$NODE_ENV" >"$T/smbv.env"
 OUT=$(NODE_ENV="$T/smbv.env" bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: SMB_SHARE unavailable is a warning, not a failure" test $RC -eq 0
 check "verify: ...and names the share and the fix" bash -c "grep -qE 'WARN.*#17' <<<\"\$0\" && grep -q 'is not writable at /srv/share' <<<\"\$0\" && grep -q 'smb-share' <<<\"\$0\"" "$OUT"
+# OFFLINE=1: the cloud checks are skipped, said once, and the run still passes
+sed 's/^OFFLINE=.*/OFFLINE=1/' "$NODE_ENV" >"$T/offv.env"
+OUT=$(NODE_ENV="$T/offv.env" bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
+check "verify: offline says once that the cloud checks are skipped" bash -c "[[ \$(grep -c 'offline mode (OFFLINE=1)' <<<\"\$0\") -eq 1 ]]" "$OUT"
+check "verify: offline does not run the GitHub smoke check" lacks "github-smoke-test"
+check "verify: offline skips the OpenRouter credit check" lacks "OpenRouter credit"
+check "verify: offline still exits 0" test $RC -eq 0
 OUT=$(FAKE_MODEL_ID=something-else bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: wrong model alias fails the run" test $RC -eq 1
 

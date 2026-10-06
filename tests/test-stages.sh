@@ -122,6 +122,10 @@ check "11: no share guidance when SMB_SHARE is none" lacks "coding_instructions"
 sed 's|^SMB_SHARE=.*|SMB_SHARE=//192.168.1.20/work|' "$NODE_ENV" >"$T/smb.env"
 OUT=$(NODE_ENV="$T/smb.env" "$ROOT/setup.sh" run 11 --dry-run --yes 2>&1); RC=$?
 check "11: SMB_SHARE: tells the agent where finished work goes" has "save finished work to /srv/share/<project>/"
+sed 's/^OFFLINE=.*/OFFLINE=1/' "$NODE_ENV" >"$T/off.env"
+OUT=$(NODE_ENV="$T/off.env" "$ROOT/setup.sh" run 11 --dry-run --yes 2>&1); RC=$?
+check "11: OFFLINE=1 leaves OpenRouter out of the fallback chain" lacks "provider: openrouter"
+check "11: OFFLINE=1 ends in the local profile" has "hermes profile use local"
 dry 12
 check "12: exits 0" test "$RC" -eq 0
 check "12: creates nightly-tests paused" has "--name nightly-tests --paused"
@@ -169,6 +173,9 @@ check "13: ...before the LAN deny" test "$(lineno 'allow out to 192.168.1.100 po
 sed 's|^V100_PORT=.*|V100_PORT=9001|' "$T/v100.env" >"$T/v100b.env"
 OUT=$(NODE_ENV="$T/v100b.env" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1); OUT=${OUT//\\/}
 check "13: the V100 port follows the setting" has "port 9001 proto tcp"
+OUT=$(NODE_ENV="$T/off.env" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1); OUT=${OUT//\\/}
+check "13: OFFLINE=1 keeps 80/443 closed" bash -c "grep -q 'OFFLINE=1: not allowing 80/443' <<<\"\$0\" && ! grep -q 'allow out 443/tcp' <<<\"\$0\" && ! grep -q 'allow out 80/tcp' <<<\"\$0\"" "$OUT"
+check "13: OFFLINE=1 still allows DNS and the model port" bash -c "grep -q 'port 53' <<<\"\$0\" && grep -q 'port 8080' <<<\"\$0\"" "$OUT"
 
 # ---- bookkeeping: a marker makes the stage show as done and 'next' skips it
 mkdir -p "$DESTDIR/var/lib/harness-setup/done" && echo now >"$DESTDIR/var/lib/harness-setup/done/01"

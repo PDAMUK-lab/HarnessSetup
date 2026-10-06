@@ -20,12 +20,20 @@ chain_entries() {
   printf 'custom:laptop|%s\n' "$LAPTOP_MODEL_ALIAS"
 }
 
-# chain_main_yaml  - the default profile's fallback chain: OpenRouter first, then the local endpoints
+# chain_main_yaml  - the default profile: OpenRouter first, then the local endpoints (offline: no OpenRouter, local only)
 chain_main_yaml() {
-  local p m list
-  list=$(printf '  - provider: openrouter\n    model: "%s"\n' "$OR_FALLBACK_MODEL"
-    while IFS='|' read -r p m; do printf '  - provider: %s\n    model: %s\n' "$p" "$m"; done < <(chain_entries))
-  printf 'fallback_providers:\n%s\n' "$list"
+  local p m list first=''
+  if [[ ${OFFLINE:-0} == 1 ]]; then
+    # no internet: the cloud is nowhere in the chain, and the default profile itself runs on the first local endpoint
+    first=$(chain_entries | head -1)
+    list=$(while IFS='|' read -r p m; do printf '  - provider: %s\n    model: %s\n' "$p" "$m"; done < <(chain_entries))
+    printf 'model:\n  provider: %s\n  default: %s\n\n' "${first%%|*}" "${first#*|}"
+    printf 'fallback_providers:\n%s\n' "$list"
+  else
+    list=$(printf '  - provider: openrouter\n    model: "%s"\n' "$OR_FALLBACK_MODEL"
+      while IFS='|' read -r p m; do printf '  - provider: %s\n    model: %s\n' "$p" "$m"; done < <(chain_entries))
+    printf 'fallback_providers:\n%s\n' "$list"
+  fi
   # Sub-agents pinned to a provider (delegation.provider) get NO fallback unless delegation.fallback_providers says so
   # (Hermes config_defaults: "A child pinned by provider, endpoint, or model gets no fallback unless this setting
   # declares one explicitly"), so without this an OpenRouter outage fails every sub-agent while the planner falls back.
