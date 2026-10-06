@@ -137,6 +137,32 @@ Check 'Select-LlamaRelease: a CUDA zip without its runtime bundle does not quali
 Check 'Select-LlamaRelease takes the newest complete one' { (Select-LlamaRelease -Releases (@(New-Rel 'b4' @('llama-b4-bin-win-vulkan-x64.zip')) + $rels) -Patterns $vk).tag_name -eq 'b4' }
 Check 'Select-LlamaRelease returns nothing when no release qualifies' { $null -eq (Select-LlamaRelease -Releases $rels -Patterns '^llama-.+-bin-win-hip-x64\.zip$') }
 Check 'Select-LlamaRelease copes with an empty list' { $null -eq (Select-LlamaRelease -Releases @() -Patterns $vk) }
+# ---- Get-LlamaReleases against a fake GitHub (tests/fakebin/fake_github.py): llama.cpp there has 1500 releases whose newest
+# 120 have no Windows zip yet, 100 per page, and as on the real API an anonymous caller gets HTTP 422 past result 1000.
+# Each check runs with ConvertFrom-Json as pwsh 7 has it (a JSON array comes out one element at a time) and as Windows
+# PowerShell 5.1 has it (the whole array comes out as ONE object - what pwsh 7 does with -NoEnumerate).
+$ghApi = "http://127.0.0.1:$($env:FAKE_GITHUB_PORT)/repos/ggml-org"
+function Get-FakeGithubPages { @(Get-Content -LiteralPath $env:FAKE_GITHUB_LOG | ForEach-Object { if ($_ -match '[?&]page=([0-9]+)') { [int]$Matches[1] } else { 1 } }) }
+$jsonAs = @{ 'pwsh 7' = {}; 'Windows PowerShell 5.1' = {} }
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $jsonAs['Windows PowerShell 5.1'] = {
+        function ConvertFrom-Json { param([Parameter(Mandatory, ValueFromPipeline)][AllowEmptyString()][string]$InputObject)
+            process { Microsoft.PowerShell.Utility\ConvertFrom-Json -InputObject $InputObject -NoEnumerate } } }
+}
+Check 'the Windows PowerShell 5.1 stand-in writes a JSON array as one object' { . $jsonAs['Windows PowerShell 5.1']; @('[1,2,3]' | ConvertFrom-Json).Count -eq 1 }
+foreach ($ed in 'pwsh 7', 'Windows PowerShell 5.1') {
+    $as = $jsonAs[$ed]
+    Check "Get-LlamaReleases ($ed): the 200 newest releases, newest first, from pages 1 and 2 only" {
+        . $as; Clear-Content -LiteralPath $env:FAKE_GITHUB_LOG
+        $r = Get-LlamaReleases -Url "$ghApi/llama.cpp/releases?per_page=100"
+        $r.Count -eq 200 -and $r[0].tag_name -eq 'b1500' -and $r[199].tag_name -eq 'b1301' -and ((Get-FakeGithubPages) -join ',') -eq '1,2' }
+    Check "Get-LlamaReleases ($ed): finds the newest Windows Vulkan build behind 120 releases without one" {
+        . $as; (Select-LlamaRelease -Releases (Get-LlamaReleases -Url "$ghApi/llama.cpp/releases?per_page=100") -Patterns $vk).tag_name -eq 'b1380' }
+    Check "Get-LlamaReleases ($ed): a shorter list ends at its last page, a single release (no Link header) is one release" {
+        . $as; Clear-Content -LiteralPath $env:FAKE_GITHUB_LOG
+        $short = Get-LlamaReleases -Url "$ghApi/n150/releases?per_page=100"; $one = Get-LlamaReleases -Url "$ghApi/n1/releases?per_page=100"
+        $short.Count -eq 150 -and $short[149].tag_name -eq 'b1' -and $one.Count -eq 1 -and $one[0].tag_name -eq 'b1' -and ((Get-FakeGithubPages) -join ',') -eq '1,2,1' }
+}
 # ---- Get-ZipName (names the -ZipUrl download; the asset list is not consulted for a by-hand zip)
 Check 'Get-ZipName: a release download URL' { (Get-ZipName 'https://github.com/ggml-org/llama.cpp/releases/download/b12345/llama-b12345-bin-win-vulkan-x64.zip') -eq 'llama-b12345-bin-win-vulkan-x64.zip' }
 Check 'Get-ZipName: drops the ?query and #fragment' { (Get-ZipName 'https://host/d/llama.zip?token=a&x=1#frag') -eq 'llama.zip' }
