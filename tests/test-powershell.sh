@@ -8,7 +8,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PWSH=${PWSH:-$(command -v pwsh || true)}
 if [[ -z $PWSH ]]; then echo "pwsh not installed - skipped"; [[ ${STRICT:-0} == 1 ]] && exit 1; exit 0; fi
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 POWERSHELL_TELEMETRY_OPTOUT=1
-T=$(mktemp -d); trap 'kill ${s1:-} ${s2:-} ${s3:-} 2>/dev/null; rm -rf "$T"' EXIT
+T=$(mktemp -d); trap 'kill ${s1:-} ${s2:-} ${s3:-} ${s4:-} 2>/dev/null; rm -rf "$T"' EXIT
 pass=0 failn=0
 check() { # on a failure, show the end of the last script output (CI logs are all we get there)
   local n=$1; shift
@@ -24,13 +24,15 @@ flat() { sed -E 's/\x1b\[[0-9;]*m//g; s/^ *\| ?//' <<<"$1" | tr '\n' ' ' | tr -s
 parse_all() { ps -File "$ROOT/tests/powershell/Parse-All.ps1" "$ROOT/desktop,$ROOT/tests/powershell"; }
 check "every .ps1 parses" parse_all
 
-# ---- helper unit tests against fake llama-servers
+# ---- helper unit tests against fake llama-servers and a fake GitHub releases API
 port=$((20000 + RANDOM % 20000))
 python3 "$ROOT/tests/fakebin/fake_llm.py" "$port" tool & s1=$!
 python3 "$ROOT/tests/fakebin/fake_llm.py" "$((port + 1))" prose & s2=$!
 python3 "$ROOT/tests/fakebin/fake_llm.py" "$((port + 2))" tool secret & s3=$!
+: >"$T/github.log"
+python3 "$ROOT/tests/fakebin/fake_github.py" "$((port + 3))" "$T/github.log" & s4=$!
 sleep 1
-FAKE_TOOL_PORT=$port FAKE_PROSE_PORT=$((port + 1)) FAKE_KEY_PORT=$((port + 2)) \
+FAKE_TOOL_PORT=$port FAKE_PROSE_PORT=$((port + 1)) FAKE_KEY_PORT=$((port + 2)) FAKE_GITHUB_PORT=$((port + 3)) FAKE_GITHUB_LOG="$T/github.log" \
   ps -File "$ROOT/tests/powershell/Test-Common.ps1" -Root "$ROOT" -Tmp "$T"
 check "helper unit tests" test $? -eq 0
 

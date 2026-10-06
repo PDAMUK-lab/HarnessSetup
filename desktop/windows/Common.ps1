@@ -1031,18 +1031,22 @@ function Select-LlamaRelease {
     return $null
 }
 
-# Get-LlamaReleases [-Max 200]  - the newest llama.cpp releases (pre-releases included), newest first, at most Max.
-# The API serves at most 100 per page, so this follows the Link header instead of trusting a fixed small window: a run of
-# newer releases can carry no Windows build at all (a tag listed before its zips are uploaded, or a failed build job), and
-# the newest release that does qualify must not be pushed out of the window by them.
+# Get-LlamaReleases [-Max 200] [-Url API]  - the newest llama.cpp releases (pre-releases included), newest first, at most
+# Max. The API serves at most 100 per page, so this follows the Link header instead of trusting a fixed small window: a run
+# of newer releases can carry no Windows build at all (a tag listed before its zips are uploaded, or a failed build job),
+# and the newest release that does qualify must not be pushed out of the window by them. -Url: the tests' fake API.
 function Get-LlamaReleases {
-    param([int]$Max = 200)
+    param([int]$Max = 200, [string]$Url = 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=100')
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $next = 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=100'
+    $next = $Url
     $all = @()
     while ($next -and $all.Count -lt $Max) {
         $resp = Invoke-WebRequest -Uri $next -Headers @{ 'User-Agent' = 'HarnessSetup' } -UseBasicParsing
-        $all += @($resp.Content | ConvertFrom-Json)
+        # one item per release, in both editions: Windows PowerShell 5.1's ConvertFrom-Json writes a JSON array as ONE
+        # object (pwsh 7 writes its elements), so @(... | ConvertFrom-Json) held a whole page per item there - the count
+        # never reached Max, and the paging ran on into GitHub's 1000-result cap (HTTP 422). foreach unrolls the page.
+        $page = $resp.Content | ConvertFrom-Json
+        foreach ($rel in $page) { $all += $rel }
         $next = $null
         $link = $resp.Headers['Link']
         if ($link) { foreach ($part in @($link -split ',')) { if ($part -match '<([^>]+)>\s*;\s*rel="next"') { $next = $Matches[1] } } }
