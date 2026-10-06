@@ -51,6 +51,17 @@ touch_flag
 check "chain: away leaves only the laptop" test "$(entries "$T/node.env")" = custom:laptop
 check "chain: away leaves out the V100 as well" test "$(entries "$T/v100.env")" = custom:laptop
 rm -f "$flag"
+# head -1 exits after the first line, so chain_entries' next print hits a closed pipe (SIGPIPE, rc
+# 141), and pipefail + set -e killed an offline run about once in ten (measured). The first entry is
+# read to the end of the producer now, so every round must survive.
+sed 's|^OFFLINE=.*|OFFLINE=1|' "$T/node.env" >"$T/off.env"
+first_entry_rounds() { NODE_ENV="$T/off.env" bash -c '
+set -Eeuo pipefail
+source "$1/lib/common.sh"
+load_config
+for _ in $(seq 1 60); do chain_main_yaml >/dev/null; done
+' _ "$ROOT"; }
+check "chain: reading the first offline entry never SIGPIPEs the producer (60 rounds under set -e)" first_entry_rounds
 chain_yaml_ok() { ( NODE_ENV=$1; source "$ROOT/lib/common.sh"; load_config; { chain_main_yaml; echo ---; chain_local_yaml; } >"$T/chain.out"; python3 - "$T/chain.out" <<'PY'
 import sys, yaml
 main, local = open(sys.argv[1]).read().split("---\n")

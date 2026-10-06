@@ -334,6 +334,18 @@ check "restore: keeps the current settings and saves the backed-up ones beside t
 check "restore: stops and starts the services" bash -c "grep -q 'systemctl --user stop hermes-dashboard hermes-gateway' '$FAKE_LOG' && grep -q 'systemctl --user start hermes-dashboard' '$FAKE_LOG'"
 OUT=$(bash "$ROOT/tools/restore.sh" "$T/nope.tar.gz" --yes 2>&1); RC=$?
 check "restore: a missing file is refused" test $RC -ne 0
+# A real backup has far more than 20 unique paths, and the listing used to kill the tool either way:
+# grep -v '^$' exits 1 on an empty listing (--dry-run runs no tar), and an early-closing head
+# SIGPIPEs sort/grep once the listing is big - under pipefail + set -e the restore died before it
+# could ask anything. Both scenarios must exit 0.
+for i in $(seq -w 1 600); do echo x >"$ah/.hermes/many-$i"; done
+bk
+arc2=$(find "$T/backups" -name "hermes-node-*.tar.gz" -printf "%T@ %p\n" | sort -rn | head -1 | cut -d" " -f2-)
+OUT=$(HS_AGENT_HOME="$ah" bash "$ROOT/tools/restore.sh" "$arc2" --dry-run --yes 2>&1); RC=$?
+check "restore: --dry-run exits 0 (an empty listing must not fail the tool)" bash -c "[[ $RC -eq 0 ]] && grep -qF 'This backup holds:' <<<\"\$0\"" "$OUT"
+rm -f "$ah/.hermes/many-001"
+OUT=$(HS_AGENT_HOME="$ah" bash "$ROOT/tools/restore.sh" "$arc2" --yes 2>&1); RC=$?
+check "restore: a backup with more than 20 paths restores (no SIGPIPE in the listing)" bash -c "[[ $RC -eq 0 ]] && test -s '$ah/.hermes/many-001'" "$OUT"
 OUT=$(bash "$ROOT/tools/backup.sh" --install --dry-run 2>&1)
 check "backup --install: a daily timer at BACKUP_TIME" bash -c "grep -q 'hermes-backup.timer' <<<\"\$0\" && grep -q 'enable --now hermes-backup.timer' <<<\"\$0\"" "$OUT"
 

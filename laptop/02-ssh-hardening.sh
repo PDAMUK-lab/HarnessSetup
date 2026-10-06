@@ -12,7 +12,10 @@ for a in "$@"; do common_flag "$a" || die "unknown option: $a"; done
 load_config
 stage_begin
 
-keys=$HOME/.ssh/authorized_keys
+# The key that must keep working is the admin user's: SSH from the desktop logs in as $ADMIN_USER
+# (a re-run through sudo has HOME=/root, so $HOME would name the wrong account).
+admin_home=$(getent passwd "$ADMIN_USER" 2>/dev/null | cut -d: -f6 || true)
+keys=${admin_home:-$HOME}/.ssh/authorized_keys
 if [[ ! -s $keys ]]; then
   fail_or_warn "$keys is empty. Run desktop/windows/Setup-LaptopAccess.ps1 first, or you would lock yourself out."
 fi
