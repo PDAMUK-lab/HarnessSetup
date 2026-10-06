@@ -24,7 +24,11 @@ home=${HS_AGENT_HOME:-$AGENT_HOME}   # test seam
 sudo_run test -r "$FILE" || die "cannot read $FILE"
 sudo_run tar -tzf "$FILE" >/dev/null || die "$FILE is not a readable .tar.gz"
 echo "This backup holds:" >&2
-sudo_run tar -tzf "$FILE" | sed 's|^\./||' | cut -d/ -f1-5 | sort -u | grep -v '^$' | head -20 | sed 's/^/  \//' >&2
+# The listing must never fail the restore: grep -v '^$' exits 1 on an empty listing (--dry-run runs
+# no tar), and an early-closing head SIGPIPEs sort/grep once there are more than 20 paths - pipefail
+# and set -e turned either into a dead restore before it asked anything. sed reads to the end, and
+# || true tolerates the empty listing.
+sudo_run tar -tzf "$FILE" | sed 's|^\./||' | cut -d/ -f1-5 | sort -u | grep -v '^$' | sed -n '1,20p' | sed 's/^/  \//' >&2 || true
 confirm "Stop Hermes's services and restore it over the current state (kept as ~/.hermes.before-restore-*)?" || die "not confirmed - nothing changed"
 [[ $DRY_RUN == 1 ]] && { log "[dry-run] would stop the services, move ~/.hermes aside, unpack $FILE to /, start the services"; exit 0; }
 
