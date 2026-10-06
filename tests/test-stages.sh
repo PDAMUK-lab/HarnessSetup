@@ -158,6 +158,7 @@ OUT=$(NODE_ENV="$T/lan.env" DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 08 --dry-run --y
 check "08: DASHBOARD_FROM: the dashboard listens on all addresses (behind its login)" has "dashboard --host 0.0.0.0 --port 9119"
 OUT=$(DRY_RUN_SHOW=1 "$ROOT/setup.sh" run 08 --dry-run --yes 2>&1)
 check "08: by default the dashboard stays on loopback" has "dashboard --host 127.0.0.1 --port 9119"
+check "08: the dashboard is restarted so a re-run applies a changed bind or login" has "systemctl --user restart hermes-dashboard"
 OUT=$(SSH_CLIENT="10.9.9.9 5555 22" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1)
 check "13: warns before cutting off an SSH session from another address" has "would cut you off"
 OUT=$(SSH_CLIENT="192.168.1.100 5555 22" "$ROOT/setup.sh" run 13 --dry-run --yes 2>&1)

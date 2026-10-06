@@ -22,10 +22,13 @@ Browser access, a share for finished work, and an offline mode.
 - **Fixes.** `Install-Llama.ps1` searches up to 200 llama.cpp releases (following the API's pagination) so a run of
   newer releases without a Windows build cannot hide the newest usable one, and takes a by-hand `-ZipUrl`;
   `Common.ps1`'s `iplist` validator parses again (a braced loop body); the SMB firewall rule takes an address
-  `SMB_SHARE` host as it is instead of resolving it.
+  `SMB_SHARE` host as it is instead of resolving it; stage 08 restarts the dashboard on a re-run, so `DASHBOARD_FROM`'s
+  LAN bind and the login apply on a node that already had the dashboard running.
 
 Upgrading from 0.5.0: run `./setup.sh configure` (the new settings get their defaults), then re-run stages 08, 11 and 13.
-A node that stays online is unchanged otherwise.
+A node that stays online is unchanged otherwise. Finishing a node that is still half-installed with 0.5.0: re-run stage 08
+if it had already completed (the dashboard changes live there), then continue with `./setup.sh next` — the stages you have
+not reached yet run with the new code.
 
 ## 0.5.0
 

@@ -32,6 +32,8 @@ install_template "$HS_ROOT/templates/systemd/hermes-dashboard.service.tpl" \
   "$HOME/.config/systemd/user/hermes-dashboard.service" 644 self
 run systemctl --user daemon-reload
 run systemctl --user enable --now hermes-dashboard
+# restart even when it is already running: a re-run must apply a changed unit (DASHBOARD_FROM moves the bind)
+run systemctl --user restart hermes-dashboard
 
 if [[ $DRY_RUN != 1 ]]; then
   log "waiting for the dashboard (the first start builds the web frontend and can take a minute or two)"

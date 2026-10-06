@@ -154,6 +154,8 @@ jobs that reach GitHub. The wizard hides the cloud-only settings while `OFFLINE=
 
 - **Re-runnable.** Every stage skips what is already in place. Stage completion is recorded
   (`/var/lib/harness-setup/done`, and `~/.harness-setup/done` for the agent user); `./setup.sh list` shows it.
+- **Upgrading is the same idea.** `git pull`, `./setup.sh configure` (new settings get their defaults), then re-run the
+  stages the [changelog](CHANGELOG.md) names for your version; a half-finished install simply continues with `./setup.sh next`.
 - **Dry run first.** `--dry-run` prints every command and every file it would write and changes nothing on the
   machine. It still asks for, and saves, your settings (`config/node.env` is not a system change), so the preview
   reflects your answers. Windows scripts take `-DryRun`.
