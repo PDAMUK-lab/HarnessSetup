@@ -286,6 +286,12 @@ in Git Bash on the desktop.)
 ./setup.sh run 12      # /release skill (both profiles), cron clones, nightly-tests, release-watcher (both paused)
 ```
 
+Both scheduled jobs work on **one repo: the first name in `GITHUB_REPOS`**. Stage 12 clones it to
+`~/repos-cron/<repo>`; `nightly-tests` runs that repo's suite in the clone and `release-watcher` looks in it for
+merged `Release vX.Y.Z` PRs that have no tag yet. To point the jobs at a different repo, reorder `GITHUB_REPOS`
+(`./setup.sh configure --only GITHUB_REPOS`), remove the existing jobs (`hermes cron remove nightly-tests
+release-watcher` — stage 12 leaves jobs that already exist alone) and re-run stage 12.
+
 **MANUAL:** `hermes tools` > select the **cron** platform > enable file, terminal and delegation. Then
 `hermes cron run nightly-tests`, `hermes cron runs nightly-tests`, `hermes cron doctor`, and
 `hermes cron resume nightly-tests`. Resume `release-watcher` once `release.yml` is on `main`.
