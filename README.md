@@ -129,7 +129,7 @@ Recommended but not blocking: prove sub-agents and `/review` (guide Step 12), tr
 | extra: update llama.cpp with an automatic undo; Vulkan or ROCm on the desktop | `./setup.sh tool update-llama`, `Update-Llama.ps1`, `Compare-LlamaBackends.ps1` | script |
 | extra: the dashboard from a phone or another laptop (`DASHBOARD_FROM`) | `./setup.sh configure --only DASHBOARD_FROM`, `./setup.sh tool dashboard-login`, re-run stages 08 and 13 ([RUNBOOK §4](docs/RUNBOOK.md)) | settings + script |
 | extra: finished work on a network share (`SMB_SHARE`) | `./setup.sh configure --only SMB_SHARE`, `./setup.sh tool smb-share`, re-run stages 13 and 11 ([RUNBOOK §8](docs/RUNBOOK.md)) | settings + script |
-| extra: work without the internet (`OFFLINE`) | `./setup.sh configure --only OFFLINE`, re-run stages 11 and 13 ([Working offline](#working-offline)) | settings |
+| extra: work without the internet (`OFFLINE`) | `./setup.sh configure --only OFFLINE`, re-run stages 11 and 13 ([Working offline](#working-offline), [RUNBOOK §11b](docs/RUNBOOK.md#11b-working-offline-no-internet)) | settings |
 | 33 final checks | `tools/verify.sh`, [checklist](docs/CHECKLIST.md) | script + manual |
 
 ## Working offline
@@ -150,6 +150,8 @@ jobs that reach GitHub. The wizard hides the cloud-only settings while `OFFLINE=
 
 **To go back online:** set `OFFLINE=0` and re-run stages 05, 07, 11, 12 and 13.
 
+The runbook's [§11b](docs/RUNBOOK.md#11b-working-offline-no-internet) has the same, in the stage order.
+
 ## How it behaves
 
 - **Re-runnable.** Every stage skips what is already in place. Stage completion is recorded
@@ -167,7 +169,8 @@ jobs that reach GitHub. The wizard hides the cloud-only settings while `OFFLINE=
   an SSH session from the wrong address and warns about a DNS server it would block; sudoers is validated
   before install; the fallback test always restores the firewall, even on Ctrl-C.
 - **The guide's rules stay rules.** The scripts refuse to install the NVIDIA packages that drop Pascal support,
-  refuse to start a dashboard that is not loopback-only, and never grant the GitHub token Workflows access.
+  refuse to start a dashboard that is not loopback-only (with `DASHBOARD_FROM`, a LAN bind must demand a login first),
+  and never grant the GitHub token Workflows access.
 - **The agent has root, by design** (the guide's default; `AGENT_SUDO=limited` or `none` narrows it).
   `laptop/03-agent-user.sh` asks you to confirm that. The safeguards that remain are outside the laptop: GitHub rulesets,
   the OpenRouter credit limit, your router (guide, Phase 8); Hermes's `approvals.deny` list (`APPROVAL_DENY`) blocks a few
@@ -218,6 +221,9 @@ this hardware" list also still applies.
   people's build logs and its software from NVIDIA's and llama.cpp's own sources (checked October 2026). Commission it one card at a time.
 - Windows: the `llama-server` task is created with no execution time limit. `schtasks /create` (the guide's
   command) defaults to 72 hours, which would stop the server every third day.
+- The browser-access, SMB-share and offline modes (`DASHBOARD_FROM`, `SMB_SHARE`, `OFFLINE`) were exercised against
+  stubbed services, not a real phone, NAS or unplugged network; `verify` checks each one, and your first real run is
+  the acceptance test.
 
 ## Changing the guide's choices
 
