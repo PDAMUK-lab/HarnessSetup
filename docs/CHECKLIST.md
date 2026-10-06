@@ -1,7 +1,8 @@
 # Final checklist (Step 33)
 
 `./setup.sh tool verify` runs what a machine can judge. Tick the rest by hand. Checks 1-19 are the guide's numbering;
-19 applies only if you set up the overnight tier.
+19 applies only if you set up the overnight tier. Working offline (`OFFLINE=1`), the GitHub and OpenRouter rows are
+skipped or change — `verify` says so once, and the notes in the rows below say how.
 
 | # | Check | Expected | How |
 | --- | --- | --- | --- |
@@ -10,18 +11,18 @@
 | 3 | As `hermes`: push to `main`, merge its own PR without approval, delete a `v*` tag, change `.github/workflows` | all rejected | `./setup.sh tool github-smoke-test` |
 | 4 | `hermes doctor` and `hermes -p local doctor` | no errors | verify |
 | 5 | Tunnel, then `http://localhost:9119` | dashboard loads, gateway running | verify (laptop side) + manual (browser) |
-| 6 | Dashboard URL from a phone using the laptop's IP | does **not** load | verify (loopback bind) + manual (phone) |
+| 6 | Dashboard URL from a phone using the laptop's IP | `DASHBOARD_FROM=none`: does **not** load. Set: the login page loads from listed devices only | verify (bind + login) + manual (phone) |
 | 7 | Parallel subagent task (Step 12) | separate `hermes-subagent/*` branches; main checkout clean | manual |
 | 8 | A PR opened by the agent | body has the test output and the review subagent's summary | manual |
 | 9 | Tool-call smoke test on both models | a `get_weather` tool call from each | verify |
-| 10 | `hermes fallback list` | OpenRouter, then desktop, then laptop | verify |
-| 11 | `hermes-mode status` | laptop 200, desktop 200 (when on), OpenRouter 200 | verify |
+| 10 | `hermes fallback list` | OpenRouter, then desktop, then laptop (offline: the local endpoints only) | verify |
+| 11 | `hermes-mode status` | laptop 200, desktop 200 (when on), OpenRouter 200 (offline: OpenRouter does not answer — expected) | verify |
 | 12 | `hermes-mode local`, ask, then `hermes-mode cloud` | answer from `qwen3.6-35b-a3b`; cloud restored | manual |
 | 13 | `/model custom:laptop:qwen3.5-9b` mid-session | next answer from the laptop model | manual |
 | 14 | Internet off (Step 29) | desktop answers, then laptop with the desktop asleep | `./setup.sh tool fallback-test` |
 | 15 | `/release` round trip in a test repo | release PR, then tag, CI run, published release | manual |
 | 16 | `hermes cron status`, `hermes cron doctor` (and `hermes -p local ...` if Step 31) | recent ticks; doctor exits 0 | verify |
-| 17 | Firewall checks (Step 28) | 200, 200, BLOCKED, resolves, NTP synced | verify |
+| 17 | Firewall checks (Step 28) | 200, 200, BLOCKED, resolves, NTP synced (offline: no OpenRouter 200; with `SMB_SHARE`, `/srv/share` is written too) | verify |
 | 18 | Reboot the laptop, log in to the desktop, **do not** log in as `hermes`; repeat 5, 11, 16 | all pass: gateways, dashboard and both model servers came up on their own | verify (readiness) + manual (the reboot) |
 | 19 | The morning after an overnight job | completed run, a draft PR, desktop back on `qwen3.6-35b-a3b` | manual |
 
@@ -41,7 +42,7 @@ If check 18 fails on the dashboard or gateway, linger is off or a unit is not en
 - [ ] Step 8: smoke test green; test branch and tag removed in the web UI
 - [ ] Step 10: Hermes opens files with tools and `hermes -c` resumes the session
 - [ ] Step 12: subagent branches, `hermes/demo` pushed, `/review` refers to the real diff
-- [ ] Step 14: `curl -s http://127.0.0.1:9119/api/status | jq .auth_required` is `false`; `ss -tlnp | grep 9119` shows `127.0.0.1` only
+- [ ] Step 14: `curl -s http://127.0.0.1:9119/api/status | jq .auth_required` is `false`; `ss -tlnp | grep 9119` shows `127.0.0.1` only (with `DASHBOARD_FROM` set: `true`, and `0.0.0.0` behind the login)
 - [ ] Step 17: `llama-server --list-devices` shows `GTX 1070, compute capability 6.1`
 - [ ] Step 18: `nvidia-smi` shows ~7GB used
 - [ ] Step 19: Task Manager GPU ~7.3GB and Memory < 90% while generating
@@ -57,5 +58,8 @@ If check 18 fails on the dashboard or gateway, linger is off or a unit is not en
 | --- | --- | --- |
 | Desktop away works | `.\Desktop-Mode.ps1 away` on the desktop; `hermes-desktop status` on the laptop; `hermes chat -q "Which model are you?"` | the laptop's 9B answers; the desktop's GPU and memory are free |
 | Desktop back works | `.\Desktop-Mode.ps1 back`; `hermes-mode status` | the desktop endpoint answers 200 and is back in the chain |
+| Dashboard from a phone or another laptop (`DASHBOARD_FROM`) | set it, re-run stages 08 and 13; browse to `http://<laptop>:9119` from a listed device | the login page loads, then the dashboard; an unlisted device is blocked |
+| Finished work on a share (`SMB_SHARE`) | `./setup.sh tool smb-share`; `./setup.sh tool verify` | check 17 writes a test file to `/srv/share` as the agent (a warning only when the NAS is off) |
+| Offline mode (`OFFLINE=1`) | `./setup.sh configure --only OFFLINE`; re-run stages 11 and 13; `./setup.sh list` | stages 05/07/12 show `[skipped: offline]`; the node ends in the `local` profile; `verify` passes with the cloud checks skipped |
 | V100 cards visible (optional tier) | `.\Check-V100.ps1` | no FAIL; both cards listed, driver 582.x, TCC |
 | V100 server (optional tier) | `./setup.sh tool verify` | the V100 port answers and returns a tool call |

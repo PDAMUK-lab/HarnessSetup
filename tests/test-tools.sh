@@ -84,6 +84,8 @@ OUT=$(NODE_ENV="$T/offv.env" bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=
 check "verify: offline says once that the cloud checks are skipped" bash -c "[[ \$(grep -c 'offline mode (OFFLINE=1)' <<<\"\$0\") -eq 1 ]]" "$OUT"
 check "verify: offline does not run the GitHub smoke check" lacks "github-smoke-test"
 check "verify: offline skips the OpenRouter credit check" lacks "OpenRouter credit"
+check "verify: offline accepts the local-only fallback chain" has "fallback chain: the local endpoints only (offline)"
+check "verify: offline does not expect an OpenRouter chain entry" lacks "fallback chain: OpenRouter, then desktop, then laptop"
 check "verify: offline still exits 0" test $RC -eq 0
 OUT=$(FAKE_MODEL_ID=something-else bash "$ROOT/tools/verify.sh" --no-models 2>&1); RC=$?
 check "verify: wrong model alias fails the run" test $RC -eq 1
