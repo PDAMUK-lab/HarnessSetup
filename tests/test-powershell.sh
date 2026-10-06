@@ -58,6 +58,10 @@ check "Install-Llama: key file gets a locked-down ACL" has "readable only by you
 check "Install-Llama: firewall rule is laptop-only" has "firewall rule 'llama-server 8080 (laptop only)' from 192.168.1.150"
 check "Install-Llama: task starts at logon with no time limit" has "at logon, highest privileges, no time limit"
 check "Install-Llama: finishes by pointing at the laptop stage" has "./setup.sh run 11"
+run_ps Install-Llama.ps1 -DryRun -SkipModelDownload -NoStart -ZipUrl 'https://github.com/ggml-org/llama.cpp/releases/download/b99999/llama-b99999-bin-win-vulkan-x64.zip'
+check "Install-Llama: -ZipUrl installs that zip by hand (no release search)" bash -c "[[ $RC -eq 0 ]] && grep -qF 'given zip (llama-b99999-bin-win-vulkan-x64.zip)' <<<\"\$0\"" "$OUT"
+check "static: Install-Llama hands -ZipUrl to the build installer" bash -c "grep -qF -- '-ZipUrl \$ZipUrl' '$ROOT/desktop/windows/Install-Llama.ps1'"
+check "static: Get-LlamaReleases pages past a fixed small window (per_page=100 and the Link header)" bash -c "grep -qF 'per_page=100' '$ROOT/desktop/windows/Common.ps1' && grep -qF 'rel=\"next\"' '$ROOT/desktop/windows/Common.ps1'"
 run_ps Install-Llama.ps1 -DryRun -SkipModelDownload -NoStart -NeverSleepOnAC
 check "Install-Llama: -SkipModelDownload skips the download" bash -c "! grep -q 'curl.exe -L --fail -C' <<<\"\$0\"" "$OUT"
 check "Install-Llama: -NeverSleepOnAC changes the power plan" has "never sleep on mains power"

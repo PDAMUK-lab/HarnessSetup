@@ -135,7 +135,7 @@ if ((Test-Path "$cuda\llama-server.exe") -and -not $UpdateLlama) {
 } else {
     Invoke-Action 'download and extract the newest llama-*-bin-win-cuda-12.x-x64.zip and cudart-llama-bin-win-cuda-12.x-x64.zip' {
         $pick = Select-CudaRelease -Releases (Get-LlamaReleases)
-        if (-not $pick) { throw 'None of the ten newest llama.cpp releases has a CUDA 12 Windows zip with its runtime bundle. Download both by hand from https://github.com/ggml-org/llama.cpp/releases, or build llama.cpp with a CUDA 12.x toolkit and -DCMAKE_CUDA_ARCHITECTURES=70.' }
+        if (-not $pick) { throw 'None of the newest llama.cpp releases has a CUDA 12 Windows zip with its runtime bundle. Download both by hand from https://github.com/ggml-org/llama.cpp/releases, or build llama.cpp with a CUDA 12.x toolkit and -DCMAKE_CUDA_ARCHITECTURES=70.' }
         Write-Host "    $($pick.Release.tag_name): $($pick.Main.name) + $($pick.Runtime.name)"
         Stop-LlamaServer -Dir $cuda
         foreach ($a in $pick.Main, $pick.Runtime) {

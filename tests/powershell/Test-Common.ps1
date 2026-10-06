@@ -137,6 +137,11 @@ Check 'Select-LlamaRelease: a CUDA zip without its runtime bundle does not quali
 Check 'Select-LlamaRelease takes the newest complete one' { (Select-LlamaRelease -Releases (@(New-Rel 'b4' @('llama-b4-bin-win-vulkan-x64.zip')) + $rels) -Patterns $vk).tag_name -eq 'b4' }
 Check 'Select-LlamaRelease returns nothing when no release qualifies' { $null -eq (Select-LlamaRelease -Releases $rels -Patterns '^llama-.+-bin-win-hip-x64\.zip$') }
 Check 'Select-LlamaRelease copes with an empty list' { $null -eq (Select-LlamaRelease -Releases @() -Patterns $vk) }
+# ---- Get-ZipName (names the -ZipUrl download; the asset list is not consulted for a by-hand zip)
+Check 'Get-ZipName: a release download URL' { (Get-ZipName 'https://github.com/ggml-org/llama.cpp/releases/download/b12345/llama-b12345-bin-win-vulkan-x64.zip') -eq 'llama-b12345-bin-win-vulkan-x64.zip' }
+Check 'Get-ZipName: drops the ?query and #fragment' { (Get-ZipName 'https://host/d/llama.zip?token=a&x=1#frag') -eq 'llama.zip' }
+Check 'Get-ZipName: a bare file name is returned as is' { (Get-ZipName 'llama.zip') -eq 'llama.zip' }
+Check 'Get-ZipName: a URL with no file name is empty' { (Get-ZipName 'https://host/dir/') -eq '' }
 Check 'the ROCm asset pattern finds the HIP Radeon build and not the Vulkan one' {
     $p = $script:LlamaAssetPatterns['rocm']
     'llama-b6500-bin-win-rocm-10.0-x64.zip' -cmatch $p -and 'llama-b6500-bin-win-hip-radeon-x64.zip' -cmatch $p -and
