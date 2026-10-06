@@ -446,7 +446,7 @@ function Test-SettingValue {
             if ($v -ceq 'none') { return & $r $true 'none' '' }
             $bad = 'expected none, or addresses / networks separated by commas, like 192.168.1.40,192.168.1.64/28'
             $out = @()
-            foreach ($item in (($v -replace ' ', '' -replace ',$', '') -split ','))   # one trailing comma is fine, as in bash {
+            foreach ($item in (($v -replace ' ', '' -replace ',$', '') -split ',')) {   # one trailing comma is fine, as in bash
                 if ($item -cmatch '^([0-9.]+)/([0-9]{1,2})$') {
                     if ((Test-IPv4 $Matches[1]) -and [int]$Matches[2] -ge 8 -and [int]$Matches[2] -le 30) { $out += (Get-NetworkAddress $item); continue }
                 } elseif ($item -and (Test-IPv4 $item)) { $out += $item; continue }
