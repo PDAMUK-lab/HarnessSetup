@@ -37,6 +37,11 @@ PY
     elif [[ -e $HOME/.hermes/desktop-away ]]; then printf '1. openrouter\n2. custom:laptop\n'
     else printf '1. openrouter\n2. custom:desktop\n3. custom:laptop\n'; fi ;;
   "profile list") echo default; ls "$HOME/.hermes/profiles" 2>/dev/null ;;
+  "skills list") cat "$home/fake-skills" 2>/dev/null ;;
+  "skills install")
+    # FAKE_SKILL_FAIL names a skill whose install fails (as a security-scan block would)
+    [[ -n ${FAKE_SKILL_FAIL:-} && $3 == *"/$FAKE_SKILL_FAIL" ]] && { echo "Not installed: ${3##*/}" >&2; exit 1; }
+    mkdir -p "$home"; echo "${3##*/}" >>"$home/fake-skills" ;;
   "cron list") cat "$home/fake-cron" 2>/dev/null ;;
   "cron create")
     name=''; prev=''; script=''

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The order of Hermes's local endpoints (V100 tier, the desktop's day model, the laptop), in one place.
-# Stage 11, tools/v100-laptop.sh and tools/desktop-loop.sh all call chain_apply, so they always agree.
+# Stage 11, tools/v100-laptop.sh, tools/desktop-loop.sh and tools/mixed-mode.sh all call chain_apply, so they always agree.
 # Sourced by lib/common.sh; needs the settings loaded (load_config).
 
 # The "desktop away" flag: while this file exists every desktop endpoint is left out of the chain.
@@ -69,6 +69,26 @@ chain_local_yaml() {
   ((any)) || printf '  fallback_providers: []\n'
 }
 
+# chain_mixed_yaml  - the `mixed` profile (tools/mixed-mode.sh): the cloud planner keeps the default profile's chain, the
+# sub-agents run on the first local endpoint, then the other local ones, and only then on OpenRouter's worker model.
+chain_mixed_yaml() {
+  local p m n=0
+  chain_main_yaml | sed '/^delegation:/,$d'
+  printf 'delegation:\n'
+  while IFS='|' read -r p m; do
+    if ((n == 0)); then
+      printf '  provider: %s\n  model: %s\n  fallback_providers:\n' "$p" "$m"
+    else
+      printf '    - provider: %s\n      model: %s\n' "$p" "$m"
+    fi
+    n=$((n + 1))
+  done < <(chain_entries)
+  if [[ -n ${OR_WORKER_MODEL:-} ]]; then printf '    - provider: openrouter\n      model: "%s"\n' "$OR_WORKER_MODEL"; fi
+}
+
+# chain_mixed_config LOCAL_CONFIG  - where the `mixed` profile's config lives (beside the `local` one)
+chain_mixed_config() { printf '%s/mixed/config.yaml' "$(dirname "$(dirname "$1")")"; }
+
 # chain_merge TARGET  - deep-merge the YAML on stdin into TARGET (or just show it on a dry run / when TARGET is not there yet)
 chain_merge() {
   local target=$1 frag
@@ -83,16 +103,22 @@ chain_merge() {
   rm -f "$frag"
 }
 
-# chain_apply MAIN_CONFIG LOCAL_CONFIG  - write the V100 endpoint (when the tier is on) and the chain into both configs
+# chain_apply MAIN_CONFIG LOCAL_CONFIG [MIXED_CONFIG]  - write the V100 endpoint (when the tier is on) and the chain into
+# both configs, and into the optional `mixed` profile once it exists (never offline: its planner is the cloud).
+# tools/mixed-mode.sh passes MIXED_CONFIG so its dry run shows what it would write before the profile exists.
 chain_apply() {
-  local main=$1 localcfg=$2
+  local main=$1 localcfg=$2 mixed=${3:-} domixed=0
+  [[ -n $mixed ]] || mixed=$(chain_mixed_config "$localcfg")
+  if [[ ${OFFLINE:-0} != 1 ]] && [[ -f $mixed || ( -n ${3:-} && $DRY_RUN == 1 ) ]]; then domixed=1; fi
   if [[ ${V100_ENABLED:-0} == 1 ]]; then
     render_template "$HS_ROOT/templates/hermes/v100-provider.yaml.tpl"
     printf '%s' "$RENDERED" | chain_merge "$main"
     if [[ -f $localcfg || $DRY_RUN == 1 ]]; then printf '%s' "$RENDERED" | chain_merge "$localcfg"; fi
+    if ((domixed)); then printf '%s' "$RENDERED" | chain_merge "$mixed"; fi
   fi
   chain_main_yaml | chain_merge "$main"
   if [[ -f $localcfg || $DRY_RUN == 1 ]]; then chain_local_yaml | chain_merge "$localcfg"; fi
+  if ((domixed)); then chain_mixed_yaml | chain_merge "$mixed"; fi
 }
 
 # chain_probes  - the extra line `hermes-mode status` shows for the V100 endpoint (present only while the tier is on)

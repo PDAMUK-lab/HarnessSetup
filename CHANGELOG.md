@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.8.0
+
+Skills pack: Hermes's optional coding and model skills, and five of the kit's own, in every profile.
+
+- **`./setup.sh tool skills-pack`** (run last) installs Hermes's optional `grill-me`, `subagent-driven-development`,
+  `code-wiki`, `ast-grep`, `llama-cpp`, `huggingface-hub` and `evaluating-llms-harness` with `hermes skills install`
+  (`--extra` adds more; skipped offline), into the default, `local` and `mixed` profiles.
+- **New kit skills:** `/toolcall-check` (six tool-calling probes, `hermes-toolcall-check`), `/safe-run` (an untrusted
+  model in a throw-away worktree under no_new_privs, so no sudo, with an empty GitHub login and a time limit, then a
+  report; `hermes-safe-run`), `/audit` (what a session did, risky actions flagged), `/health` (one-page node check)
+  and `/overnight` (a self-contained overnight job, created paused).
+
+Upgrading from 0.7.0: `git pull`, then `./setup.sh tool skills-pack` - nothing else needs re-running.
+
+## 0.7.0
+
+Mixed mode: a third profile that plans and reviews on OpenRouter and runs its sub-agents on the local GPUs.
+
+- **`./setup.sh tool mixed-mode`** (run last, on a finished node) clones the cloud profile into `mixed` and points only
+  the sub-agents at the local endpoints: the first one in the chain (the desktop, or the V100 tier), then the others,
+  then OpenRouter's worker model as a last resort, one sub-agent at a time. `--use` switches to it straight away.
+- **`hermes-mode mixed`** switches new sessions to it; `cloud` and `local` work as before.
+- **Kept in step:** `hermes-desktop off`/`on`, stage 11 and `v100-laptop` rewrite the `mixed` profile's sub-agent
+  endpoint along with the other profiles (`lib/chain.sh`), so the sub-agents move to the laptop while the desktop is
+  away. Nothing changes on a node that never runs the tool.
+
+Upgrading from 0.6.5: `git pull`, then `./setup.sh tool mixed-mode` if you want the profile — nothing else needs
+re-running.
+
 ## 0.6.5
 
 Stage 12 now works on a node whose active profile is `local` — what `hermes-mode local` (and offline setups) run on.

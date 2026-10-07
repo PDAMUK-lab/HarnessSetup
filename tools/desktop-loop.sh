@@ -5,7 +5,7 @@
 # NEEDS: OR_FALLBACK_MODEL DESKTOP_IP LLM_PORT V100_ENABLED V100_PRIMARY V100_MODEL_ALIAS V100_CTX V100_PORT
 # Also installed as `hermes-desktop` (stage 11). Usage:
 #   desktop-loop.sh status               is the desktop in the loop, and in which order are the endpoints used?
-#   desktop-loop.sh off [--for 4h]       leave every desktop endpoint out of the fallback chain and the local profile
+#   desktop-loop.sh off [--for 4h]       leave every desktop endpoint out of the fallback chain and the local and mixed profiles
 #   desktop-loop.sh on                   put them back
 # Away only changes Hermes's configuration here on the laptop; stopping the models on the desktop (to free its GPU and
 # memory) is desktop/windows/Desktop-Mode.ps1, which calls this command too.

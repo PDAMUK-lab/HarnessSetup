@@ -269,6 +269,65 @@ While the desktop is away: the `local` profile plans on the laptop's 9B, `hermes
 model (the overnight job) cannot fall back and would fail, so pause them; `./setup.sh tool verify` reports the shorter chain as a
 warning; `fallback-test` refuses to run. Re-running stage 11 keeps the desktop out while the flag is set.
 
+## 6b. Mixed mode: cloud planner, sub-agents on the local GPUs (extra, run last)
+
+A third profile beside `default` (cloud) and `local`. The planner, the reviewer and the fallback chain stay exactly as
+in the cloud profile; only the sub-agents, which spend most of the tokens, move to your machines. Run it once every
+stage is done (it needs the cloud profile from stage 07 and the desktop key and `local` profile from stage 11):
+
+```bash
+./setup.sh tool mixed-mode          # creates the `mixed` profile (a clone of the cloud one); add --use to switch to it
+hermes-mode mixed                   # new sessions plan on OpenRouter, sub-agents on the desktop
+hermes-mode cloud                   # back (or hermes-mode local)
+hermes -p mixed --tui               # one session in mixed mode, without changing the default
+```
+
+| Profile | Planner and reviewer | Sub-agents |
+| --- | --- | --- |
+| `default` (`hermes-mode cloud`) | OpenRouter | OpenRouter's worker model |
+| `mixed` (`hermes-mode mixed`) | OpenRouter | the first local endpoint (desktop, or the V100 tier), then the other local ones, then OpenRouter's worker model |
+| `local` (`hermes-mode local`) | the desktop | the laptop |
+
+- Sub-agents run **one at a time** (one slot per GPU), so parallel work queues instead of running side by side.
+- `hermes-desktop off` moves the sub-agents to the laptop and `hermes-desktop on` moves them back; stage 11 and
+  `v100-laptop` keep the profile in step too. Re-running `mixed-mode` refreshes the endpoints and keeps the rest.
+- Not offline: with `OFFLINE=1` the tool refuses (the planner needs OpenRouter); use the `local` profile.
+- Scheduled jobs keep running in the profile they were created in; `mixed` has none of its own.
+
+**Verify:** `hermes -p mixed fallback list` shows OpenRouter first; `hermes -p mixed config get delegation.provider`
+shows `custom:desktop` (`custom:laptop` while the desktop is away). In a repo, ask for two sub-agents in parallel and
+press Ctrl+T: the desktop's console shows them working, and OpenRouter's Analytics shows only the planner's calls.
+
+## 6c. Skills pack (extra, run last)
+
+Hermes ships about 150 optional skills that are off by default; this installs the ones that help with coding and
+with testing models, plus five of the kit's own, into every profile there is (default, `local`, and `mixed`):
+
+```bash
+./setup.sh tool skills-pack                  # add --extra official/<category>/<name> for more, --no-optional to skip them
+```
+
+| Skill | What it is for |
+| --- | --- |
+| `/grill-me`, `/subagent-driven-development` | question a plan before work starts; run a plan through sub-agents with a two-stage review |
+| `/code-wiki`, `/ast-grep` | docs and diagrams for a codebase; structural search and rewrite |
+| `/llama-cpp`, `/huggingface-hub`, `/evaluating-llms-harness` | GGUF models and the Hub; academic benchmarks (MMLU, GSM8K) |
+| `/toolcall-check` | six tool-calling probes against `laptop`, `desktop`, `desktop-v100` or a URL: can this model act as an agent? (`hermes-toolcall-check desktop`) |
+| `/safe-run` | one task with an untrusted model (new, uncensored, abliterated) in a throw-away worktree, **without sudo** (no_new_privs) and **without GitHub**, with a time limit, then a report of every change (`hermes-safe-run --help`) |
+| `/audit` | what a session or cron run actually did, risky actions flagged HIGH / MEDIUM / LOW |
+| `/health` | one page: Hermes and its profiles, endpoints, services, jobs, GPU, disk, firewall, credit, backups |
+| `/overnight` | a self-contained overnight job for the desktop's night model, checked against the rules, created paused |
+
+The optional skills are fetched from Hermes's catalog and scanned before install; one the scanner blocks is reported
+and skipped (never forced). Their Python tools (lm-eval, llama-cpp-python, ast-grep) are installed by the agent the
+first time a skill needs them. With `OFFLINE=1` only the kit's own five are installed. Re-running is safe.
+
+`/safe-run` is containment, not isolation: the run cannot become root or push to GitHub, but it can still read and
+write the agent user's own files and use the network; the report lists every file changed outside the worktree.
+
+**Verify:** start a new session; `/health` produces its table, and `hermes-toolcall-check laptop` passes the five
+critical probes on the shipped 9B.
+
 ## 7. Build, test and release (Steps 24-27)
 
 Once per repo, with **your own** account (the agent's token cannot push workflow files):
