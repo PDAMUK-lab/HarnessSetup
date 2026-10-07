@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0
+
+Skills pack: Hermes's optional coding and model skills, and five of the kit's own, in every profile.
+
+- **`./setup.sh tool skills-pack`** (run last) installs Hermes's optional `grill-me`, `subagent-driven-development`,
+  `code-wiki`, `ast-grep`, `llama-cpp`, `huggingface-hub` and `evaluating-llms-harness` with `hermes skills install`
+  (`--extra` adds more; skipped offline), into the default, `local` and `mixed` profiles.
+- **New kit skills:** `/toolcall-check` (six tool-calling probes, `hermes-toolcall-check`), `/safe-run` (an untrusted
+  model in a throw-away worktree under no_new_privs, so no sudo, with an empty GitHub login and a time limit, then a
+  report; `hermes-safe-run`), `/audit` (what a session did, risky actions flagged), `/health` (one-page node check)
+  and `/overnight` (a self-contained overnight job, created paused).
+
+Upgrading from 0.7.0: `git pull`, then `./setup.sh tool skills-pack` - nothing else needs re-running.
+
 ## 0.7.0
 
 Mixed mode: a third profile that plans and reviews on OpenRouter and runs its sub-agents on the local GPUs.

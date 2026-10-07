@@ -254,6 +254,50 @@ sed 's|^OFFLINE=.*|OFFLINE=1|' "$T/node.env" >"$T/mixed-off.env"
 OUT=$(NODE_ENV="$T/mixed-off.env" bash "$ROOT/tools/mixed-mode.sh" 2>&1); RC=$?
 check "mixed: refuses offline" bash -c "[[ $RC -ne 0 ]] && grep -q 'OFFLINE=1' <<<\"\$0\"" "$OUT"
 
+# ================= skills-pack.sh (Hermes's optional skills and the kit's own, in every profile)
+: >"$FAKE_LOG"
+OUT=$(bash "$ROOT/tools/skills-pack.sh" --dry-run 2>&1); RC=$?
+check "skills: dry run exits 0 and writes no skill" bash -c "[[ $RC -eq 0 ]] && [[ ! -e '$HOME/.hermes/skills/health' ]]"
+OUT=$(FAKE_SKILL_FAIL=code-wiki bash "$ROOT/tools/skills-pack.sh" --extra official/mlops/obliteratus 2>&1); RC=$?
+check "skills: exits 0" test $RC -eq 0
+for p in "$HOME/.hermes" "$HOME/.hermes/profiles/local" "$HOME/.hermes/profiles/mixed"; do
+  check "skills: the five kit skills in ${p#"$HOME"/}" bash -c 'for s in toolcall-check safe-run audit health overnight; do grep -q "^name: $s$" "$0/skills/$s/SKILL.md" || exit 1; done' "$p"
+done
+check "skills: optional skills installed per profile" bash -c "grep -q 'hermes skills install official/software-development/grill-me --yes' '$FAKE_LOG' && grep -q 'hermes -p local skills install official/mlops/inference/llama-cpp --yes' '$FAKE_LOG' && grep -q 'hermes -p mixed skills install official/mlops/evaluation/evaluating-llms-harness --yes' '$FAKE_LOG'"
+check "skills: --extra adds one" logged "hermes skills install official/mlops/obliteratus --yes"
+check "skills: a refused install is reported, not fatal" has "not installed: default:code-wiki"
+check "skills: the overnight skill carries the night window" bash -c "grep -q 'qwen3.8-27b between 01:00 and 07:00' '$HOME/.hermes/skills/overnight/SKILL.md' && ! grep -q '@@' '$HOME/.hermes/skills/overnight/SKILL.md'"
+check "skills: helpers installed" test -x "$HOME/.local/bin/hermes-toolcall-check" -a -x "$HOME/.local/bin/hermes-safe-run"
+: >"$FAKE_LOG"
+OUT=$(bash "$ROOT/tools/skills-pack.sh" 2>&1); RC=$?
+check "skills: re-run leaves installed skills alone" bash -c "[[ $RC -eq 0 ]] && ! grep -q 'skills install official/software-development/grill-me' '$FAKE_LOG'"
+OUT=$(NODE_ENV="$T/mixed-off.env" bash "$ROOT/tools/skills-pack.sh" 2>&1); RC=$?
+check "skills: offline installs only the kit's own" bash -c "[[ $RC -eq 0 ]] && grep -q 'OFFLINE=1' <<<\"\$0\"" "$OUT"
+tport=$((20000 + RANDOM % 20000))
+python3 "$ROOT/tests/fakebin/fake_llm.py" "$tport" tool & tsrv=$!
+python3 "$ROOT/tests/fakebin/fake_llm.py" "$((tport + 1))" prose & tsrv2=$!
+python3 - "$tport" <<'PY'   # wait for both servers (curl is a fake on this PATH)
+import socket, sys, time
+for port in (int(sys.argv[1]), int(sys.argv[1]) + 1):
+    for _ in range(100):
+        try:
+            socket.create_connection(("127.0.0.1", port), 0.2).close(); break
+        except OSError:
+            time.sleep(0.1)
+PY
+OUT=$(python3 "$HOME/.local/bin/hermes-toolcall-check" "http://127.0.0.1:$tport/v1" --model fake 2>&1); RC=$?
+check "toolcall: a model that always calls get_weather passes the single call only" bash -c "[[ $RC -ne 0 ]] && grep -q 'PASS  single call' <<<\"\$0\" && grep -q 'FAIL  no tool when none is needed' <<<\"\$0\"" "$OUT"
+OUT=$(python3 "$HOME/.local/bin/hermes-toolcall-check" "http://127.0.0.1:$((tport + 1))/v1" --model fake 2>&1)
+check "toolcall: prose instead of a call points at --jinja" has "is the server started with --jinja?"
+kill "$tsrv" "$tsrv2" 2>/dev/null
+git init -q "$T/sbrepo" && git -C "$T/sbrepo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+echo "task done" >"$T/sbans"
+OUT=$(FAKE_ANSWERS="$T/sbans" "$HOME/.local/bin/hermes-safe-run" --repo "$T/sbrepo" --task "add a flag" --provider custom:desktop --model m --minutes 1 2>&1); RC=$?
+check "safe-run: exits 0 and reports the answer" bash -c "[[ $RC -eq 0 ]] && grep -q 'task done' <<<\"\$0\"" "$OUT"
+check "safe-run: runs the model without root" bash -c "grep -q 'chat -q add a flag -Q --max-turns 60 --run-budget 60 --provider custom:desktop --model m' '$FAKE_LOG'"
+check "safe-run: works in its own worktree and branch" bash -c "git -C '$T/sbrepo' branch | grep -q 'sandbox/'"
+check "safe-run: writes a report" bash -c "ls '$HOME'/sandbox/*/REPORT.md >/dev/null"
+
 # ================= adopt-repo.sh
 git init -q "$T/proj"
 adopt() { OUT=$(bash "$ROOT/tools/adopt-repo.sh" "$@" 2>&1); RC=$?; }

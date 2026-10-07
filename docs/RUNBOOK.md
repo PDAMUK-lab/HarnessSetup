@@ -298,6 +298,36 @@ hermes -p mixed --tui               # one session in mixed mode, without changin
 shows `custom:desktop` (`custom:laptop` while the desktop is away). In a repo, ask for two sub-agents in parallel and
 press Ctrl+T: the desktop's console shows them working, and OpenRouter's Analytics shows only the planner's calls.
 
+## 6c. Skills pack (extra, run last)
+
+Hermes ships about 150 optional skills that are off by default; this installs the ones that help with coding and
+with testing models, plus five of the kit's own, into every profile there is (default, `local`, and `mixed`):
+
+```bash
+./setup.sh tool skills-pack                  # add --extra official/<category>/<name> for more, --no-optional to skip them
+```
+
+| Skill | What it is for |
+| --- | --- |
+| `/grill-me`, `/subagent-driven-development` | question a plan before work starts; run a plan through sub-agents with a two-stage review |
+| `/code-wiki`, `/ast-grep` | docs and diagrams for a codebase; structural search and rewrite |
+| `/llama-cpp`, `/huggingface-hub`, `/evaluating-llms-harness` | GGUF models and the Hub; academic benchmarks (MMLU, GSM8K) |
+| `/toolcall-check` | six tool-calling probes against `laptop`, `desktop`, `desktop-v100` or a URL: can this model act as an agent? (`hermes-toolcall-check desktop`) |
+| `/safe-run` | one task with an untrusted model (new, uncensored, abliterated) in a throw-away worktree, **without sudo** (no_new_privs) and **without GitHub**, with a time limit, then a report of every change (`hermes-safe-run --help`) |
+| `/audit` | what a session or cron run actually did, risky actions flagged HIGH / MEDIUM / LOW |
+| `/health` | one page: Hermes and its profiles, endpoints, services, jobs, GPU, disk, firewall, credit, backups |
+| `/overnight` | a self-contained overnight job for the desktop's night model, checked against the rules, created paused |
+
+The optional skills are fetched from Hermes's catalog and scanned before install; one the scanner blocks is reported
+and skipped (never forced). Their Python tools (lm-eval, llama-cpp-python, ast-grep) are installed by the agent the
+first time a skill needs them. With `OFFLINE=1` only the kit's own five are installed. Re-running is safe.
+
+`/safe-run` is containment, not isolation: the run cannot become root or push to GitHub, but it can still read and
+write the agent user's own files and use the network; the report lists every file changed outside the worktree.
+
+**Verify:** start a new session; `/health` produces its table, and `hermes-toolcall-check laptop` passes the five
+critical probes on the shipped 9B.
+
 ## 7. Build, test and release (Steps 24-27)
 
 Once per repo, with **your own** account (the agent's token cannot push workflow files):
