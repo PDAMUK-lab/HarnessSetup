@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hermes-mode [cloud|local|status] - switch the default Hermes profile and show what is reachable
+# hermes-mode [cloud|local|mixed|status] - switch the default Hermes profile and show what is reachable
 set -uo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 KEY=$(grep -E '^DESKTOP_LLM_KEY=' ~/.hermes/.env 2>/dev/null | cut -d= -f2- | tr -d "'\"" || true)
@@ -19,8 +19,12 @@ show() { # show LABEL HEALTH_URL MODELS_URL [curl args]
 case "${1:-status}" in
   cloud) hermes profile use default ;;
   local) hermes profile use local ;;
+  mixed)
+    # cloud planner, sub-agents on the local GPUs: created by ./setup.sh tool mixed-mode
+    [[ -d $HOME/.hermes/profiles/mixed ]] || { echo "no 'mixed' profile yet: run ./setup.sh tool mixed-mode"; exit 1; }
+    hermes profile use mixed ;;
   status) ;;
-  *) echo "usage: hermes-mode [cloud|local|status]"; exit 2 ;;
+  *) echo "usage: hermes-mode [cloud|local|mixed|status]"; exit 2 ;;
 esac
 if [[ -e $HOME/.hermes/desktop-away ]]; then
   echo "*** the desktop is OUT of the loop since $(cat "$HOME/.hermes/desktop-away" 2>/dev/null) - 'hermes-desktop on' brings it back ***"

@@ -121,6 +121,7 @@ Recommended but not blocking: prove sub-agents and `/review` (guide Step 12), tr
 | 31 overnight 27B tier | `desktop/windows/Install-Overnight.ps1`, `tools/overnight-laptop.sh` | script |
 | 32 fine-tuning | not automated (optional in the guide) | - |
 | extra: take the desktop out of the loop while you use it | `desktop/windows/Desktop-Mode.ps1` (`away` / `back`), or automatically by GPU use: `Auto-Away.ps1 -Register`; `hermes-desktop on\|off` on the laptop | script |
+| extra: mixed mode — cloud planner and reviewer, sub-agents on the local GPUs (run last) | `./setup.sh tool mixed-mode`, then `hermes-mode mixed` ([RUNBOOK §6b](docs/RUNBOOK.md)) | script |
 | extra: two Tesla V100 cards in the desktop (optional, added later) | [docs/V100.md](docs/V100.md): `Check-V100.ps1`, `Install-V100.ps1`, `tools/v100-laptop.sh` | script + hardware |
 | extra: other model families, uncensored drop-ins, RAM/SSD offload engines, sub-agents | [docs/MODELS.md](docs/MODELS.md): every model slot is settings (file, URL, alias, chat-template switches, sampling) | settings |
 | extra: daily backups of the agent's state, a copy on the desktop, restore | `./setup.sh tool backup --install`, `Backup-Laptop.ps1 -Register`, `./setup.sh tool restore FILE` ([RUNBOOK §8b](docs/RUNBOOK.md)) | script |
@@ -183,7 +184,7 @@ setup.sh                 dispatcher: list | run <id> | next | tool <name> | chec
 config/settings.schema   every setting: what to ask, how to explain it, how to validate it, the default
 config/node.env.example  a reference copy of the settings file (the wizard writes the real one)
 laptop/NN-*.sh           stages, run as the admin user or (via machinectl) as the agent user
-tools/                   verify, github-smoke-test, fallback-test, overnight-laptop, v100-laptop, desktop-loop, adopt-repo,
+tools/                   verify, github-smoke-test, fallback-test, overnight-laptop, v100-laptop, desktop-loop, mixed-mode, adopt-repo,
                          backup/restore, spend, model-test, update-llama, dashboard-login, smb-share
 desktop/windows/         PowerShell for the desktop (llama.cpp server and its updates, SSH, overnight swap, V100 tier,
                          desktop away by hand or automatically, backup copies, Vulkan/ROCm comparison, status)

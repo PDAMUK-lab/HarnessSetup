@@ -269,6 +269,35 @@ While the desktop is away: the `local` profile plans on the laptop's 9B, `hermes
 model (the overnight job) cannot fall back and would fail, so pause them; `./setup.sh tool verify` reports the shorter chain as a
 warning; `fallback-test` refuses to run. Re-running stage 11 keeps the desktop out while the flag is set.
 
+## 6b. Mixed mode: cloud planner, sub-agents on the local GPUs (extra, run last)
+
+A third profile beside `default` (cloud) and `local`. The planner, the reviewer and the fallback chain stay exactly as
+in the cloud profile; only the sub-agents, which spend most of the tokens, move to your machines. Run it once every
+stage is done (it needs the cloud profile from stage 07 and the desktop key and `local` profile from stage 11):
+
+```bash
+./setup.sh tool mixed-mode          # creates the `mixed` profile (a clone of the cloud one); add --use to switch to it
+hermes-mode mixed                   # new sessions plan on OpenRouter, sub-agents on the desktop
+hermes-mode cloud                   # back (or hermes-mode local)
+hermes -p mixed --tui               # one session in mixed mode, without changing the default
+```
+
+| Profile | Planner and reviewer | Sub-agents |
+| --- | --- | --- |
+| `default` (`hermes-mode cloud`) | OpenRouter | OpenRouter's worker model |
+| `mixed` (`hermes-mode mixed`) | OpenRouter | the first local endpoint (desktop, or the V100 tier), then the other local ones, then OpenRouter's worker model |
+| `local` (`hermes-mode local`) | the desktop | the laptop |
+
+- Sub-agents run **one at a time** (one slot per GPU), so parallel work queues instead of running side by side.
+- `hermes-desktop off` moves the sub-agents to the laptop and `hermes-desktop on` moves them back; stage 11 and
+  `v100-laptop` keep the profile in step too. Re-running `mixed-mode` refreshes the endpoints and keeps the rest.
+- Not offline: with `OFFLINE=1` the tool refuses (the planner needs OpenRouter); use the `local` profile.
+- Scheduled jobs keep running in the profile they were created in; `mixed` has none of its own.
+
+**Verify:** `hermes -p mixed fallback list` shows OpenRouter first; `hermes -p mixed config get delegation.provider`
+shows `custom:desktop` (`custom:laptop` while the desktop is away). In a repo, ask for two sub-agents in parallel and
+press Ctrl+T: the desktop's console shows them working, and OpenRouter's Analytics shows only the planner's calls.
+
 ## 7. Build, test and release (Steps 24-27)
 
 Once per repo, with **your own** account (the agent's token cannot push workflow files):

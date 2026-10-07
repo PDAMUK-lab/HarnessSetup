@@ -224,6 +224,36 @@ check "v100: ...and stays quiet when the rule is there" lacks "re-run ./setup.sh
 OUT=$(NODE_ENV="$T/v100.env" FAKE_HTTP_CODE=000 bash "$ROOT/tools/v100-laptop.sh" 2>&1); RC=$?
 check "v100: an unreachable server is a warning, not a failure" bash -c "[[ $RC -eq 0 ]] && grep -q 'Install-V100.ps1' <<<\"\$0\"" "$OUT"
 
+# ================= mixed-mode.sh (cloud planner, sub-agents on the local GPUs)
+mc=$HOME/.hermes/profiles/mixed/config.yaml
+OUT=$(bash "$ROOT/tools/mixed-mode.sh" 2>&1); RC=$?
+check "mixed: refuses without the OpenRouter key the planner needs" bash -c "[[ $RC -ne 0 ]] && grep -q 'no OPENROUTER_API_KEY' <<<\"\$0\"" "$OUT"
+printf "DESKTOP_LLM_KEY=testkey\nOPENROUTER_API_KEY=sk-or-test\n" >"$HOME/.hermes/.env"
+OUT=$(bash "$ROOT/tools/mixed-mode.sh" --dry-run 2>&1); RC=$?
+check "mixed: dry run exits 0 and creates nothing" bash -c "[[ $RC -eq 0 ]] && [[ ! -e '$mc' ]]"
+check "mixed: dry run shows the sub-agents on the desktop" has "provider: custom:desktop"
+: >"$FAKE_LOG"
+OUT=$(bash "$ROOT/tools/mixed-mode.sh" --use 2>&1); RC=$?
+check "mixed: exits 0" test $RC -eq 0
+check "mixed: clones the cloud profile" logged "hermes profile create mixed --clone"
+check "mixed: the planner keeps the cloud chain" test "$(yget "$mc" fallback_providers.0.provider)" = openrouter
+check "mixed: sub-agents run on the first local endpoint" test "$(yget "$mc" delegation.provider)/$(yget "$mc" delegation.model)" = custom:desktop/qwen3.6-35b-a3b
+check "mixed: ...one at a time" test "$(yget "$mc" delegation.max_concurrent_children)" = 1
+check "mixed: ...falling back to the laptop, then OpenRouter's worker" test "$(yget "$mc" delegation.fallback_providers.0.provider) $(yget "$mc" delegation.fallback_providers.1.provider)" = "custom:laptop openrouter"
+check "mixed: the profile has both keys" bash -c "grep -q '^OPENROUTER_API_KEY=' '$HOME/.hermes/profiles/mixed/.env' && grep -q '^DESKTOP_LLM_KEY=' '$HOME/.hermes/profiles/mixed/.env'"
+check "mixed: --use makes it the default profile" logged "hermes profile use mixed"
+check "mixed: the cloud profile's sub-agents stay on OpenRouter" bash -c "! grep -q 'custom:desktop' <<<\"\$(python3 '$ROOT/lib/merge_yaml.py' '$cfgy' --get delegation.provider 2>/dev/null)\""
+OUT=$(bash "$ROOT/tools/desktop-loop.sh" off 2>&1)
+check "mixed: desktop away moves the sub-agents to the laptop" test "$(yget "$mc" delegation.provider)" = custom:laptop
+OUT=$(bash "$ROOT/tools/desktop-loop.sh" on 2>&1)
+check "mixed: ...and back" test "$(yget "$mc" delegation.provider)" = custom:desktop
+: >"$FAKE_LOG"
+HM=$(bash "$HOME/.local/bin/hermes-mode" mixed 2>&1)
+check "mixed: hermes-mode mixed switches to it" logged "hermes profile use mixed"
+sed 's|^OFFLINE=.*|OFFLINE=1|' "$T/node.env" >"$T/mixed-off.env"
+OUT=$(NODE_ENV="$T/mixed-off.env" bash "$ROOT/tools/mixed-mode.sh" 2>&1); RC=$?
+check "mixed: refuses offline" bash -c "[[ $RC -ne 0 ]] && grep -q 'OFFLINE=1' <<<\"\$0\"" "$OUT"
+
 # ================= adopt-repo.sh
 git init -q "$T/proj"
 adopt() { OUT=$(bash "$ROOT/tools/adopt-repo.sh" "$@" 2>&1); RC=$?; }
