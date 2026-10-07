@@ -29,7 +29,8 @@ if [[ ${node_major:-0} -ge 22 ]]; then
   ok "Node.js $(node -v) already installed"
 else
   log "Node.js 22 (the dashboard's Chat tab runs the Hermes TUI, which needs it)"
-  run bash -c "curl -fsSL https://deb.nodesource.com/setup_22.x | ${SUDO[*]} -E bash -"
+  # as root SUDO is empty, and a bare "-E bash -" is not a command
+  run bash -c "curl -fsSL https://deb.nodesource.com/setup_22.x | ${SUDO[*]:+${SUDO[*]} -E} bash -"
   sudo_run "${APT[@]}" install nodejs
 fi
 
